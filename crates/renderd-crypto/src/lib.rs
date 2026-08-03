@@ -1,1 +1,1 @@
-//! SPAKE2+ pairing, HKDF key derivation, and TLS cert generation.
+//! `SPAKE2+` pairing, `HKDF` key derivation, and `TLS` cert generation.

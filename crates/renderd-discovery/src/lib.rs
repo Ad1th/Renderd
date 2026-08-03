@@ -1,1 +1,1 @@
-//! mDNS service discovery interface.
+//! `mDNS` service discovery interface.

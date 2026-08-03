@@ -1,1 +1,1 @@
-//! QUIC transport layer for Renderd.
+//! `QUIC` transport layer for Renderd.

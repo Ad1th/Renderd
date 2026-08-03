@@ -1,1 +1,1 @@
-//! VideoToolbox hardware encode FFI wrapper.
+//! `VideoToolbox` hardware encode `FFI` wrapper.

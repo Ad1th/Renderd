@@ -1,1 +1,1 @@
-//! Protobuf types for Renderd control plane.
+//! `Protobuf` types for Renderd control plane.

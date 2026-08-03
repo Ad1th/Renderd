@@ -1,1 +1,1 @@
-//! ScreenCaptureKit macOS capture FFI wrapper.
+//! `ScreenCaptureKit` macOS capture `FFI` wrapper.
