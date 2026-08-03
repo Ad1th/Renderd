@@ -90,7 +90,7 @@ windows  = { version = "0.58", features = [
 ] }
 
 [workspace.lints.rust]
-unsafe_code         = "warn"
+unsafe_code         = "deny"
 missing_docs        = "warn"
 unused_must_use     = "deny"
 rust_2018_idioms    = { level = "warn", priority = -1 }

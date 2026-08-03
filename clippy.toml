@@ -1,0 +1,13 @@
+# clippy.toml — workspace root
+msrv = "1.80"
+
+# Disallowed types
+disallowed-types = [
+    { path = "[u8; 32]", reason = "Use PairToken or SessionKey newtype", allow-invalid = true },
+]
+
+# Disallowed methods
+disallowed-methods = [
+    { path = "std::process::exit", reason = "Use proper application shutdown; never call exit() directly" },
+    { path = "std::env::var",      reason = "Use renderd-config's figment-based loading" },
+]

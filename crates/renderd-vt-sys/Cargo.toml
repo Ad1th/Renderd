@@ -6,5 +6,5 @@ license.workspace = true
 rust-version.workspace = true
 description = "VideoToolbox hardware encode FFI wrapper."
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "warn"
