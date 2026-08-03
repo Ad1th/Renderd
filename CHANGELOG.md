@@ -11,3 +11,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initialized Cargo workspace root with resolver v2 and declared all 14 member crates across 5 DAG layers (`crates/renderd-*` and `tools/latency-bench`) per REPO-0001. (#001)
 - Added `rust-toolchain.toml` pinning Rust stable channel (MSRV 1.80+) with `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, and `aarch64-pc-windows-msvc` target support. (#001)
 - Configured workspace-level dependency versions, lint policies, and build profiles (`dev`, `release`, `bench`). (#001)
+- Configured workspace-level `clippy.toml` setting `msrv = "1.80"`, disallowing `std::process::exit` and `std::env::var`, and restricting raw array pair-tokens. (#002)
+- Added per-crate lint overrides setting `unsafe_code = "deny"` for non-FFI crates and `unsafe_code = "warn"` for FFI crates (`renderd-vt-sys`, `renderd-sc-sys`) per REPO-0001 §9. (#002)
