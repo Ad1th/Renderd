@@ -1,0 +1,29 @@
+# Global fallback — every PR requires at least one maintainer review
+*                               @renderd/maintainers
+
+# Foundation layer — any maintainer can review
+/crates/renderd-proto/          @renderd/maintainers
+/crates/renderd-config/         @renderd/maintainers
+
+# Cryptography — requires crypto-qualified reviewer
+/crates/renderd-crypto/         @renderd/crypto-reviewers
+
+# FFI layer — requires platform specialist
+/crates/renderd-vt-sys/         @renderd/macos-team
+/crates/renderd-sc-sys/         @renderd/macos-team
+
+# Algorithm layer — requires latency-domain reviewer
+/crates/renderd-abr/            @renderd/algorithms-team
+/crates/renderd-clock/          @renderd/algorithms-team
+
+# Host binary — macOS specialists
+/crates/renderd-host/           @renderd/macos-team
+
+# Viewer binary — Windows specialists
+/crates/renderd-viewer/         @renderd/windows-team
+
+# CI/CD — any maintainer
+/.github/                       @renderd/maintainers
+
+# Protocol — all protocol changes need RFC update
+/proto/                         @renderd/maintainers
