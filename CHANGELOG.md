@@ -18,3 +18,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added test runner configuration in `nextest.toml` per REPO-0001 §14.7. (#005)
 - Added primary CI workflow in `.github/workflows/ci.yml` per REPO-0001 §18.1. (#006)
 - Added security audit workflow in `.github/workflows/security.yml` per REPO-0001 §18.2. (#007)
+- Added nightly benchmark workflow in `.github/workflows/bench.yml` per REPO-0001 §18.3. (#008)
