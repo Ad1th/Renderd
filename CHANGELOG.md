@@ -15,3 +15,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added per-crate lint overrides setting `unsafe_code = "deny"` for non-FFI crates and `unsafe_code = "warn"` for FFI crates (`renderd-vt-sys`, `renderd-sc-sys`) per REPO-0001 §9. (#002)
 - Added root `.rustfmt.toml` workspace formatting configuration per REPO-0001 §10. (#003)
 - Configured cargo-deny policy in `deny.toml` for license checking, dependency bans, and security advisory checking per REPO-0001 §9. (#004)
+- Added test runner configuration in `nextest.toml` per REPO-0001 §14.7. (#005)

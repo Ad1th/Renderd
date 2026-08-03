@@ -1,0 +1,13 @@
+[profile.default]
+retries        = 1
+test-threads   = "num-cpus"
+failure-output = "immediate-final"
+status-level   = "fail"
+
+[profile.ci]
+retries      = 2
+slow-timeout = { period = "30s", terminate-after = 3 }
+test-threads = 4
+
+[profile.default.junit]
+path = "target/nextest/junit.xml"
