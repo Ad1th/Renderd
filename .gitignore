@@ -1,0 +1,46 @@
+# Generated build artifacts
+/target/
+/dist/
+/build/
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Windows system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# IDE & Editor files
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+*.bak
+
+# Profiling & Benchmarking
+/target/criterion/
+/benches/reports/
+flamegraph.svg
+
+# Code coverage reports
+lcov.info
+/coverage/
+
+# Local configuration overrides
+*.local.toml
+.env
+
+# Package release artifacts
+/*.dmg
+/*.exe
+/*.app
