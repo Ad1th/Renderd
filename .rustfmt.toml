@@ -1,0 +1,32 @@
+edition              = "2021"
+max_width            = 100
+hard_tabs            = false
+tab_spaces           = 4
+newline_style        = "Unix"
+use_small_heuristics = "Default"
+
+# Imports
+imports_granularity  = "Crate"
+group_imports        = "StdExternalCrate"
+
+# Control flow
+control_brace_style  = "AlwaysSameLine"
+brace_style          = "SameLineWhere"
+where_single_line     = false
+
+# Functions
+fn_params_layout     = "Tall"
+fn_single_line       = false
+
+# Trailing commas
+trailing_comma       = "Vertical"
+trailing_semicolon   = true
+
+# Comments
+comment_width        = 100
+normalize_comments   = true
+wrap_comments        = false
+
+# Misc
+format_macro_matchers = true
+format_strings         = false

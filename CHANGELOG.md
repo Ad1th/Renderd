@@ -13,3 +13,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configured workspace-level dependency versions, lint policies, and build profiles (`dev`, `release`, `bench`). (#001)
 - Configured workspace-level `clippy.toml` setting `msrv = "1.80"`, disallowing `std::process::exit` and `std::env::var`, and restricting raw array pair-tokens. (#002)
 - Added per-crate lint overrides setting `unsafe_code = "deny"` for non-FFI crates and `unsafe_code = "warn"` for FFI crates (`renderd-vt-sys`, `renderd-sc-sys`) per REPO-0001 §9. (#002)
+- Added root `.rustfmt.toml` workspace formatting configuration per REPO-0001 §10. (#003)
