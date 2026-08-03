@@ -1,0 +1,69 @@
+name: CI
+on:
+  push:
+    branches: [main, "release/*"]
+  pull_request:
+
+jobs:
+  build-and-test-host:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: >
+          cargo clippy --package renderd-host --package renderd-proto
+          --package renderd-config --package renderd-frame --package renderd-crypto
+          --package renderd-vt-sys --package renderd-sc-sys --package renderd-net
+          --package renderd-keychain --package renderd-discovery
+          --package renderd-abr --package renderd-clock
+          -- -D warnings
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Test (host crates)
+        run: >
+          cargo nextest run --package renderd-proto --package renderd-config
+          --package renderd-frame --package renderd-crypto --package renderd-abr
+          --package renderd-clock --package renderd-net
+          --profile ci
+
+  build-and-test-viewer:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Format check
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --package renderd-viewer -- -D warnings
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@nextest
+      - name: Test (viewer crates)
+        run: >
+          cargo nextest run --package renderd-frame --package renderd-crypto
+          --package renderd-abr --package renderd-clock --package renderd-net
+          --package renderd-keychain --package renderd-discovery
+          --profile ci
+
+  proto-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Regenerate proto
+        run: cargo run --manifest-path tools/proto-gen/Cargo.toml
+      - name: Check no diff
+        run: |
+          if ! git diff --quiet crates/renderd-proto/src/generated/; then
+            echo "Generated proto code is out of date. Run tools/proto-gen and commit."
+            git diff crates/renderd-proto/src/generated/
+            exit 1
+          fi
