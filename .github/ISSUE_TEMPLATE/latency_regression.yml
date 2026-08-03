@@ -1,0 +1,24 @@
+name: Latency Regression Report
+description: Report a latency regression in the capture, encode, network, or decode pipeline
+labels: ["perf", "latency"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Regression Summary
+      description: Describe the observed increase in glass-to-glass latency or pipeline stage latency.
+    validations:
+      required: true
+  - type: textarea
+    id: benchmark_output
+    attributes:
+      label: Benchmarking Output (`latency-bench`)
+      description: Output from `tools/latency-bench` before and after the regression.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: commit_sha
+    attributes:
+      label: Suspected Commit SHA
+      description: The commit or PR where the regression was introduced.

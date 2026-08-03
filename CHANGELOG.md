@@ -20,3 +20,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added security audit workflow in `.github/workflows/security.yml` per REPO-0001 §18.2. (#007)
 - Added nightly benchmark workflow in `.github/workflows/bench.yml` per REPO-0001 §18.3. (#008)
 - Added code ownership rules in `.github/CODEOWNERS` per REPO-0001 §7.1. (#009)
+- Added PR template and GitHub Issue forms for bug reports, latency regressions, and feature requests. (#010)
