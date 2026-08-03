@@ -12,11 +12,24 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run benchmarks
-        run: >
-          cargo bench --package renderd-frame --package renderd-net
-          --package renderd-crypto --package renderd-abr --package renderd-clock
-          -- --output-format bencher | tee bench-output.txt
+        run: |
+          BENCH_FOUND=0
+          for crate in crates/renderd-frame crates/renderd-net crates/renderd-crypto crates/renderd-abr crates/renderd-clock; do
+            if [ -d "$crate/benches" ]; then
+              BENCH_FOUND=1
+              break
+            fi
+          done
+
+          if [ "$BENCH_FOUND" -eq 1 ]; then
+            cargo bench --package renderd-frame --package renderd-net \
+              --package renderd-crypto --package renderd-abr --package renderd-clock \
+              -- --output-format bencher | tee bench-output.txt
+          else
+            echo "No benchmark targets scaffolded yet; skipping."
+          fi
       - name: Store results
+        if: hashFiles('bench-output.txt') != ''
         uses: benchmark-action/github-action-benchmark@v1
         with:
           tool: cargo
