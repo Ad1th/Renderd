@@ -1,0 +1,10 @@
+[package]
+name        = "renderd-frame"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Wire format and sliding-window frame reassembly."
+
+[lints]
+workspace = true

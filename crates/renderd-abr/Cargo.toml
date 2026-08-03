@@ -1,0 +1,10 @@
+[package]
+name        = "renderd-abr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Dual-timescale adaptive bitrate controller."
+
+[lints]
+workspace = true

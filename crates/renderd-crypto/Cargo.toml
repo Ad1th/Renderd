@@ -1,0 +1,10 @@
+[package]
+name        = "renderd-crypto"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "SPAKE2+ pairing, HKDF key derivation, and TLS cert generation."
+
+[lints]
+workspace = true

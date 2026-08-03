@@ -1,0 +1,120 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/renderd-proto",
+    "crates/renderd-config",
+    "crates/renderd-frame",
+    "crates/renderd-crypto",
+    "crates/renderd-vt-sys",
+    "crates/renderd-sc-sys",
+    "crates/renderd-net",
+    "crates/renderd-keychain",
+    "crates/renderd-discovery",
+    "crates/renderd-abr",
+    "crates/renderd-clock",
+    "crates/renderd-host",
+    "crates/renderd-viewer",
+    "tools/latency-bench",
+]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2021"
+rust-version = "1.80"
+license      = "MIT"
+authors      = ["Renderd Contributors"]
+repository   = "https://github.com/Ad1th/renderd"
+homepage     = "https://renderd.dev"
+
+[workspace.dependencies]
+# Internal crates
+renderd-proto     = { path = "crates/renderd-proto" }
+renderd-config    = { path = "crates/renderd-config" }
+renderd-frame     = { path = "crates/renderd-frame" }
+renderd-crypto    = { path = "crates/renderd-crypto" }
+renderd-vt-sys    = { path = "crates/renderd-vt-sys" }
+renderd-sc-sys    = { path = "crates/renderd-sc-sys" }
+renderd-net       = { path = "crates/renderd-net" }
+renderd-keychain  = { path = "crates/renderd-keychain" }
+renderd-discovery = { path = "crates/renderd-discovery" }
+renderd-abr       = { path = "crates/renderd-abr" }
+renderd-clock     = { path = "crates/renderd-clock" }
+
+# External dependencies
+tokio              = { version = "1", features = ["full"] }
+quinn              = { version = "0.11" }
+rustls             = { version = "0.23", default-features = false, features = ["tls12"] }
+bytes              = { version = "1" }
+prost              = { version = "0.13" }
+prost-build        = { version = "0.13" }
+serde              = { version = "1", features = ["derive"] }
+serde_derive       = { version = "1" }
+toml               = { version = "0.8" }
+figment            = { version = "0.10", features = ["toml", "env"] }
+tracing            = { version = "0.1" }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+thiserror          = { version = "2" }
+anyhow             = { version = "1" }
+uuid               = { version = "1", features = ["v4", "serde"] }
+p256               = { version = "0.13", features = ["ecdh", "ecdsa"] }
+hmac               = { version = "0.12" }
+sha2               = { version = "0.10" }
+hkdf               = { version = "0.12" }
+rcgen              = { version = "0.13" }
+zeroize            = { version = "1", features = ["derive"] }
+crossbeam-channel  = { version = "0.5" }
+criterion          = { version = "0.5", features = ["html_reports"] }
+proptest           = { version = "1" }
+cc                 = { version = "1" }
+bindgen            = { version = "0.70" }
+clap               = { version = "4", features = ["derive", "env"] }
+
+# macOS-specific dependencies
+objc2                    = { version = "0.5" }
+objc2-foundation         = { version = "0.2" }
+objc2-screen-capture-kit = { version = "0.2" }
+core-foundation          = { version = "0.10" }
+core-media               = { version = "0.2" }
+security-framework       = { version = "2" }
+
+# Windows-specific dependencies
+winit    = { version = "0.30" }
+windows  = { version = "0.58", features = [
+    "Win32_Media_MediaFoundation",
+    "Win32_Graphics_Direct3D12",
+    "Win32_Graphics_Dxgi",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_Credentials",
+    "Win32_NetworkManagement_Dns",
+    "Win32_System_Com",
+] }
+
+[workspace.lints.rust]
+unsafe_code         = "warn"
+missing_docs        = "warn"
+unused_must_use     = "deny"
+rust_2018_idioms    = "warn"
+nonstandard_style   = "deny"
+future_incompatible = "deny"
+
+[workspace.lints.clippy]
+all                     = "warn"
+pedantic                = "warn"
+nursery                 = "warn"
+module_name_repetitions = "allow"
+must_use_candidate     = "allow"
+missing_errors_doc     = "allow"
+
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 1
+strip         = "debuginfo"
+
+[profile.bench]
+inherits = "release"
+debug    = true
+
+[profile.dev]
+opt-level = 1
+debug     = true

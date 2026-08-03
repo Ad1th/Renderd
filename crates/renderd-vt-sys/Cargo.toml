@@ -1,0 +1,10 @@
+[package]
+name        = "renderd-vt-sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "VideoToolbox hardware encode FFI wrapper."
+
+[lints]
+workspace = true
