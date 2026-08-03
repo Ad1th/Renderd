@@ -17,3 +17,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Configured cargo-deny policy in `deny.toml` for license checking, dependency bans, and security advisory checking per REPO-0001 §9. (#004)
 - Added test runner configuration in `nextest.toml` per REPO-0001 §14.7. (#005)
 - Added primary CI workflow in `.github/workflows/ci.yml` per REPO-0001 §18.1. (#006)
+- Added security audit workflow in `.github/workflows/security.yml` per REPO-0001 §18.2. (#007)
