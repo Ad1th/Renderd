@@ -22,3 +22,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added code ownership rules in `.github/CODEOWNERS` per REPO-0001 §7.1. (#009)
 - Added PR template and GitHub Issue forms for bug reports, latency regressions, and feature requests. (#010)
 - Added spell-checking configuration in `_typos.toml` and `.github/workflows/typos.yml`. (#011)
+- Added documentation deployment workflow in `.github/workflows/docs.yml` per REPO-0001 §18.5. (#012)
