@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Documentation — Renderd</title>
+  <meta name="description" content="Renderd documentation: getting started, configuration reference, building from source, protocol specification, and API reference." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/docs.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html" class="active">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<div style="padding-top:var(--nav-height)">
+  <div class="container" style="padding-top:0">
+    <div class="docs-layout">
+
+      <!-- ── Sidebar ── -->
+      <aside class="docs-sidebar" aria-label="Documentation navigation">
+        <div class="docs-sidebar-section">
+          <div class="docs-sidebar-section-title">Getting Started</div>
+          <ul>
+            <li><a href="#overview" class="active">Overview</a></li>
+            <li><a href="#prerequisites">Prerequisites</a></li>
+            <li><a href="#building">Building</a></li>
+            <li><a href="#running-tests">Running Tests</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar-section">
+          <div class="docs-sidebar-section-title">Configuration</div>
+          <ul>
+            <li><a href="#config-host">Host Configuration</a></li>
+            <li><a href="#config-viewer">Viewer Configuration</a></li>
+            <li><a href="#config-env">Environment Variables</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar-section">
+          <div class="docs-sidebar-section-title">Protocol</div>
+          <ul>
+            <li><a href="#control-plane">Control Plane</a></li>
+            <li><a href="#data-plane">Data Plane</a></li>
+            <li><a href="#pairing">Pairing Flow</a></li>
+          </ul>
+        </div>
+        <div class="docs-sidebar-section">
+          <div class="docs-sidebar-section-title">Reference</div>
+          <ul>
+            <li><a href="#crate-index">Crate Index</a></li>
+            <li><a href="https://github.com/Ad1th/renderd/blob/main/docs/RFC-0002-architecture.md" target="_blank" rel="noopener">RFC-0002 ↗</a></li>
+            <li><a href="https://github.com/Ad1th/renderd/blob/main/docs/REPO-0001-repository.md" target="_blank" rel="noopener">REPO-0001 ↗</a></li>
+            <li><a href="https://github.com/Ad1th/renderd/blob/main/docs/ISSUES-0001-milestones.md" target="_blank" rel="noopener">ISSUES-0001 ↗</a></li>
+          </ul>
+        </div>
+      </aside>
+
+      <!-- ── Content ── -->
+      <main class="docs-content" style="padding-bottom:4rem;padding-top:2.5rem">
+
+        <div class="breadcrumb">
+          <a href="index.html">Home</a>
+          <span class="breadcrumb-sep">›</span>
+          <span>Documentation</span>
+        </div>
+
+        <div class="alert alert-warning" role="note">
+          <span class="alert-icon">⚠️</span>
+          <div class="alert-content">
+            <strong>Pre-release:</strong> Renderd is in active development (Milestone 3 of 10). Binary releases and usage instructions will be added here when v0.1.0 is available. The documentation below covers building from source.
+          </div>
+        </div>
+
+        <h1 id="overview">Documentation</h1>
+        <p>
+          Renderd is a <strong>peer-to-peer display streaming daemon</strong> that mirrors a macOS host display
+          to a Windows 10+ viewer at display-class latency (≤ 30 ms glass-to-glass at 1080p60 on Gigabit LAN)
+          without any cloud relay or intermediary server.
+        </p>
+
+        <h2 id="prerequisites">Prerequisites</h2>
+        <p>Before building, ensure you have the following installed:</p>
+
+        <h3>All Platforms</h3>
+        <ul>
+          <li><strong>Rust</strong> stable 1.80+ — install via <a href="https://rustup.rs" target="_blank" rel="noopener">rustup.rs</a></li>
+          <li>The toolchain is automatically selected from <code>rust-toolchain.toml</code> in the repository root</li>
+        </ul>
+
+        <h3>macOS (Host Development)</h3>
+        <ul>
+          <li>macOS 14.0+ (Sonoma) on Apple Silicon (M1 or later)</li>
+          <li>Xcode Command Line Tools: <code>xcode-select --install</code></li>
+        </ul>
+
+        <h3>Windows (Viewer Development)</h3>
+        <ul>
+          <li>Windows 10 or later</li>
+          <li>Visual Studio 2022 with <strong>Desktop development with C++</strong> workload</li>
+          <li>Windows 10 SDK (included in VS2022 C++ workload)</li>
+        </ul>
+
+        <h2 id="building">Building</h2>
+
+        <h3>Clone the Repository</h3>
+        <pre><code>git clone https://github.com/Ad1th/renderd.git
+cd renderd</code></pre>
+
+        <h3>Check Workspace Compilation</h3>
+        <pre><code><span class="token-comment"># Check all crates (fast — no code generation)</span>
+cargo check --workspace
+
+<span class="token-comment"># Build with full optimization</span>
+cargo build --workspace --release</code></pre>
+
+        <h3>Generate Protobuf Types</h3>
+        <p>
+          The <code>renderd-proto</code> crate requires running <code>proto-gen</code> after any changes to
+          <code>proto/renderd.proto</code>:
+        </p>
+        <pre><code>cargo run --manifest-path tools/proto-gen/Cargo.toml</code></pre>
+
+        <div class="alert alert-note">
+          <span class="alert-icon">💡</span>
+          <div class="alert-content">
+            The CI workflow automatically validates that generated proto files are up to date. If you modify <code>renderd.proto</code> and forget to regenerate, the CI check will fail.
+          </div>
+        </div>
+
+        <h3>Platform-Specific Builds</h3>
+        <pre><code><span class="token-comment"># macOS host daemon only</span>
+cargo build -p renderd-host --release
+
+<span class="token-comment"># Windows viewer only</span>
+cargo build -p renderd-viewer --release `
+  --target x86_64-pc-windows-msvc</code></pre>
+
+        <h2 id="running-tests">Running Tests &amp; Verification</h2>
+        <pre><code><span class="token-comment"># Code formatting check</span>
+cargo fmt --check
+
+<span class="token-comment"># Strict workspace Clippy lints (must pass in CI)</span>
+cargo clippy --workspace --all-targets -- -D warnings
+
+<span class="token-comment"># Execute test suite (cargo-nextest for faster output)</span>
+cargo nextest run --workspace
+
+<span class="token-comment"># Standard cargo test (fallback)</span>
+cargo test --workspace
+
+<span class="token-comment"># Dependency &amp; license audit</span>
+cargo deny check</code></pre>
+
+        <hr />
+
+        <h2 id="config-host">Host Configuration</h2>
+        <p>
+          Configuration is loaded from multiple sources in order (each overrides the previous):
+          built-in defaults → <code>renderd-host.toml</code> → <code>RENDERD_*</code> env vars → CLI flags.
+        </p>
+
+        <pre><code><span class="token-comment"># renderd-host.toml (example)</span>
+
+[host]
+<span class="token-comment"># Target capture frame rate</span>
+fps = 60
+
+<span class="token-comment"># Primary codec: "h265" or "h264"</span>
+codec = <span class="token-string">"h265"</span>
+
+<span class="token-comment"># Display index (0 = primary display)</span>
+display_index = 0
+
+[network]
+<span class="token-comment"># QUIC listen port</span>
+port = 9901
+
+<span class="token-comment"># Max concurrent QUIC datagrams in flight</span>
+max_datagrams_in_flight = 64
+
+[abr]
+<span class="token-comment"># Adaptive bitrate bounds (kilobits per second)</span>
+min_bitrate_kbps = 2000
+default_bitrate_kbps = 20000
+max_bitrate_kbps = 50000
+
+[crypto]
+<span class="token-comment"># macOS Keychain service name for PairToken storage</span>
+pair_token_keychain_service = <span class="token-string">"renderd-pair"</span></code></pre>
+
+        <h2 id="config-viewer">Viewer Configuration</h2>
+        <pre><code><span class="token-comment"># renderd-viewer.toml (example)</span>
+
+[viewer]
+<span class="token-comment"># Preferred display output (0 = primary)</span>
+display_index = 0
+
+<span class="token-comment"># Allow DXGI tearing (auto-detected if omitted)</span>
+allow_tearing = true
+
+[network]
+<span class="token-comment"># Explicit host IP (overrides mDNS discovery)</span>
+# host_ip = "192.168.1.100"
+host_port = 9901</code></pre>
+
+        <h2 id="config-env">Environment Variables</h2>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Variable</th><th>Type</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>RENDERD_HOST_FPS</code></td><td>u32</td><td>Override capture FPS</td></tr>
+              <tr><td><code>RENDERD_HOST_CODEC</code></td><td>string</td><td>Override codec: <code>h265</code> or <code>h264</code></td></tr>
+              <tr><td><code>RENDERD_NETWORK_PORT</code></td><td>u16</td><td>Override QUIC listen port</td></tr>
+              <tr><td><code>RENDERD_ABR_MAX_BITRATE_KBPS</code></td><td>u32</td><td>Override ABR max bitrate</td></tr>
+              <tr><td><code>RENDERD_LOG</code></td><td>string</td><td>Log filter (e.g. <code>renderd=debug</code>)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <hr />
+
+        <h2 id="control-plane">Control Plane Protocol</h2>
+        <p>
+          All control messages are sent over <strong>QUIC Stream 0</strong> using length-prefixed Protobuf encoding:
+        </p>
+        <pre><code>[u32 big-endian message length][Protobuf Envelope bytes]</code></pre>
+
+        <p>Key message types (defined in <code>proto/renderd.proto</code>):</p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Message</th><th>Direction</th><th>Purpose</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>SessionHello</code></td><td>Both → Both</td><td>Protocol version negotiation, capabilities</td></tr>
+              <tr><td><code>SessionConfig</code></td><td>Host → Viewer</td><td>Codec, resolution, bitrate parameters</td></tr>
+              <tr><td><code>VsyncReport</code></td><td>Viewer → Host</td><td>Vsync phase for clock synchronization (every ~16.7ms)</td></tr>
+              <tr><td><code>ReactiveStats</code></td><td>Viewer → Host</td><td>Fragment loss &amp; jitter for ABR (every 100ms)</td></tr>
+              <tr><td><code>PeriodicStats</code></td><td>Viewer → Host</td><td>Long-term bitrate feedback (every 500ms)</td></tr>
+              <tr><td><code>KeyframeRequest</code></td><td>Viewer → Host</td><td>Request I-frame on excessive fragment loss</td></tr>
+              <tr><td><code>SessionEvent</code></td><td>Both → Both</td><td>Pairing, reconnect, disconnect events</td></tr>
+              <tr><td><code>Error</code></td><td>Both → Both</td><td>Protocol violations, fatal conditions</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="data-plane">Data Plane Protocol</h2>
+        <p>
+          Video frame fragments are sent as <strong>QUIC datagrams</strong> (RFC 9221 — unreliable, unordered).
+          Each datagram starts with a 16-byte fixed binary header:
+        </p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Field</th><th>Size</th><th>Type</th><th>Description</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>frame_id</code></td><td>4 bytes</td><td>u32 BE</td><td>Monotonically increasing frame identifier</td></tr>
+              <tr><td><code>fragment_index</code></td><td>1 byte</td><td>u8</td><td>Fragment's position within the frame (0-based)</td></tr>
+              <tr><td><code>fragment_total</code></td><td>1 byte</td><td>u8</td><td>Total fragments for this frame</td></tr>
+              <tr><td><code>flags</code></td><td>1 byte</td><td>u8</td><td>Bitfield: KEY_FRAME (0), LAST_FRAGMENT (1), H264 (2)</td></tr>
+              <tr><td><code>payload_len</code></td><td>2 bytes</td><td>u16 BE</td><td>Length of the following NAL payload</td></tr>
+              <tr><td><code>reserved</code></td><td>7 bytes</td><td>—</td><td>Reserved for future use (must be zero)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h2 id="pairing">Pairing Flow</h2>
+        <p>
+          Pairing is a one-time ceremony that establishes mutual authentication between a specific host
+          and viewer. It uses <strong>SPAKE2+ (RFC 9382)</strong> with a 6-digit PIN.
+        </p>
+
+        <div class="mermaid-wrapper">
+          <div class="mermaid" id="pairing-diagram">
+sequenceDiagram
+    participant Host as renderd-host (macOS)
+    participant User as User
+    participant Viewer as renderd-viewer (Windows)
+
+    Host->>Host: Generate random 6-digit PIN
+    Host->>User: Display PIN in menu bar (60s timeout)
+    User->>Viewer: Select host from discovery list
+    User->>Viewer: Enter PIN
+    Viewer->>Host: QUIC connect (pairing mode)
+    Viewer->>Host: SPAKE2+ shareP (RFC 9382 prover)
+    Host->>Viewer: SPAKE2+ shareV (RFC 9382 verifier)
+    Viewer->>Host: SPAKE2+ confirmP = MAC(K_confirmP, shareV)
+    Host->>Viewer: SPAKE2+ confirmV = MAC(K_confirmV, shareP)
+    Host->>Host: Derive PairToken via HKDF-SHA256
+    Viewer->>Viewer: Derive PairToken via HKDF-SHA256
+    Host->>Host: Store PairToken in macOS Keychain
+    Viewer->>Viewer: Store PairToken in Windows Credential Manager
+    Host->>User: UserNotifications: "Paired with [viewer]"
+          </div>
+        </div>
+
+        <hr />
+
+        <h2 id="crate-index">Crate Index</h2>
+        <p>The workspace contains 14 member crates organized into 5 DAG layers:</p>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Crate</th><th>Layer</th><th>Platform</th><th>Responsibility</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>renderd-proto</code></td><td>Foundation</td><td>All</td><td>Protobuf message types and domain newtypes</td></tr>
+              <tr><td><code>renderd-config</code></td><td>Foundation</td><td>All</td><td>Layered config schema and Figment loader</td></tr>
+              <tr><td><code>renderd-frame</code></td><td>Primitive</td><td>All</td><td>16-byte fragment header codec and sliding-window reassembly</td></tr>
+              <tr><td><code>renderd-crypto</code></td><td>Primitive</td><td>All</td><td>SPAKE2+ (RFC 9382), HKDF, AES-256-GCM</td></tr>
+              <tr><td><code>renderd-vt-sys</code></td><td>FFI</td><td>macOS only</td><td>VideoToolbox C FFI bindings (unsafe)</td></tr>
+              <tr><td><code>renderd-sc-sys</code></td><td>FFI</td><td>macOS only</td><td>ScreenCaptureKit ObjC bridge (unsafe)</td></tr>
+              <tr><td><code>renderd-net</code></td><td>Service</td><td>All</td><td>QUIC socket transport and datagram pipeline</td></tr>
+              <tr><td><code>renderd-keychain</code></td><td>Service</td><td>All</td><td>Cross-platform keychain abstraction</td></tr>
+              <tr><td><code>renderd-discovery</code></td><td>Service</td><td>All</td><td>mDNS / Bonjour peer discovery</td></tr>
+              <tr><td><code>renderd-abr</code></td><td>Algorithm</td><td>All</td><td>Adaptive bitrate control (dual-timescale)</td></tr>
+              <tr><td><code>renderd-clock</code></td><td>Algorithm</td><td>All</td><td>Presentation clock synchronization (RFC-0002 §7)</td></tr>
+              <tr><td><code>renderd-host</code></td><td>Application</td><td>macOS</td><td>macOS Login Item Agent binary</td></tr>
+              <tr><td><code>renderd-viewer</code></td><td>Application</td><td>Windows</td><td>Windows viewer client binary</td></tr>
+              <tr><td><code>latency-bench</code></td><td>Tools</td><td>macOS</td><td>Glass-to-glass latency benchmark CLI</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+      </main>
+    </div>
+  </div>
+</div>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

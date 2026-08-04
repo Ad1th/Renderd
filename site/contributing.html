@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Contributing — Renderd</title>
+  <meta name="description" content="Contribution guidelines for Renderd: coding standards, workflow, pull request checklist, and commit conventions." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/contributing.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html" class="active">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page Header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Contributing</span>
+    </div>
+    <span class="section-label">Community &amp; Development</span>
+    <h1>Contributing Guide</h1>
+    <p style="color:var(--text-secondary);max-width:600px;font-size:1.1rem;margin-top:0.75rem">
+      Thank you for considering contributing to Renderd! Please review our engineering standards and rules before submitting pull requests.
+    </p>
+  </div>
+</div>
+
+<!-- ── Non-Negotiable Rules ── -->
+<section class="section" aria-labelledby="rules-title">
+  <div class="container">
+    <span class="section-label">REPO-0001 §1.2</span>
+    <h2 id="rules-title">Engineering Non-Negotiables</h2>
+
+    <div class="grid-2" style="margin-top:1.5rem">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-red">🛡️</div>
+        <h3>No Unsafe Code in Library Crates</h3>
+        <p>
+          <code>unsafe</code> is strictly prohibited outside designated FFI boundary crates (<code>renderd-vt-sys</code> and <code>renderd-sc-sys</code>). Every <code>unsafe</code> block in FFI crates requires a detailed safety justification comment.
+        </p>
+      </div>
+
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-orange">🚫</div>
+        <h3>No <code>unwrap()</code> or <code>expect()</code></h3>
+        <p>
+          Never use <code>unwrap()</code> or <code>expect()</code> in library crates. Use the <code>?</code> operator and explicit error types. <code>expect()</code> is permitted in tests with descriptive error messages.
+        </p>
+      </div>
+
+      <div class="card fade-in">
+        <div class="card-icon card-icon-purple">📐</div>
+        <h3>DAG Dependency Graph</h3>
+        <p>
+          Dependencies flow strictly downstream. A crate at layer N may never import from layer N+1 or higher. Monolithic or bi-directional crate dependencies are rejected by the compiler.
+        </p>
+      </div>
+
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-cyan">⚡</div>
+        <h3>Sacred Latency Path</h3>
+        <p>
+          Any pull request modifying the capture → encode → send or receive → decode → present pipeline must include benchmark validation. Regression over 5% in p99 latency is blocked.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Workflow & Commands ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="workflow-title">
+  <div class="container">
+    <span class="section-label">Development Cycle</span>
+    <h2 id="workflow-title">Local Verification Workflow</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;max-width:560px">
+      Run these verification checks locally before opening a pull request. CI runs these exact checks across macOS and Windows runners.
+    </p>
+
+    <pre><code><span class="token-comment"># 1. Format check</span>
+cargo fmt --check
+
+<span class="token-comment"># 2. Workspace Clippy (zero warnings policy)</span>
+cargo clippy --workspace --all-targets -- -D warnings
+
+<span class="token-comment"># 3. Test execution</span>
+cargo nextest run --workspace
+
+<span class="token-comment"># 4. Dependency &amp; license audit</span>
+cargo deny check
+
+<span class="token-comment"># 5. Spell check</span>
+typos</code></pre>
+  </div>
+</section>
+
+<!-- ── Commit Conventions ── -->
+<section class="section" aria-labelledby="commits-title">
+  <div class="container">
+    <span class="section-label">REPO-0001 §20</span>
+    <h2 id="commits-title">Conventional Commits</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;max-width:560px">
+      All commits must follow the <a href="https://www.conventionalcommits.org/" target="_blank" rel="noopener">Conventional Commits specification</a>.
+    </p>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr><th>Prefix</th><th>Scope Example</th><th>Description</th></tr>
+        </thead>
+        <tbody>
+          <tr><td><code>feat(...)</code></td><td><code>feat(proto)</code></td><td>New feature or schema field</td></tr>
+          <tr><td><code>fix(...)</code></td><td><code>fix(frame)</code></td><td>Bug fix or reassembly patch</td></tr>
+          <tr><td><code>docs(...)</code></td><td><code>docs(site)</code></td><td>Documentation changes</td></tr>
+          <tr><td><code>ci(...)</code></td><td><code>ci(workflows)</code></td><td>CI/CD pipeline updates</td></tr>
+          <tr><td><code>refactor(...)</code></td><td><code>refactor(net)</code></td><td>Code refactoring with no behavior change</td></tr>
+          <tr><td><code>perf(...)</code></td><td><code>perf(abr)</code></td><td>Latency or throughput optimization</td></tr>
+          <tr><td><code>test(...)</code></td><td><code>test(clock)</code></td><td>Adding or updating unit/property tests</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-note" style="margin-top:1.5rem">
+      <span class="alert-icon">💡</span>
+      <div class="alert-content">
+        Example commit message: <code>feat(frame): add sliding-window fragment reassembly buffer state machine (#026)</code>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Pull Request Checklist ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="pr-title">
+  <div class="container">
+    <span class="section-label">Pull Requests</span>
+    <h2 id="pr-title">PR Submission Checklist</h2>
+
+    <ul style="font-size:1rem;line-height:2">
+      <li>✅ Code passes <code>cargo fmt --check</code></li>
+      <li>✅ Zero warnings on <code>cargo clippy --workspace --all-targets -- -D warnings</code></li>
+      <li>✅ All unit, integration, and property tests pass (<code>cargo nextest run</code>)</li>
+      <li>✅ No security advisories or unapproved licenses (<code>cargo deny check</code>)</li>
+      <li>✅ Target crate is reviewed against <code>.github/CODEOWNERS</code></li>
+      <li>✅ Commit messages adhere to Conventional Commits</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

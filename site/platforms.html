@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Supported Platforms — Renderd</title>
+  <meta name="description" content="Renderd supports macOS 14+ (Apple Silicon) as the host and Windows 10+ (x64/ARM64) as the viewer. MSRV: Rust 1.80+." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/platforms.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html" class="active">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page Header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Platforms</span>
+    </div>
+    <span class="section-label">Compatibility</span>
+    <h1>Supported Platforms</h1>
+    <p style="color:var(--text-secondary);max-width:560px;font-size:1.1rem;margin-top:0.75rem">
+      Renderd is a purpose-built tool: macOS as the host, Windows as the viewer.
+      Platform support is tightly scoped to maximize hardware pipeline utilization.
+    </p>
+  </div>
+</div>
+
+<!-- ── Platform Cards ── -->
+<section class="section" aria-labelledby="platforms-title">
+  <div class="container">
+    <h2 id="platforms-title" class="visually-hidden">Platform Details</h2>
+
+    <div class="grid-2">
+      <!-- macOS Host -->
+      <div class="card" style="border-color:var(--accent-blue);padding:2rem">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <div style="font-size:2.5rem" aria-hidden="true">🍎</div>
+          <div>
+            <h2 style="font-size:1.5rem;margin:0">macOS Host</h2>
+            <p style="margin:0;font-size:0.875rem;color:var(--text-muted)">Runs <code>renderd-host</code></p>
+          </div>
+        </div>
+
+        <div class="table-wrapper" style="margin-bottom:1.5rem">
+          <table>
+            <tbody>
+              <tr>
+                <td style="width:40%;color:var(--text-muted)">Minimum OS</td>
+                <td><strong>macOS 14.0 (Sonoma)</strong></td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Also tested</td>
+                <td>macOS 15 (Sequoia)</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Architecture</td>
+                <td><code>aarch64-apple-darwin</code> (Apple Silicon)</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">CPU</td>
+                <td>Apple M1 or later</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Process model</td>
+                <td>Login Item Agent (SMAppService)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-bottom:0.75rem">Required APIs</h3>
+        <ul style="font-size:0.9rem;margin-bottom:1.25rem">
+          <li><strong>ScreenCaptureKit</strong> (macOS 12.3+) — zero-copy display capture</li>
+          <li><strong>VideoToolbox</strong> — hardware H.265/H.264 encoder</li>
+          <li><strong>Bonjour / dns_sd.h</strong> — mDNS advertisement</li>
+          <li><strong>Keychain Services</strong> — PairToken storage</li>
+          <li><strong>SMAppService</strong> (macOS 13+) — Login Item registration</li>
+        </ul>
+
+        <h3 style="margin-bottom:0.75rem">Required Entitlements</h3>
+        <pre style="font-size:0.8rem"><code>com.apple.security.app-sandbox
+com.apple.security.screen-recording
+com.apple.security.network.client
+com.apple.security.network.server</code></pre>
+
+        <div class="alert alert-note" style="margin-top:1.25rem;font-size:0.875rem">
+          <span class="alert-icon">ℹ️</span>
+          <div class="alert-content">
+            Intel (x86_64) Macs are not a supported target. ScreenCaptureKit and VideoToolbox hardware encoding on Intel produce substantially higher latency and the IOSurface zero-copy path behaves differently on discrete GPU Macs.
+          </div>
+        </div>
+      </div>
+
+      <!-- Windows Viewer -->
+      <div class="card" style="border-color:var(--accent-purple);padding:2rem">
+        <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.5rem">
+          <div style="font-size:2.5rem" aria-hidden="true">🪟</div>
+          <div>
+            <h2 style="font-size:1.5rem;margin:0">Windows Viewer</h2>
+            <p style="margin:0;font-size:0.875rem;color:var(--text-muted)">Runs <code>renderd-viewer</code></p>
+          </div>
+        </div>
+
+        <div class="table-wrapper" style="margin-bottom:1.5rem">
+          <table>
+            <tbody>
+              <tr>
+                <td style="width:40%;color:var(--text-muted)">Minimum OS</td>
+                <td><strong>Windows 10</strong> (primary supported)</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Windows 11</td>
+                <td>Expected to work</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Windows 7</td>
+                <td>Planned where feasible</td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">Architectures</td>
+                <td><code>x86_64-pc-windows-msvc</code>, <code>aarch64-pc-windows-msvc</code></td>
+              </tr>
+              <tr>
+                <td style="color:var(--text-muted)">GPU requirement</td>
+                <td>Any D3D12-capable GPU (most discrete/integrated GPUs from 2015+)</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 style="margin-bottom:0.75rem">Required APIs</h3>
+        <ul style="font-size:0.9rem;margin-bottom:1.25rem">
+          <li><strong>Direct3D12 Video Decode</strong> — hardware H.265/H.264 decoder</li>
+          <li><strong>DXGI Swap Chain</strong> — conditional ALLOW_TEARING present</li>
+          <li><strong>winit</strong> — Win32 message pump &amp; DPI handling</li>
+          <li><strong>DnsServiceBrowse</strong> (Win32, Win10 v1703+) — mDNS browse</li>
+          <li><strong>Windows Credential Manager</strong> — PairToken storage</li>
+        </ul>
+
+        <h3 style="margin-bottom:0.75rem">Hardware Decoder Support</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead><tr><th>Decoder</th><th>Coverage</th></tr></thead>
+            <tbody>
+              <tr><td>D3D12VA (primary)</td><td>Any D3D12 GPU, driver-agnostic</td></tr>
+              <tr><td>NVDEC (fallback)</td><td>NVIDIA GPUs (GTX 900+)</td></tr>
+              <tr><td>Intel QuickSync</td><td>Intel Arc / Iris Xe</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Rust Targets ── -->
+<section class="section" style="padding-top:0" aria-labelledby="rust-targets-title">
+  <div class="container">
+    <span class="section-label">Build Targets</span>
+    <h2 id="rust-targets-title">Rust Target Triples</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;max-width:560px">
+      The workspace is pinned to Rust stable channel (MSRV 1.80+) via <code>rust-toolchain.toml</code>.
+    </p>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Target Triple</th>
+            <th>Platform</th>
+            <th>Crate</th>
+            <th>CI Runner</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>aarch64-apple-darwin</code></td>
+            <td>macOS 14+ (Apple Silicon)</td>
+            <td><code>renderd-host</code></td>
+            <td><code>macos-15</code></td>
+            <td><span class="badge badge-green">Primary</span></td>
+          </tr>
+          <tr>
+            <td><code>x86_64-pc-windows-msvc</code></td>
+            <td>Windows 10+ (x64)</td>
+            <td><code>renderd-viewer</code></td>
+            <td><code>windows-2025</code></td>
+            <td><span class="badge badge-green">Primary</span></td>
+          </tr>
+          <tr>
+            <td><code>aarch64-pc-windows-msvc</code></td>
+            <td>Windows 10+ (ARM64)</td>
+            <td><code>renderd-viewer</code></td>
+            <td>—</td>
+            <td><span class="badge badge-orange">Planned</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Non-Goals ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="nongoals-title">
+  <div class="container">
+    <span class="section-label">Scope</span>
+    <h2 id="nongoals-title">Out of Scope for v1.0</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 2rem;max-width:560px">
+      The following platforms and features are explicitly out of scope for the initial v1.0 release.
+      See the <a href="roadmap.html">Roadmap</a> for planned future versions.
+    </p>
+
+    <div class="grid-3">
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Remote Input</h3>
+        <p>No keyboard/mouse forwarding. Renderd is a display receiver only, not a remote desktop system.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Internet / WAN</h3>
+        <p>No relay or NAT traversal in v1.0. LAN-only (peer-to-peer). WAN relay planned for v2.0.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Linux Host or Viewer</h3>
+        <p>Linux support (PipeWire + VA-API for host; Vulkan for viewer) is planned for v1.1.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Audio Streaming</h3>
+        <p>Audio via Opus codec is planned for v1.2.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Multi-Monitor</h3>
+        <p>One host display to one viewer display. Multi-monitor planned for v1.3.</p>
+      </div>
+      <div class="card">
+        <div class="card-icon card-icon-red">🚫</div>
+        <h3>Mobile (iOS/Android)</h3>
+        <p>Mobile viewer (Metal + VideoToolbox for iOS/iPadOS) planned for v2.0.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Build Prerequisites ── -->
+<section class="section" aria-labelledby="prereqs-title">
+  <div class="container">
+    <span class="section-label">Development Setup</span>
+    <h2 id="prereqs-title">Build Prerequisites</h2>
+
+    <div class="grid-2">
+      <div>
+        <h3 style="margin-bottom:1rem">🍎 macOS (Host Development)</h3>
+        <ul>
+          <li>macOS 14.0+ (Sonoma) or later</li>
+          <li>Apple Silicon Mac (M1 or later)</li>
+          <li>Xcode Command Line Tools: <code>xcode-select --install</code></li>
+          <li>Rust stable 1.80+: <code>rustup toolchain install stable</code></li>
+          <li>Target: <code>rustup target add aarch64-apple-darwin</code></li>
+        </ul>
+        <div style="margin-top:1.25rem">
+          <pre><code><span class="token-comment"># Clone and build</span>
+git clone https://github.com/Ad1th/renderd
+cd renderd
+cargo check --workspace</code></pre>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:1rem">🪟 Windows (Viewer Development)</h3>
+        <ul>
+          <li>Windows 10 or later</li>
+          <li>Visual Studio 2022 with C++ Workload</li>
+          <li>Windows 10 SDK (or Windows 11 SDK)</li>
+          <li>Rust stable 1.80+: install from <a href="https://rustup.rs" target="_blank" rel="noopener">rustup.rs</a></li>
+          <li>Target: <code>rustup target add x86_64-pc-windows-msvc</code></li>
+        </ul>
+        <div style="margin-top:1.25rem">
+          <pre><code><span class="token-comment"># Check Windows-specific crates</span>
+cargo check -p renderd-viewer
+cargo check -p renderd-viewer `
+  --target x86_64-pc-windows-msvc</code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

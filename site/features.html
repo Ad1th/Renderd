@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Features — Renderd</title>
+  <meta name="description" content="Explore Renderd's features: zero-copy pipeline, adaptive bitrate, vsync phase sync, SPAKE2+ pairing, hardware encoding, and more." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/features.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html" class="active">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Features</span>
+    </div>
+    <span class="section-label">Capabilities</span>
+    <h1>Key Features</h1>
+    <p style="color:var(--text-secondary);max-width:560px;font-size:1.1rem;margin-top:0.75rem">
+      Every feature in Renderd is built around a single constraint: display-class latency with zero cloud dependency.
+    </p>
+  </div>
+</div>
+
+<!-- ── Zero-Copy Pipeline ── -->
+<section class="section" aria-labelledby="zerocopy-title">
+  <div class="container">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center" class="responsive-grid">
+      <div>
+        <span class="section-label">Performance</span>
+        <h2 id="zerocopy-title">Zero-Copy Capture &amp; Present</h2>
+        <p style="margin:1rem 0">
+          On macOS, ScreenCaptureKit delivers display frames as GPU-resident <code>IOSurface</code> objects.
+          These are handed directly to VideoToolbox's <code>VTCompressionSession</code> without any CPU copy —
+          the pixel data never leaves the GPU bus on the encode side.
+        </p>
+        <p>
+          On Windows, decoded video frames (NV12/P010) remain on the GPU and are passed directly to the
+          D3D12 render pipeline, then presented via a DXGI swap chain. No readback to system RAM at any point.
+        </p>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1.5rem">
+          <span class="badge badge-blue">IOSurface GPU-resident</span>
+          <span class="badge badge-purple">VTCompressionSession</span>
+          <span class="badge badge-cyan">D3D12 Zero-Copy</span>
+        </div>
+      </div>
+      <div>
+        <div class="card" style="font-family:var(--font-mono);font-size:0.825rem;line-height:1.8">
+          <div style="color:var(--text-muted);font-size:0.75rem;margin-bottom:0.75rem;font-family:var(--font-sans);font-weight:600;text-transform:uppercase;letter-spacing:0.08em">Host Capture Pipeline</div>
+          <div style="color:var(--accent-green)">SCStream callback</div>
+          <div style="color:var(--text-muted);padding-left:0.5rem">IOSurface (GPU-resident)</div>
+          <div style="color:var(--text-muted);padding-left:1rem">↓ (GPU bus, zero copy)</div>
+          <div style="color:var(--accent-blue)">VTCompressionSession</div>
+          <div style="color:var(--text-muted);padding-left:0.5rem">H.265 / H.264 HW encode</div>
+          <div style="color:var(--text-muted);padding-left:1rem">↓ NAL unit stream</div>
+          <div style="color:var(--accent-purple)">QUIC Datagrams (burst send)</div>
+          <hr style="margin:0.875rem 0;border-color:var(--border)">
+          <div style="color:var(--accent-green);margin-top:0.25rem">Fragment Reassembly</div>
+          <div style="color:var(--text-muted);padding-left:1rem">↓ (GPU memory)</div>
+          <div style="color:var(--accent-blue)">D3D12 Video Decode</div>
+          <div style="color:var(--text-muted);padding-left:1rem">↓ NV12/P010 surface</div>
+          <div style="color:var(--accent-cyan)">DXGI Swap Chain Present</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Hardware Encoding ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="encoding-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Codec Pipeline</span>
+      <h2 id="encoding-title">Hardware-Accelerated Video</h2>
+      <p class="section-desc" style="margin:0 auto">
+        H.265 primary, H.264 fallback. Hardware encode and decode on both sides. Software encode/decode
+        is never used — it is CPU-prohibitive at 60 FPS.
+      </p>
+    </div>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Codec</th>
+            <th>HW Encoder (macOS AS)</th>
+            <th>HW Decoder (Windows)</th>
+            <th>Encode Latency</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="background:var(--bg-card-hover)">
+            <td><strong style="color:var(--accent-blue)">H.265 (HEVC)</strong></td>
+            <td>✅ VideoToolbox</td>
+            <td>✅ D3D12VA / NVDEC / QSV</td>
+            <td>Low (~7–11ms @ 1080p)</td>
+            <td><span class="badge badge-blue">Primary</span> 10-bit HDR capable</td>
+          </tr>
+          <tr>
+            <td><strong>H.264 (AVC)</strong></td>
+            <td>✅ VideoToolbox</td>
+            <td>✅ D3D12VA / NVDEC / QSV / DXVA2</td>
+            <td>Low</td>
+            <td><span class="badge badge-orange">Fallback</span> 8-bit only</td>
+          </tr>
+          <tr>
+            <td><strong>AV1</strong></td>
+            <td>✅ VideoToolbox (M3+)</td>
+            <td>⚠️ RTX 30+, Intel Arc only</td>
+            <td>Higher</td>
+            <td><span class="badge badge-purple">Future v2.0</span></td>
+          </tr>
+          <tr>
+            <td><strong>VP9</strong></td>
+            <td>❌ No HW encoder</td>
+            <td>—</td>
+            <td>—</td>
+            <td>Eliminated</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-note" style="margin-top:1.5rem">
+      <span class="alert-icon">💡</span>
+      <div class="alert-content">
+        H.265 provides approximately 40% better compression efficiency than H.264 at equal perceptual quality, directly reducing frame size, datagram count, and network transmission time. Codec selection is negotiated during the <code>SessionHello</code> / <code>SessionConfig</code> exchange.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Vsync Phase Sync ── -->
+<section class="section" aria-labelledby="vsync-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Synchronization</span>
+      <h2 id="vsync-title">Vsync Phase Synchronization</h2>
+      <p class="section-desc" style="margin:0 auto">
+        The single most important differentiator between a display extension tool and a screen casting demo.
+      </p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-red">⚠️</div>
+        <h3>The Dual-Vsync Problem</h3>
+        <p>
+          Without synchronization, frames randomly straddle vsync boundaries. Latency oscillates by up to
+          <strong>one full frame period (16.7 ms at 60 Hz)</strong>. Average glass-to-glass latency is
+          pipeline latency plus half a frame period — not pipeline latency alone.
+        </p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-green">✅</div>
+        <h3>Renderd's Solution</h3>
+        <p>
+          The viewer sends <code>VsyncReport</code> messages every ~16.7 ms over QUIC Stream 0.
+          The host computes clock offset, predicts the next viewer vsync, and schedules capture
+          to arrive at the viewer <strong>2–5 ms before its vsync deadline</strong>.
+          Result: stable, single-vsync, low-jitter presentation.
+        </p>
+      </div>
+    </div>
+
+    <div class="card fade-in" style="margin-top:1.5rem;font-family:var(--font-mono);font-size:0.85rem;line-height:1.9">
+      <div style="color:var(--text-muted);font-size:0.75rem;margin-bottom:0.75rem;font-family:var(--font-sans);font-weight:600;text-transform:uppercase;letter-spacing:0.08em">Phase Sync Protocol (QUIC Stream 0)</div>
+      <div><span style="color:var(--accent-cyan)">Viewer → Host</span> <span style="color:var(--text-muted)">(every ~16.7 ms)</span></div>
+      <div style="padding-left:1rem;color:var(--text-secondary)">VsyncReport { vsync_period_ns, vsync_phase_ns, clock_epoch_ns }</div>
+      <br>
+      <div><span style="color:var(--accent-blue)">Host computes</span></div>
+      <div style="padding-left:1rem;color:var(--text-secondary)">clock_offset = (recv_time - clock_epoch_ns) - rtt/2</div>
+      <div style="padding-left:1rem;color:var(--text-secondary)">capture_time = next_viewer_vsync - encode_latency - rtt/2</div>
+      <br>
+      <div><span style="color:var(--accent-green)">Result</span><span style="color:var(--text-secondary)">: frame arrives at viewer 2–5 ms before vsync → consistent single-vsync present</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Security ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="security-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Security</span>
+      <h2 id="security-title">Secure by Design</h2>
+    </div>
+    <div class="grid-3">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-green">🔑</div>
+        <h3>SPAKE2+ Pairing (RFC 9382)</h3>
+        <p>One-time pairing via 6-digit PIN. Resistant to offline dictionary attacks. Mutual authentication — neither side can complete without knowing the PIN. Perfect forward secrecy.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-blue">🔒</div>
+        <h3>TLS 1.3 via QUIC</h3>
+        <p>All traffic encrypted via TLS 1.3 mandatory in QUIC. Subsequent sessions use mutual TLS certificate verification — no PIN re-entry. Certificates are self-signed, derived from the PairToken via HKDF-SHA256.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.2s">
+        <div class="card-icon card-icon-purple">🗄️</div>
+        <h3>System Keychain Storage</h3>
+        <p>PairToken stored in macOS Keychain Services (<code>kSecClassGenericPassword</code>) and Windows Credential Manager (<code>CredWrite</code>). Never written to disk in plaintext.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── ABR ── -->
+<section class="section" aria-labelledby="abr-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Congestion Control</span>
+      <h2 id="abr-title">Adaptive Bitrate Control</h2>
+    </div>
+    <div class="grid-2">
+      <div>
+        <p style="margin-bottom:1rem">
+          Renderd's ABR engine operates on <strong>two timescales</strong> to handle both sudden congestion events
+          and long-term bandwidth trends:
+        </p>
+        <ul style="margin-bottom:1.5rem">
+          <li><strong>Reactive (100ms):</strong> Drops bitrate immediately on fragment loss signals</li>
+          <li><strong>Proactive (500ms):</strong> Gradually increases bitrate when network is clear</li>
+        </ul>
+        <p>
+          The asymmetric ramp rate ensures rapid recovery from congestion while avoiding the slow
+          6-second recovery that a symmetric ±5% scheme would produce.
+        </p>
+      </div>
+      <div class="table-wrapper">
+        <table>
+          <thead>
+            <tr><th>Parameter</th><th>Value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Minimum bitrate</td><td>2 Mbps</td></tr>
+            <tr><td>Default (1080p60)</td><td>20 Mbps</td></tr>
+            <tr><td>Default (1440p60)</td><td>30 Mbps</td></tr>
+            <tr><td>Maximum (v1.0)</td><td>50 Mbps</td></tr>
+            <tr><td>Ramp-up rate</td><td>+10% per reactive interval</td></tr>
+            <tr><td>Ramp-down (loss)</td><td>−25% on first loss</td></tr>
+            <tr><td>Ramp-down (burst)</td><td>−50% on burst loss</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Discovery ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="discovery-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Networking</span>
+      <h2 id="discovery-title">Zero-Configuration Discovery</h2>
+    </div>
+    <div class="grid-2">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-cyan">📡</div>
+        <h3>mDNS / Bonjour</h3>
+        <p>
+          Automatic LAN peer discovery using mDNS (RFC 6762) and DNS-SD (RFC 6763).
+          Service type: <code>_renderd._udp.local.</code>
+        </p>
+        <p style="margin-top:0.75rem">
+          On macOS, uses <code>dns_sd.h</code> (system Bonjour) — not pure-Rust mDNS crates which
+          conflict with mDNSResponder's exclusive ownership of port 5353.
+        </p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-orange">🔧</div>
+        <h3>Manual IP Fallback</h3>
+        <p>
+          Enterprise networks frequently block multicast. The viewer UI provides a "Connect manually…"
+          option accepting a host IP address and port, enabling deployment in environments with IGMP
+          snooping, managed switches, or VPN tunnels.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Configuration ── -->
+<section class="section" aria-labelledby="config-title">
+  <div class="container">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:3rem;align-items:center">
+      <div>
+        <span class="section-label">Developer Experience</span>
+        <h2 id="config-title">Layered Configuration</h2>
+        <p style="margin:1rem 0">
+          Powered by <a href="https://github.com/SergioBenitez/Figment" target="_blank" rel="noopener">Figment</a>,
+          Renderd supports a layered configuration system where each source overrides the previous:
+        </p>
+        <ol style="margin-bottom:1.5rem">
+          <li>Built-in defaults</li>
+          <li>TOML configuration file (<code>renderd.toml</code> or <code>renderd-viewer.toml</code>)</li>
+          <li><code>RENDERD_*</code> environment variables</li>
+          <li>CLI flags (highest priority)</li>
+        </ol>
+        <p>Configuration schemas include <code>RenderdConfig</code>, <code>HostConfig</code>, <code>ViewerConfig</code>, <code>NetworkConfig</code>, <code>CryptoConfig</code>, and <code>AbrConfig</code>.</p>
+      </div>
+      <div>
+        <pre><code><span class="token-comment"># renderd-host.default.toml</span>
+<span class="token-comment"># Canonical macOS host daemon configuration</span>
+
+[host]
+fps = 60
+codec = <span class="token-string">"h265"</span>
+display_index = 0
+
+[network]
+port = 9901
+max_datagrams_in_flight = 64
+
+[abr]
+min_bitrate_kbps = 2000
+default_bitrate_kbps = 20000
+max_bitrate_kbps = 50000
+
+[crypto]
+pair_token_keychain_service = <span class="token-string">"renderd-pair"</span></code></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming from macOS to Windows. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="https://github.com/Ad1th/renderd" target="_blank" rel="noopener">GitHub ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  @media (max-width: 700px) {
+    .responsive-grid { grid-template-columns: 1fr !important; }
+  }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

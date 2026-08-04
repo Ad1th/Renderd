@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FAQ — Renderd</title>
+  <meta name="description" content="Frequently asked questions about Renderd: performance, latency, architecture, platform support, and pairing." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/faq.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html" class="active">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page Header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>FAQ</span>
+    </div>
+    <span class="section-label">Questions &amp; Answers</span>
+    <h1>Frequently Asked Questions</h1>
+    <p style="color:var(--text-secondary);max-width:560px;font-size:1.1rem;margin-top:0.75rem">
+      Everything you need to know about Renderd's design choices, latency targets, security model, and platform requirements.
+    </p>
+  </div>
+</div>
+
+<!-- ── FAQ Accordion ── -->
+<section class="section" aria-labelledby="faq-title">
+  <div class="container" style="max-width:840px">
+    <h2 id="faq-title" class="visually-hidden">Questions</h2>
+
+    <div class="faq-item open">
+      <button class="faq-question" aria-expanded="true">
+        <span>How does Renderd achieve sub-30ms glass-to-glass latency?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Renderd combines four latency-optimized architectural choices:
+          </p>
+          <ol style="margin-left:1.25rem;margin-bottom:0.75rem">
+            <li><strong>Zero-copy hardware pipelines:</strong> Direct <code>IOSurface</code> GPU frame binding with <code>ScreenCaptureKit</code> and <code>VideoToolbox</code> on macOS, matched with <code>Direct3D12</code> hardware decoding on Windows.</li>
+            <li><strong>QUIC Datagrams (RFC 9221):</strong> Low-overhead UDP transport with zero head-of-line blocking and zero handshake latency for active sessions.</li>
+            <li><strong>Vsync Phase Synchronization (RFC-0002 §7):</strong> Host frame capture is scheduled dynamically to land 2–5ms before the viewer's display refresh boundary, eliminating the 8.3ms average dual-vsync penalty.</li>
+            <li><strong>No jitter buffer:</strong> Jitter buffers add 16–33ms of static latency. On wired Gigabit LANs (or 5GHz 802.11ax Wi-Fi), jitter is under 1ms, rendering jitter buffers unnecessary.</li>
+          </ol>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Why is Renderd specifically macOS host to Windows viewer?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Existing open-source tools (like Sunshine and Moonlight) are heavily optimized for Windows host PCs streaming to client devices. However, many developers and creators use a macOS workstation (Mac Studio, MacBook Pro) alongside a high-refresh-rate Windows PC setup.
+          </p>
+          <p>
+            Apple Sidecar only streams to iPadOS devices, and Luna Display requires commercial hardware dongles. Renderd fills this exact gap: an open-source, lightweight daemon optimized specifically for streaming Apple Silicon host displays to Windows 10+ desktop displays.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Does Renderd require any cloud servers or user accounts?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            <strong>Zero.</strong> Renderd is 100% peer-to-peer over your local network. It does not route traffic through cloud relays, require account registration, send telemetry to third-party servers, or gate features behind subscription paywalls.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Why QUIC Datagrams instead of WebRTC or raw UDP?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Raw UDP requires implementing encryption, congestion control, and ordering mechanisms from scratch. WebRTC brings heavy binary overhead (~150MB), lacks standardized H.265 support, and relies on complex signaling architecture.
+          </p>
+          <p>
+            QUIC (via the <code>quinn</code> Rust library) provides integrated TLS 1.3 encryption, congestion control (NewReno), ordered reliable streams for control signaling (Stream 0), and unreliable/unordered datagrams (RFC 9221) for video frames — all in a tiny 5MB footprint without intermediary servers.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>How does device pairing work?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Pairing is a one-time ceremony using <strong>SPAKE2+ (RFC 9382)</strong>. The host displays a 6-digit PIN. Entering the PIN on the viewer performs mutual authentication without transmitting secret keys.
+          </p>
+          <p>
+            Both devices derive a <code>PairToken</code> stored securely in system keychains (macOS Keychain Services &amp; Windows Credential Manager) and generate self-signed TLS certificates. All future sessions authenticate automatically via mutual TLS (mTLS).
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Can I use Renderd over Wi-Fi?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Yes! For optimal sub-30ms performance, a wired Gigabit Ethernet connection or 5GHz / 6GHz Wi-Fi 6 (802.11ax) network is recommended. 2.4GHz Wi-Fi is discouraged due to channel congestion and higher packet jitter.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Will Renderd support Linux or mobile devices in the future?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Yes. According to the engineering roadmap (RFC-0002 §20):
+          </p>
+          <ul>
+            <li><strong>v1.1:</strong> Linux host (PipeWire + VA-API) and Linux viewer (VA-API + Vulkan)</li>
+            <li><strong>v1.2:</strong> Audio streaming &amp; clipboard synchronization</li>
+            <li><strong>v2.0:</strong> iOS / iPadOS viewer client and WAN relay with NAT traversal</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="faq-item">
+      <button class="faq-question">
+        <span>Why is software encoding/decoding not supported?</span>
+        <span class="faq-chevron">▼</span>
+      </button>
+      <div class="faq-answer">
+        <div class="faq-answer-inner">
+          <p>
+            Software encoding (e.g. x264/x265 on CPU) at 1080p60 introduces 20–50ms of CPU encode latency and heavy core utilization. Renderd explicitly rejects sessions if hardware acceleration is unavailable (<code>ERROR_NO_HW_CODEC</code>) to guarantee display-class responsiveness.
+          </p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="contributing.html">Contributing</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

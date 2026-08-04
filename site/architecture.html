@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture — Renderd</title>
+  <meta name="description" content="Deep dive into Renderd's system architecture: QUIC transport, dual-channel design, encoding pipeline, vsync sync, security model, and crate dependency graph." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/architecture.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html" class="active">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page Header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Architecture</span>
+    </div>
+    <span class="section-label">RFC-0002</span>
+    <h1>System Architecture</h1>
+    <p style="color:var(--text-secondary);max-width:600px;font-size:1.1rem;margin-top:0.75rem">
+      Based on <a href="https://github.com/Ad1th/renderd/blob/main/docs/RFC-0002-architecture.md">RFC-0002</a> —
+      the definitive architecture specification superseding RFC-0001.
+    </p>
+    <div style="display:flex;gap:0.625rem;flex-wrap:wrap;margin-top:1rem">
+      <span class="badge badge-blue">RFC-0002</span>
+      <span class="badge badge-purple">Status: Draft</span>
+      <span class="badge badge-cyan">QUIC Transport</span>
+      <span class="badge badge-green">H.265 Primary</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── System Overview Diagram ── -->
+<section class="section" aria-labelledby="overview-title">
+  <div class="container">
+    <span class="section-label">System Overview</span>
+    <h2 id="overview-title">End-to-End Data Flow</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;max-width:640px">
+      Renderd is a peer-to-peer display receiver. A frame captured on the host must appear on the viewer's
+      physical display in under 30 ms at 1080p60, with a graceful latency gradient at higher resolutions.
+    </p>
+
+    <div class="mermaid-wrapper fade-in">
+      <div class="mermaid" id="system-overview-diagram">
+flowchart TD
+    subgraph host ["macOS 14+ Host — Apple Silicon"]
+        A["ScreenCaptureKit\nSCStream callback\nIOSurface GPU-resident"] --> B["VideoToolbox\nVTCompressionSession\nH.265 HW Encode"]
+        B --> C["NAL Unit Stream\nAnnex-B format"]
+        C --> D["Fragment Fragmenter\n16-byte fixed header\nSliding-window send"]
+        D --> E["quinn QUIC Engine\nStream 0 + Datagrams\nTLS 1.3"]
+    end
+
+    subgraph transport ["LAN — Peer-to-Peer UDP/QUIC"]
+        E <-->|"Control Plane\n(Stream 0, reliable)"| F["quinn QUIC Engine\nStream 0 + Datagrams"]
+        E -.->|"Data Plane\n(Datagrams, unreliable)"| F
+    end
+
+    subgraph viewer ["Windows 10+ Viewer"]
+        F --> G["Sliding-Window\nFragment Reassembly\nW=4 frame window"]
+        G --> H["D3D12 Video Decode\nID3D12VideoDecoder\nNV12/P010 surface"]
+        H --> I["D3D12 Render Pass\nYUV→RGB BT.709/BT.2020\nGPU bilinear scaling"]
+        I --> J["DXGI Swap Chain\nBorderless fullscreen\nConditional ALLOW_TEARING"]
+    end
+
+    K["VsyncReport\nevery ~16.7ms"] -.->|"Stream 0"| E
+    L["ReactiveStats\nevery 100ms"] -.->|"Stream 0"| E
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Transport Layer ── -->
+<section class="section" style="padding-top:0" aria-labelledby="transport-title">
+  <div class="container">
+    <span class="section-label">§5 Transport Layer</span>
+    <h2 id="transport-title">QUIC Dual-Channel Design</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 2rem;max-width:640px">
+      A single QUIC connection (RFC 9000 + RFC 9221) carries two logical channels with different
+      reliability guarantees — exactly what Renderd needs.
+    </p>
+
+    <div class="grid-2">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-blue">📋</div>
+        <h3>QUIC Stream 0 — Control Plane</h3>
+        <p><strong>Reliable, ordered.</strong> Used for:</p>
+        <ul style="margin-top:0.75rem;font-size:0.9rem">
+          <li>Session handshake &amp; pairing</li>
+          <li>Codec negotiation (<code>SessionHello</code> / <code>SessionConfig</code>)</li>
+          <li>Vsync phase reports (<code>VsyncReport</code>)</li>
+          <li>Reactive feedback (<code>ReactiveStats</code>, every 100ms)</li>
+          <li>Periodic stats (<code>PeriodicStats</code>, every 500ms)</li>
+          <li>Keyframe requests (<code>KeyframeRequest</code>)</li>
+          <li>Session events &amp; errors</li>
+        </ul>
+        <div style="margin-top:1rem">
+          <code>[u32 length][Protobuf Envelope]</code>
+        </div>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-cyan">📦</div>
+        <h3>QUIC Datagrams — Data Plane</h3>
+        <p><strong>Unreliable, unordered (RFC 9221).</strong> Used for:</p>
+        <ul style="margin-top:0.75rem;font-size:0.9rem">
+          <li>Video frame fragments (H.265/H.264 NAL units)</li>
+          <li>16-byte fixed binary fragment header</li>
+          <li>Burst-sent per frame for minimum latency</li>
+          <li>Out-of-order arrival handled by sliding-window reassembly</li>
+        </ul>
+        <div style="margin-top:1rem">
+          <code>[16-byte FragmentHeader][NAL Payload]</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="alert alert-note" style="margin-top:1.5rem">
+      <span class="alert-icon">💡</span>
+      <div class="alert-content">
+        <strong>Why QUIC?</strong> Raw UDP performance with production-grade TLS 1.3 security, ordered reliable control, and unordered unreliable datagrams for video — all in a single connection without any broker or relay on a LAN. Binary size is ~5 MB with <code>quinn</code> vs 100–200 MB for WebRTC.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Crate Architecture ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="crates-title">
+  <div class="container">
+    <span class="section-label">§10 Component Architecture</span>
+    <h2 id="crates-title">14-Crate Workspace (DAG Layers)</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 2rem;max-width:640px">
+      Dependencies flow in one direction only. No circular dependencies. Each layer may only import
+      from layers below it — enforced at compile time by the workspace structure.
+    </p>
+
+    <div class="mermaid-wrapper fade-in">
+      <div class="mermaid" id="crate-dag-diagram">
+graph TD
+    subgraph app ["Application Layer (Binaries)"]
+        HOST["renderd-host\nmacOS Login Item Agent"]
+        VIEWER["renderd-viewer\nWindows Viewer Client"]
+    end
+
+    subgraph algo ["Algorithm Layer"]
+        ABR["renderd-abr\nAdaptive Bitrate"]
+        CLOCK["renderd-clock\nPresentation Clock"]
+    end
+
+    subgraph svc ["Service Layer"]
+        NET["renderd-net\nQUIC Transport"]
+        KC["renderd-keychain\nKeychain Abstraction"]
+        DISC["renderd-discovery\nmDNS Discovery"]
+    end
+
+    subgraph ffi ["FFI Layer (unsafe)"]
+        VT["renderd-vt-sys\nVideoToolbox C FFI"]
+        SC["renderd-sc-sys\nScreenCaptureKit ObjC"]
+    end
+
+    subgraph prim ["Primitive Layer"]
+        FRAME["renderd-frame\nFrame / Fragment Codec"]
+        CRYPTO["renderd-crypto\nSPAKE2+ / AES-256-GCM"]
+    end
+
+    subgraph found ["Foundation Layer"]
+        PROTO["renderd-proto\nProtobuf Types"]
+        CFG["renderd-config\nLayered Configuration"]
+    end
+
+    HOST --> ABR
+    HOST --> CLOCK
+    HOST --> NET
+    HOST --> KC
+    HOST --> DISC
+    HOST --> VT
+    HOST --> SC
+    VIEWER --> ABR
+    VIEWER --> CLOCK
+    VIEWER --> NET
+    VIEWER --> KC
+    VIEWER --> DISC
+    ABR --> PROTO
+    CLOCK --> PROTO
+    NET --> FRAME
+    NET --> CRYPTO
+    NET --> CFG
+    KC --> CFG
+    DISC --> CFG
+    FRAME --> PROTO
+    CRYPTO --> PROTO
+      </div>
+    </div>
+
+    <div style="margin-top:2rem">
+      <div class="layer-group">
+        <div class="layer-label">Foundation Layer — no internal dependencies</div>
+        <div class="layer-crates">
+          <span class="crate-chip">📦 renderd-proto</span>
+          <span class="crate-chip">⚙️ renderd-config</span>
+        </div>
+      </div>
+      <div class="layer-group">
+        <div class="layer-label">Primitive Layer — deps: proto, config</div>
+        <div class="layer-crates">
+          <span class="crate-chip">🧩 renderd-frame</span>
+          <span class="crate-chip">🔐 renderd-crypto</span>
+        </div>
+      </div>
+      <div class="layer-group">
+        <div class="layer-label">FFI Layer — wraps C/ObjC APIs (unsafe allowed)</div>
+        <div class="layer-crates">
+          <span class="crate-chip">📹 renderd-vt-sys</span>
+          <span class="crate-chip">📸 renderd-sc-sys</span>
+        </div>
+      </div>
+      <div class="layer-group">
+        <div class="layer-label">Service Layer — deps: proto, frame, crypto, config</div>
+        <div class="layer-crates">
+          <span class="crate-chip">🌐 renderd-net</span>
+          <span class="crate-chip">🔑 renderd-keychain</span>
+          <span class="crate-chip">📡 renderd-discovery</span>
+        </div>
+      </div>
+      <div class="layer-group">
+        <div class="layer-label">Algorithm Layer — deps: proto, frame, net</div>
+        <div class="layer-crates">
+          <span class="crate-chip">📊 renderd-abr</span>
+          <span class="crate-chip">⏱️ renderd-clock</span>
+        </div>
+      </div>
+      <div class="layer-group">
+        <div class="layer-label">Application Layer — deps: everything relevant</div>
+        <div class="layer-crates">
+          <span class="crate-chip">🍎 renderd-host</span>
+          <span class="crate-chip">🖥️ renderd-viewer</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Latency Budget ── -->
+<section class="section" aria-labelledby="latency-title">
+  <div class="container">
+    <span class="section-label">§19 Latency Budget</span>
+    <h2 id="latency-title">Glass-to-Glass Breakdown</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 2rem;max-width:640px">
+      Phase sync reduces the display scanout component from ~8.3 ms (half a frame period, unsynchronized)
+      to ~2 ms (synchronized lead-in) — this is the mechanism that makes the 30 ms target achievable.
+    </p>
+
+    <div class="grid-2">
+      <div>
+        <h3 style="margin-bottom:1rem">1080p60 — Target: ≤ 30 ms</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Stage</th><th>p50</th><th>p99</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>SCStream capture</td><td>~2 ms</td><td>~3 ms</td></tr>
+              <tr><td>VTCompressionSession HW encode</td><td>~7 ms</td><td>~11 ms</td></tr>
+              <tr><td>QUIC framing + burst send</td><td>~0.5 ms</td><td>~1 ms</td></tr>
+              <tr><td>Network (Gigabit LAN, wired)</td><td>~0.5 ms</td><td>~1.5 ms</td></tr>
+              <tr><td>QUIC recv + fragment reassembly</td><td>~0.3 ms</td><td>~0.8 ms</td></tr>
+              <tr><td>D3D12 HW video decode</td><td>~2 ms</td><td>~4 ms</td></tr>
+              <tr><td>D3D12 render + present</td><td>~1.5 ms</td><td>~2.5 ms</td></tr>
+              <tr><td>Display scanout (phase sync)</td><td>~2 ms</td><td>~4 ms</td></tr>
+              <tr style="font-weight:700;color:var(--text-primary)">
+                <td><strong>Total</strong></td>
+                <td><strong style="color:var(--accent-green)">~16 ms</strong></td>
+                <td><strong style="color:var(--accent-orange)">~28 ms</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div>
+        <h3 style="margin-bottom:1rem">1440p60 — Target: ≤ 40 ms</h3>
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr><th>Stage</th><th>p50</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>SCStream capture</td><td>~2 ms</td></tr>
+              <tr><td>VTCompressionSession HW encode</td><td>~12 ms</td></tr>
+              <tr><td>Network + QUIC</td><td>~1 ms</td></tr>
+              <tr><td>D3D12 decode + render</td><td>~3.5 ms</td></tr>
+              <tr><td>Display scanout (phase sync)</td><td>~2 ms</td></tr>
+              <tr style="font-weight:700">
+                <td><strong>Total</strong></td>
+                <td><strong style="color:var(--accent-green)">~21 ms</strong></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="alert alert-warning" style="margin-top:1rem;font-size:0.85rem">
+          <span class="alert-icon">⚠️</span>
+          <div class="alert-content">
+            These estimates are based on community-reported VideoToolbox benchmarks on M1/M2. The implementation team must validate with a prototype benchmark before finalizing targets.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Data Flow ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="dataflow-title">
+  <div class="container">
+    <span class="section-label">§14 Data Flow</span>
+    <h2 id="dataflow-title">Frame Lifecycle</h2>
+
+    <div class="mermaid-wrapper fade-in">
+      <div class="mermaid" id="dataflow-diagram">
+sequenceDiagram
+    participant Sched as Phase Sync Scheduler
+    participant SCK as ScreenCaptureKit
+    participant VT as VideoToolbox
+    participant QUIC_H as quinn (Host)
+    participant Net as LAN / UDP
+    participant QUIC_V as quinn (Viewer)
+    participant Reasm as Fragment Reassembler
+    participant D3D12 as D3D12 Decoder
+    participant DXGI as DXGI Present
+
+    Sched->>SCK: Schedule capture at next vsync phase
+    SCK->>VT: IOSurface (GPU-resident, zero-copy)
+    VT->>QUIC_H: NAL unit stream (H.265 encoded)
+    QUIC_H->>Net: Burst-send all fragments (datagrams)
+    Net-->>QUIC_V: Fragments arrive (possibly out-of-order)
+    QUIC_V->>Reasm: Hand off fragments
+    Reasm->>D3D12: Complete frame (or deadline expired)
+    D3D12->>DXGI: NV12/P010 GPU surface (zero-copy)
+    DXGI->>DXGI: Present at computed PTS deadline
+
+    Note over QUIC_V,QUIC_H: VsyncReport every ~16.7ms (Stream 0)
+    Note over QUIC_V,QUIC_H: ReactiveStats every 100ms (Stream 0)
+    Note over QUIC_V,QUIC_H: PeriodicStats every 500ms (Stream 0)
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Fragment Header ── -->
+<section class="section" aria-labelledby="fragment-title">
+  <div class="container">
+    <span class="section-label">§12 Data Plane Protocol</span>
+    <h2 id="fragment-title">16-Byte Fragment Header</h2>
+    <p style="color:var(--text-secondary);margin:0.75rem 0 1.5rem;max-width:640px">
+      Each QUIC datagram payload begins with a fixed 16-byte binary header enabling the receiver to
+      reassemble fragments into frames without any additional framing overhead.
+    </p>
+
+    <div class="card fade-in" style="font-family:var(--font-mono);font-size:0.85rem">
+      <pre style="background:none;border:none;padding:0;margin:0;color:var(--text-primary)">
+┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
+│  frame_id (u32, BE)  │frag_idx  │frag_total│ flags(u8)│   payload_len (u16, BE)│ reserved │
+│     4 bytes          │  1 byte  │  1 byte  │  1 byte  │       2 bytes          │  1 byte  │
+└──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘
+<span style="color:var(--text-muted)">                                                    │
+                                            FragmentFlags:
+                                            bit 0 = KEY_FRAME
+                                            bit 1 = LAST_FRAGMENT
+                                            bit 2 = H264 (else H265)</span></pre>
+    </div>
+
+    <div style="margin-top:1.5rem">
+      <h3 style="margin-bottom:0.75rem">Sliding-Window Reassembly Buffer</h3>
+      <ul>
+        <li><strong>Window depth:</strong> W = 4 frames (keyed by <code>frame_id</code>)</li>
+        <li><strong>Fragment deadline:</strong> Dynamic — <code>frame_period − decode_latency − render_latency</code> (default 12 ms)</li>
+        <li><strong>Out-of-order handling:</strong> Frames outside the window are discarded; window advances on frame complete or deadline expiry</li>
+        <li><strong>Keyframe requests:</strong> Sent immediately on excessive frame loss via QUIC Stream 0</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- ── Technology Stack ── -->
+<section class="section" style="padding-top:0" aria-labelledby="stack-title">
+  <div class="container">
+    <span class="section-label">§15 Technology Stack</span>
+    <h2 id="stack-title">Dependencies &amp; Rationale</h2>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr><th>Component</th><th>Technology</th><th>Rationale</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Language</td><td><strong>Rust 1.80+</strong></td><td>Memory safety without GC; first-class FFI for C APIs; async support</td></tr>
+          <tr><td>Async runtime</td><td><strong>Tokio</strong></td><td>De facto standard; integrates with quinn</td></tr>
+          <tr><td>QUIC</td><td><strong>quinn</strong> (pure Rust)</td><td>RFC 9000 + RFC 9221; clean async API; NewReno congestion control</td></tr>
+          <tr><td>Serialization</td><td><strong>prost</strong> (protobuf3)</td><td>Rust-native; no C++ dependency; forward-compatible</td></tr>
+          <tr><td>macOS capture</td><td><strong>ScreenCaptureKit</strong> via objc2</td><td>ObjC API; GPU-resident IOSurface frames</td></tr>
+          <tr><td>macOS encode</td><td><strong>VideoToolbox</strong> via C shim</td><td>VT is a C/CoreFoundation API; cc crate compiles C shim in build.rs</td></tr>
+          <tr><td>Windows decode/render</td><td><strong>windows-rs</strong> + D3D12</td><td>Microsoft's official Rust WinAPI bindings; full GPU pipeline control</td></tr>
+          <tr><td>Window management</td><td><strong>winit</strong></td><td>Production-quality; handles DPI, fullscreen, message pump; not Electron</td></tr>
+          <tr><td>mDNS (macOS)</td><td><strong>dns_sd.h</strong> (Bonjour)</td><td>Must use system API; pure-Rust crates conflict with mDNSResponder port 5353</td></tr>
+          <tr><td>PAKE</td><td><strong>RFC 9382-compliant SPAKE2+</strong></td><td>Verify test vectors before adopting any crate</td></tr>
+          <tr><td>Config</td><td><strong>Figment</strong></td><td>Layered configuration; TOML + env vars + CLI override</td></tr>
+          <tr><td>CI</td><td><strong>GitHub Actions</strong></td><td>macOS runner (host + notarization), Windows runner (viewer)</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="https://github.com/Ad1th/renderd/blob/main/docs/RFC-0002-architecture.md" target="_blank" rel="noopener">RFC-0002 ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>

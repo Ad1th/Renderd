@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Roadmap — Renderd</title>
+  <meta name="description" content="Renderd's 10-milestone engineering roadmap: from repository bootstrap through v0.1.0 pre-release. Track progress across 100 granular issues." />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/roadmap.html" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html" class="active">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme"><span id="theme-icon">🌙</span></button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu"><span></span><span></span><span></span></button>
+    </div>
+  </div>
+</nav>
+<div class="nav-mobile" id="nav-mobile">
+  <ul>
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+  </ul>
+</div>
+
+<!-- ── Page Header ── -->
+<div class="page-header">
+  <div class="container">
+    <div class="breadcrumb">
+      <a href="index.html">Home</a>
+      <span class="breadcrumb-sep">›</span>
+      <span>Roadmap</span>
+    </div>
+    <span class="section-label">ISSUES-0001</span>
+    <h1>Engineering Roadmap</h1>
+    <p style="color:var(--text-secondary);max-width:600px;font-size:1.1rem;margin-top:0.75rem">
+      10 milestones, 100 granular issues, each representing less than one day of engineering effort.
+      Designed for concurrent execution by multiple engineers.
+    </p>
+    <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-top:1rem;align-items:center">
+      <span class="badge badge-green">2 / 10 Complete</span>
+      <span class="badge badge-blue">Milestone 3 Active</span>
+      <span class="badge badge-orange">Pre-release</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Progress Overview ── -->
+<section class="section" aria-labelledby="progress-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:3rem">
+      <span class="section-label">Overview</span>
+      <h2 id="progress-title">Milestone Progress</h2>
+    </div>
+
+    <div class="mermaid-wrapper fade-in">
+      <div class="mermaid" id="roadmap-diagram">
+gantt
+    title Renderd Engineering Milestones
+    dateFormat YYYY-MM-DD
+    axisFormat %b %Y
+
+    section Foundation
+    M1 Repository Bootstrap    :done,    m1, 2026-08-03, 7d
+    M2 Foundation Layer        :done,    m2, after m1, 7d
+
+    section Core
+    M3 Primitives              :active,  m3, after m2, 14d
+    M4 FFI Layer               :         m4, after m3, 14d
+    M5 Service Layer           :         m5, after m4, 21d
+
+    section Application
+    M6 Algorithm Layer         :         m6, after m5, 14d
+    M7 Host Application        :         m7, after m6, 21d
+    M8 Viewer Application      :         m8, after m7, 21d
+
+    section Release
+    M9 Documentation           :         m9, after m8, 14d
+    M10 Pre-Release Audit      :         m10, after m9, 14d
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Milestones ── -->
+<section class="section" style="padding-top:0" aria-labelledby="milestones-title">
+  <div class="container">
+    <h2 id="milestones-title" style="margin-bottom:2.5rem">All Milestones</h2>
+
+    <!-- M1 -->
+    <div class="milestone">
+      <div class="milestone-dot done" title="Complete">✅</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 1: Repository Bootstrap &amp; Infrastructure</h3>
+          <span class="badge badge-green">Complete</span>
+          <span class="badge badge-cyan">Issues #001–#012</span>
+        </div>
+        <p>Strictly workspace configuration, tooling enforcement, CI workflows, and build automation. No feature code.</p>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+          <span class="crate-chip">Cargo workspace</span>
+          <span class="crate-chip">rust-toolchain.toml</span>
+          <span class="crate-chip">clippy.toml</span>
+          <span class="crate-chip">deny.toml</span>
+          <span class="crate-chip">nextest.toml</span>
+          <span class="crate-chip">CI workflow</span>
+          <span class="crate-chip">Security audit</span>
+          <span class="crate-chip">Bench workflow</span>
+          <span class="crate-chip">CODEOWNERS</span>
+          <span class="crate-chip">Issue templates</span>
+          <span class="crate-chip">Typos check</span>
+          <span class="crate-chip">Docs workflow</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- M2 -->
+    <div class="milestone">
+      <div class="milestone-dot done" title="Complete">✅</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 2: Foundation Layer</h3>
+          <span class="badge badge-green">Complete</span>
+          <span class="badge badge-cyan">Issues #013–#022</span>
+        </div>
+        <p>Protobuf schema, <code>renderd-proto</code> crate (generated types + newtypes + envelope dispatch), and <code>renderd-config</code> crate (Figment-based layered config loader).</p>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+          <span class="crate-chip">renderd.proto schema</span>
+          <span class="crate-chip">prost codegen</span>
+          <span class="crate-chip">FrameId / FragmentId newtypes</span>
+          <span class="crate-chip">BitrateKbps / VsyncPeriodNs</span>
+          <span class="crate-chip">MessageKind dispatch</span>
+          <span class="crate-chip">SessionHello validation</span>
+          <span class="crate-chip">RenderdConfig schema</span>
+          <span class="crate-chip">ConfigBuilder (Figment)</span>
+          <span class="crate-chip">ValidateConfig trait</span>
+          <span class="crate-chip">ConfigError hierarchy</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- M3 -->
+    <div class="milestone">
+      <div class="milestone-dot active" title="In Progress">🔨</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 3: Core Data Structures &amp; Utilities</h3>
+          <span class="badge badge-blue">In Progress</span>
+          <span class="badge badge-cyan">Issues #023–#035</span>
+        </div>
+        <p>Fragment header codec, sliding-window reassembly buffer, high-resolution monotonic clock wrapper, clock offset estimator, rolling statistics, ABR state machine, and ABR engine.</p>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+          <span class="crate-chip">renderd-frame</span>
+          <span class="crate-chip">FragmentHeader codec</span>
+          <span class="crate-chip">FragmentFlags bitfields</span>
+          <span class="crate-chip">ReassemblyBuffer (W=4)</span>
+          <span class="crate-chip">renderd-clock</span>
+          <span class="crate-chip">MonoInstant wrapper</span>
+          <span class="crate-chip">ClockEpochEstimator</span>
+          <span class="crate-chip">RollingStats ring buffer</span>
+          <span class="crate-chip">renderd-abr</span>
+          <span class="crate-chip">AbrState machine</span>
+          <span class="crate-chip">AbrEngine</span>
+          <span class="crate-chip">TelemetryReport</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- M4 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">4</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 4: FFI Layer (VideoToolbox &amp; SCKit Shims)</h3>
+          <span class="badge badge-orange">Planned</span>
+          <span class="badge badge-cyan">Issues #036–#047</span>
+        </div>
+        <p>macOS-only FFI crates: C shim for VideoToolbox (<code>VTCompressionSession</code>), and Objective-C bridge for ScreenCaptureKit (<code>SCStream</code>). These are the only crates where <code>unsafe</code> is permitted.</p>
+        <div style="margin-top:1rem;display:flex;flex-wrap:wrap;gap:0.5rem">
+          <span class="crate-chip">renderd-vt-sys</span>
+          <span class="crate-chip">VTCompressionSession C shim</span>
+          <span class="crate-chip">cc crate build.rs</span>
+          <span class="crate-chip">renderd-sc-sys</span>
+          <span class="crate-chip">SCStream ObjC bridge</span>
+          <span class="crate-chip">IOSurface FFI</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- M5 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">5</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 5: Service Layer (Net, Keychain &amp; Discovery)</h3>
+          <span class="badge badge-orange">Planned</span>
+          <span class="badge badge-cyan">Issues #048–#063</span>
+        </div>
+        <p>QUIC connection/datagram abstraction (<code>renderd-net</code>), cross-platform keychain abstraction (<code>renderd-keychain</code>), and mDNS peer discovery (<code>renderd-discovery</code>).</p>
+      </div>
+    </div>
+
+    <!-- M6 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">6</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 6: Algorithm Layer (ABR &amp; Clock Sync)</h3>
+          <span class="badge badge-orange">Planned</span>
+          <span class="badge badge-cyan">Issues #064–#075</span>
+        </div>
+        <p>Integration of ABR engine with QUIC feedback loop and full vsync phase synchronization protocol from RFC-0002 §7.</p>
+      </div>
+    </div>
+
+    <!-- M7 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">7</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 7: Host Application (<code>renderd-host</code>)</h3>
+          <span class="badge badge-orange">Planned</span>
+          <span class="badge badge-cyan">Issues #076–#088</span>
+        </div>
+        <p>macOS Login Item Agent: SCStream capture → VideoToolbox encode → quinn send. Menu bar UI via <code>tray-icon</code> + AppKit. SPAKE2+ pairing ceremony. macOS app bundle, entitlements, and notarization.</p>
+      </div>
+    </div>
+
+    <!-- M8 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">8</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 8: Viewer Application (<code>renderd-viewer</code>)</h3>
+          <span class="badge badge-orange">Planned</span>
+          <span class="badge badge-cyan">Issues #089–#100</span>
+        </div>
+        <p>Windows 10+ viewer client: quinn receive → fragment reassembly → D3D12 decode → DXGI present. System tray UI. SPAKE2+ pairing. Vsync phase reporting. Automatic reconnect with mDNS re-discovery.</p>
+      </div>
+    </div>
+
+    <!-- M9 -->
+    <div class="milestone">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">9</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 9: Benchmarks &amp; Tooling</h3>
+          <span class="badge badge-orange">Planned</span>
+        </div>
+        <p><code>latency-bench</code> tool measuring glass-to-glass latency. Criterion benchmarks for fragment codec and reassembly. Performance regression validation before release.</p>
+      </div>
+    </div>
+
+    <!-- M10 -->
+    <div class="milestone" style="padding-bottom:0">
+      <div class="milestone-dot" style="font-weight:700;font-size:0.9rem">10</div>
+      <div class="milestone-content">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem">
+          <h3>Milestone 10: Pre-Release Audit &amp; v0.1.0</h3>
+          <span class="badge badge-purple">v0.1.0</span>
+        </div>
+        <p>Security audit (<code>cargo-deny</code>, <code>cargo-audit</code>), latency validation against RFC-0002 targets, documentation review, and first public release on GitHub.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Future Work ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="future-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Beyond v1.0</span>
+      <h2 id="future-title">Future Work</h2>
+      <p class="section-desc" style="margin:0 auto">
+        The following features are explicitly out of scope for v1.0 but planned for future releases.
+      </p>
+    </div>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr><th>Feature</th><th>Version</th><th>Notes</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Linux host</td><td><span class="badge badge-blue">v1.1</span></td><td>PipeWire capture + VA-API encode; avahi for mDNS</td></tr>
+          <tr><td>Linux viewer</td><td><span class="badge badge-blue">v1.1</span></td><td>VA-API decode + Vulkan render; avahi for mDNS</td></tr>
+          <tr><td>Audio streaming</td><td><span class="badge badge-blue">v1.2</span></td><td>Opus codec; separate QUIC reliable stream</td></tr>
+          <tr><td>Clipboard sync</td><td><span class="badge badge-blue">v1.2</span></td><td>Text and image via control plane</td></tr>
+          <tr><td>Remote input (keyboard/mouse)</td><td><span class="badge badge-blue">v1.3</span></td><td>Opt-in HID event stream on host</td></tr>
+          <tr><td>Multi-monitor</td><td><span class="badge badge-blue">v1.3</span></td><td>One SCStream session per display; viewer window per display</td></tr>
+          <tr><td>Virtual display</td><td><span class="badge badge-blue">v1.4</span></td><td>CoreDisplay virtual framebuffer; no physical display required on host</td></tr>
+          <tr><td>WAN relay + NAT traversal</td><td><span class="badge badge-purple">v2.0</span></td><td>TURN-like relay server; consider switching to msquic for BBR</td></tr>
+          <tr><td>AV1 codec</td><td><span class="badge badge-purple">v2.0</span></td><td>When HW decoders are sufficiently universal on both platforms</td></tr>
+          <tr><td>iOS / iPadOS viewer</td><td><span class="badge badge-purple">v2.0</span></td><td>VideoToolbox decode + Metal render</td></tr>
+          <tr><td>Internet pairing (no LAN)</td><td><span class="badge badge-purple">v2.0</span></td><td>Relay-assisted SPAKE2+ pairing; WireGuard-style key exchange</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand"><span>⚡</span> Renderd</div>
+        <p class="footer-desc">High-performance P2P display streaming. MIT Licensed.</p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Pages</h4>
+        <ul>
+          <li><a href="index.html">Home</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="releases.html">Releases</a></li>
+          <li><a href="contributing.html">Contributing</a></li>
+          <li><a href="https://github.com/Ad1th/renderd/blob/main/docs/ISSUES-0001-milestones.md" target="_blank" rel="noopener">ISSUES-0001 ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>
