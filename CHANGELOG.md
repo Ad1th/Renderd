@@ -30,3 +30,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Enabled proto freshness CI check step in `.github/workflows/ci.yml`. (#017)
 - Added configuration schema structs (`RenderdConfig`, `HostConfig`, `ViewerConfig`, `NetworkConfig`, `CryptoConfig`, `AbrConfig`) in `renderd-config` crate. (#018)
 - Added Figment-based layered config loader (`ConfigBuilder`) supporting defaults, TOML files, environment variables, and CLI overrides in `renderd-config` crate. (#019)
+- Added configuration validation rules (`ValidateConfig` trait) for `RenderdConfig` in `renderd-config` crate. (#020)
