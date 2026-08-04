@@ -41,3 +41,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added high-resolution monotonic clock instant wrapper (`MonoInstant`) in `renderd-clock` crate per RFC-0002 §13.1. (#028)
 - Added 4-timestamp NTP/PTP monotonic clock epoch estimator (`ClockEpochEstimator`) in `renderd-clock` crate per RFC-0002 §13.2. (#029)
 - Added stack-allocated rolling statistics ring buffer (`RollingStats`) in `renderd-clock` crate per RFC-0002 §13.3. (#030)
+- Added integration test suite for clock offset estimation and rolling statistics in `renderd-clock` crate. (#031)
