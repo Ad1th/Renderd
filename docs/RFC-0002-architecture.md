@@ -798,7 +798,7 @@ Each QUIC datagram carries one fragment of one encoded frame, prefixed with a 16
 │  Fragment Header (16 bytes, little-endian)                          │
 │  ┌──────────┬──────────┬──────────┬────────┬────────────────────┐   │
 │  │ frame_id │  frag_id │frag_total│ flags  │   pts_offset_us    │   │
-│  │  8 bytes │  2 bytes │  2 bytes │ 2 bytes│      2 bytes       │   │
+│  │  8 bytes │  2 bytes │  2 bytes │ 1 byte │      3 bytes       │   │
 │  └──────────┴──────────┴──────────┴────────┴────────────────────┘   │
 │  Payload: NAL unit bytes (up to PMTU - 16 bytes, typically ~1200 B) │
 └─────────────────────────────────────────────────────────────────────┘
@@ -810,9 +810,9 @@ flags:
   bit 0:  is_keyframe
   bit 1:  is_last_fragment (equivalent to frag_id == frag_total - 1)
   bit 2:  phase_sync_valid  (PTS is meaningful; phase sync is active)
-pts_offset_us: Signed 16-bit offset (microseconds) from the most recently
-               clock-synced base PTS (exchanged on Stream 0 every 1 second).
-               Allows ~32ms of relative PTS range per epoch.
+pts_offset_us: Unsigned 24-bit (3-byte) little-endian offset in microseconds
+               from the most recently clock-synced base PTS (exchanged on
+               Stream 0 every 1 second). Maximum range: ~16.7 s (0x00FF_FFFF µs).
 ```
 
 ### 12.2 Sliding-Window Fragment Reassembly
@@ -989,78 +989,91 @@ VTCompressionSession bitrate / keyframe adjustment
 
 ## 16. Repository Layout
 
+> **Canonical reference:** The authoritative workspace layout is specified in
+> [REPO-0001 §2](REPO-0001-repository.md#2-workspace-layout). The summary below
+> reflects the final structure; consult REPO-0001 for full crate responsibilities.
+
 ```
 renderd/
-├── Cargo.toml                          # Workspace root
+├── Cargo.toml                          # Workspace root (15 members)
+├── rust-toolchain.toml                 # Pinned stable channel + targets
+├── clippy.toml                         # Workspace-wide lint overrides
+├── .rustfmt.toml                       # Workspace-wide code formatting
+├── deny.toml                           # cargo-deny: licenses, advisories
+├── nextest.toml                        # cargo-nextest configuration
+│
 ├── crates/
-│   ├── librenderd/                     # Shared library
-│   │   ├── src/
-│   │   │   ├── protocol/               # prost-generated protobuf types
-│   │   │   ├── codec_params.rs         # SPS/PPS/VPS parsing
-│   │   │   ├── frame_id.rs             # Sliding-window reassembly state machine
-│   │   │   ├── hkdf_util.rs            # Canonical HKDF helpers
-│   │   │   ├── stats.rs                # Ring-buffer statistics
-│   │   │   └── error.rs                # Unified error types
-│   │   └── Cargo.toml
+│   │   ── Foundation Layer ────────────────────────────────────────────
+│   ├── renderd-proto/                  # Protobuf types + domain newtypes
+│   ├── renderd-config/                 # Configuration schema + loader
 │   │
-│   ├── renderd-host/                   # macOS Login Item Agent
-│   │   ├── c-shims/
-│   │   │   └── videotoolbox_shim.c     # VTCompressionSession C bridge
+│   │   ── Primitive Layer ────────────────────────────────────────────
+│   ├── renderd-frame/                  # Fragment header codec + reassembly
+│   ├── renderd-crypto/                 # SPAKE2+ (RFC 9382), HKDF, certs
+│   │
+│   │   ── FFI Layer (unsafe; macOS only) ─────────────────────────────
+│   ├── renderd-vt-sys/                 # VideoToolbox C FFI bindings
+│   ├── renderd-sc-sys/                 # ScreenCaptureKit ObjC bindings
+│   │
+│   │   ── Service Layer ────────────────────────────────────────────
+│   ├── renderd-net/                    # QUIC connection + datagram pipeline
+│   ├── renderd-keychain/               # Keychain abstraction + platform impls
+│   ├── renderd-discovery/              # mDNS advertisement + browsing
+│   │
+│   │   ── Algorithm Layer ───────────────────────────────────────────
+│   ├── renderd-abr/                    # Dual-timescale ABR controller
+│   ├── renderd-clock/                  # Presentation clock synchronization
+│   │
+│   │   ── Application Layer ──────────────────────────────────────────
+│   ├── renderd-host/                   # macOS Login Item Agent binary
+│   │   ├── c-shims/videotoolbox_shim.c # VTCompressionSession C bridge
 │   │   ├── build.rs                    # Compiles C shim via cc crate
 │   │   ├── Info.plist                  # LSUIElement=true; NSScreenCaptureUsageDescription
 │   │   ├── entitlements.plist          # screen-recording; app-sandbox
-│   │   ├── src/
-│   │   │   ├── capture/
-│   │   │   ├── encode/
-│   │   │   ├── network/
-│   │   │   ├── discovery/
-│   │   │   ├── pairing/
-│   │   │   ├── session/
-│   │   │   ├── keychain/
-│   │   │   ├── clock_sync/
-│   │   │   ├── abr/
-│   │   │   └── ui/
-│   │   └── Cargo.toml
-│   │
-│   └── renderd-viewer/                 # Windows viewer client
-│       ├── src/
-│       │   ├── network/
-│       │   ├── decode/
-│       │   ├── render/
-│       │   ├── discovery/
-│       │   ├── pairing/
-│       │   ├── session/
-│       │   ├── keychain/
-│       │   ├── clock_sync/
-│       │   ├── abr/
-│       │   ├── reconnect/
-│       │   └── ui/
-│       └── Cargo.toml
+│   │   └── src/                        # capture/, encode/, network/, ui/, …
+│   └── renderd-viewer/                 # Windows viewer binary
+│       └── src/                        # network/, decode/, render/, ui/, …
 │
-├── docs/
-│   ├── RFC-0001-architecture.md        # Superseded
-│   ├── RFC-0001-review.md              # Architectural review
-│   └── RFC-0002-architecture.md        # This document (active)
+├── tools/
+│   ├── latency-bench/                  # End-to-end pipeline latency benchmark
+│   ├── proto-gen/                      # Regenerates renderd-proto from .proto
+│   └── bundle-host/                    # Assembles and signs macOS .app bundle
 │
 ├── proto/
-│   └── renderd.proto                   # All protobuf definitions
+│   └── renderd.proto                   # Source of truth for all control-plane messages
 │
 ├── shaders/
-│   └── yuv_to_rgb.hlsl                 # HLSL BT.709/BT.2020 YUV→RGB
+│   └── yuv_to_rgb.hlsl                 # HLSL BT.709 / BT.2020 YUV→RGB shader
 │
-├── scripts/
-│   ├── package-host.sh                 # Builds + signs + notarizes .app bundle
-│   └── package-viewer.ps1              # Builds + packages .exe installer
+├── templates/
+│   ├── renderd-host.default.toml       # Canonical macOS host configuration
+│   └── renderd-viewer.default.toml     # Canonical Windows viewer configuration
+│
+├── docs/
+│   ├── RFC-0001-architecture.md        # Superseded by RFC-0002
+│   ├── RFC-0001-review.md              # Review that motivated RFC-0002
+│   ├── RFC-0002-architecture.md        # This document (active)
+│   ├── REPO-0001-repository.md         # Engineering and repository standards
+│   └── ISSUES-0001-milestones.md       # 100-issue milestone roadmap
 │
 ├── .github/
+│   ├── CODEOWNERS
+│   ├── PULL_REQUEST_TEMPLATE.md
+│   ├── ISSUE_TEMPLATE/
 │   └── workflows/
-│       ├── host-ci.yml                 # macOS build + test
-│       ├── viewer-ci.yml               # Windows build + test
-│       ├── release-host.yml            # notarytool submission + stapling
-│       └── release-viewer.yml          # Windows installer packaging
+│       ├── ci.yml                      # Build, test, lint (all platforms)
+│       ├── bench.yml                   # Criterion benchmark runner (nightly)
+│       ├── security.yml                # cargo-deny + cargo-audit
+│       ├── docs.yml                    # rustdoc generation + deploy
+│       ├── release-host.yml            # macOS .app build, sign, notarize
+│       ├── release-viewer.yml          # Windows .exe build + installer
+│       ├── proto-check.yml             # Verify generated proto is up to date
+│       └── typos.yml                   # Spell checking (typos-cli)
 │
 ├── LICENSE                             # MIT
-└── README.md
+├── README.md
+├── CHANGELOG.md                        # Keep-a-Changelog format
+└── SECURITY.md                         # Vulnerability disclosure policy
 ```
 
 ---

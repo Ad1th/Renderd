@@ -721,7 +721,7 @@ edition     = "2021"
 rust-version = "1.80"        # MSRV; updated each release cycle
 license     = "MIT"
 authors     = ["Renderd Contributors"]
-repository  = "https://github.com/renderd/renderd"
+repository  = "https://github.com/Ad1th/renderd"
 homepage    = "https://renderd.dev"
 
 # All internal dependency versions are declared here once.
@@ -1184,7 +1184,7 @@ export is added.
 
 1. Command-line flags (`--bitrate-kbps 40000`) via `clap`
 2. Environment variables (`RENDERD_BITRATE_KBPS=40000`) via `figment`
-3. User config file (`~/.config/renderd/host.toml` / `%APPDATA%\renderd\viewer.toml`)
+3. User config file (`~/Library/Application Support/dev.renderd.host/host.toml` / `%APPDATA%\renderd\viewer.toml`)
 4. System config file (`/etc/renderd/host.toml` / not applicable on Windows)
 5. Compiled-in defaults (hardcoded in `renderd-config` structs via `#[serde(default)]`)
 
