@@ -46,8 +46,8 @@ tokio              = { version = "1", features = ["full"] }
 quinn              = { version = "0.11" }
 rustls             = { version = "0.23", default-features = false, features = ["tls12"] }
 bytes              = { version = "1" }
-prost              = { version = "0.13" }
-prost-build        = { version = "0.13" }
+prost              = { version = "0.14" }
+prost-build        = { version = "0.14" }
 serde              = { version = "1", features = ["derive"] }
 serde_derive       = { version = "1" }
 toml               = { version = "0.8" }
@@ -64,18 +64,18 @@ hkdf               = { version = "0.12" }
 rcgen              = { version = "0.13" }
 zeroize            = { version = "1", features = ["derive"] }
 crossbeam-channel  = { version = "0.5" }
-criterion          = { version = "0.5", features = ["html_reports"] }
+criterion          = { version = "0.8", features = ["html_reports"] }
 proptest           = { version = "1" }
 cc                 = { version = "1" }
 bindgen            = { version = "0.70" }
 clap               = { version = "4", features = ["derive", "env"] }
 
 # macOS-specific dependencies
-objc2                    = { version = "0.5" }
+objc2                    = { version = "0.6" }
 objc2-foundation         = { version = "0.2" }
 objc2-screen-capture-kit = { version = "0.2" }
 core-foundation          = { version = "0.10" }
-core-media               = { version = "0.2" }
+core-media               = { version = "0.8" }
 security-framework       = { version = "2" }
 
 # Windows-specific dependencies
