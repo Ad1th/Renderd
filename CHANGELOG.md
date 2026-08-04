@@ -40,3 +40,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added property-based tests for fragment header codec and reassembly buffer in `renderd-frame` crate. (#027)
 - Added high-resolution monotonic clock instant wrapper (`MonoInstant`) in `renderd-clock` crate per RFC-0002 §13.1. (#028)
 - Added 4-timestamp NTP/PTP monotonic clock epoch estimator (`ClockEpochEstimator`) in `renderd-clock` crate per RFC-0002 §13.2. (#029)
+- Added stack-allocated rolling statistics ring buffer (`RollingStats`) in `renderd-clock` crate per RFC-0002 §13.3. (#030)
