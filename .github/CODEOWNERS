@@ -1,42 +1,40 @@
 # Renderd CODEOWNERS File
 # https://docs.github.com/en/repositories/managing-repository-files-with-github-codeowners/about-codeowners
 
-# Global fallback — every PR requires at least one maintainer review
-*                               @renderd/maintainers
+# Global fallback — default owner for all repository files
+*                               @Ad1th
 
-# Foundation layer — maintainers review
-/crates/renderd-proto/          @renderd/maintainers
-/crates/renderd-config/         @renderd/maintainers
+# Foundation & Configuration
+/crates/renderd-proto/          @Ad1th
+/crates/renderd-config/         @Ad1th
 
-# Cryptography & Security — requires crypto-qualified reviewer
-/crates/renderd-crypto/         @renderd/crypto-reviewers
-/SECURITY.md                    @renderd/crypto-reviewers
+# Cryptography & Security
+/crates/renderd-crypto/         @Ad1th
+/SECURITY.md                    @Ad1th
 
-# macOS FFI layer — requires macOS platform specialist
-/crates/renderd-vt-sys/         @renderd/macos-team
-/crates/renderd-sc-sys/         @renderd/macos-team
+# macOS Platform & Hardware Integration
+/crates/renderd-vt-sys/         @Ad1th
+/crates/renderd-sc-sys/         @Ad1th
+/crates/renderd-host/           @Ad1th
 
-# Algorithm layer — requires latency-domain specialist
-/crates/renderd-abr/            @renderd/algorithms-team
-/crates/renderd-clock/          @renderd/algorithms-team
-/crates/renderd-frame/          @renderd/algorithms-team
+# Latency, Frame Pacing & Performance Algorithms
+/crates/renderd-abr/            @Ad1th
+/crates/renderd-clock/          @Ad1th
+/crates/renderd-frame/          @Ad1th
+/tools/latency-bench/           @Ad1th
 
-# Network & Service layer — network team
-/crates/renderd-net/            @renderd/network-team
-/crates/renderd-discovery/      @renderd/network-team
-/crates/renderd-keychain/       @renderd/maintainers
+# Networking, Transport & Peer Discovery
+/crates/renderd-net/            @Ad1th
+/crates/renderd-discovery/      @Ad1th
+/crates/renderd-keychain/       @Ad1th
 
-# Executable binaries — platform specialists
-/crates/renderd-host/           @renderd/macos-team
-/crates/renderd-viewer/         @renderd/windows-team
+# Windows Viewer Engine
+/crates/renderd-viewer/         @Ad1th
 
-# Protocol Schema — all protocol changes require maintainer review
-/proto/                         @renderd/maintainers
-/tools/proto-gen/               @renderd/maintainers
+# Protocol Schema & Code Generation
+/proto/                         @Ad1th
+/tools/proto-gen/               @Ad1th
 
-# Benchmarks & Tooling
-/tools/latency-bench/           @renderd/algorithms-team
-
-# Automation, Release, and CI/CD
-/.github/                       @renderd/maintainers
-/scripts/                       @renderd/maintainers
+# Repository Infrastructure, Release & CI/CD
+/.github/                       @Ad1th
+/scripts/                       @Ad1th
