@@ -64,7 +64,7 @@ hkdf               = { version = "0.12" }
 rcgen              = { version = "0.13" }
 zeroize            = { version = "1", features = ["derive"] }
 crossbeam-channel  = { version = "0.5" }
-criterion          = { version = "0.5", features = ["html_reports"] }
+criterion          = { version = "0.8", features = ["html_reports"] }
 proptest           = { version = "1" }
 cc                 = { version = "1" }
 bindgen            = { version = "0.70" }
