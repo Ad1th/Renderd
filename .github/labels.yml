@@ -1,0 +1,150 @@
+# Canonical GitHub Labels for Renderd
+
+- name: "type: bug"
+  color: "d73a4a"
+  description: "Something isn't working as expected"
+
+- name: "type: feature"
+  color: "a2eeef"
+  description: "New feature or enhancement proposal"
+
+- name: "type: perf"
+  color: "0052cc"
+  description: "Performance or latency optimization"
+
+- name: "type: refactor"
+  color: "fbca04"
+  description: "Code refactor without behavioral change"
+
+- name: "type: docs"
+  color: "0075ca"
+  description: "Documentation improvements or additions"
+
+- name: "type: security"
+  color: "b60205"
+  description: "Security vulnerability fix or security hardening"
+
+- name: "type: ci"
+  color: "bfdadc"
+  description: "Changes to CI/CD workflows and GitHub Actions"
+
+- name: "type: chore"
+  color: "c2e0c6"
+  description: "Maintenance tasks, dependency bumps, or repository tooling"
+
+# Crate Scopes
+- name: "crate: renderd-host"
+  color: "d4c5f9"
+  description: "Affects the macOS host daemon binary crate"
+
+- name: "crate: renderd-viewer"
+  color: "1d76db"
+  description: "Affects the Windows viewer client binary crate"
+
+- name: "crate: renderd-proto"
+  color: "5319e7"
+  description: "Affects control-plane Protobuf schema and generated types"
+
+- name: "crate: renderd-config"
+  color: "006b75"
+  description: "Affects layered configuration system and loader"
+
+- name: "crate: renderd-frame"
+  color: "bfd4f2"
+  description: "Affects fragment header codec and reassembly buffer"
+
+- name: "crate: renderd-crypto"
+  color: "0052cc"
+  description: "Affects Noise Protocol and AES-256-GCM crypto crate"
+
+- name: "crate: renderd-vt-sys"
+  color: "b60205"
+  description: "Affects VideoToolbox hardware encoder FFI bindings"
+
+- name: "crate: renderd-sc-sys"
+  color: "d93f0b"
+  description: "Affects ScreenCaptureKit capture FFI bindings"
+
+- name: "crate: renderd-net"
+  color: "1d76db"
+  description: "Affects QUIC socket transport and datagram pipeline"
+
+- name: "crate: renderd-keychain"
+  color: "c2e0c6"
+  description: "Affects Keychain and Credential Manager credential storage"
+
+- name: "crate: renderd-discovery"
+  color: "c5def5"
+  description: "Affects mDNS / Bonjour peer discovery engine"
+
+- name: "crate: renderd-abr"
+  color: "0e8a16"
+  description: "Affects Adaptive Bitrate control engine"
+
+- name: "crate: renderd-clock"
+  color: "fbca04"
+  description: "Affects monotonic clock offset estimator and stats"
+
+- name: "crate: deps"
+  color: "fef2c0"
+  description: "External or internal workspace dependency updates"
+
+# Platforms
+- name: "platform: macOS"
+  color: "000000"
+  description: "Specific to macOS host platform"
+
+- name: "platform: Windows"
+  color: "0078d4"
+  description: "Specific to Windows viewer platform"
+
+- name: "platform: cross-platform"
+  color: "6f42c1"
+  description: "Applies across all supported host and viewer platforms"
+
+# Priorities
+- name: "P0-critical"
+  color: "b60205"
+  description: "Critical priority - blocks release, security flaw, or crash"
+
+- name: "P1-high"
+  color: "d93f0b"
+  description: "High priority - key feature or noticeable latency regression"
+
+- name: "P2-medium"
+  color: "fbca04"
+  description: "Medium priority - standard feature or bug fix"
+
+- name: "P3-low"
+  color: "c2e0c6"
+  description: "Low priority - minor polish or nice-to-have"
+
+# Status
+- name: "status: needs-triage"
+  color: "ededed"
+  description: "Awaiting maintainer review and initial triage"
+
+- name: "status: accepted"
+  color: "0e8a16"
+  description: "Issue or feature proposal accepted for implementation"
+
+- name: "status: in-progress"
+  color: "fbca04"
+  description: "Currently actively worked on by a contributor"
+
+- name: "status: blocked"
+  color: "d93f0b"
+  description: "Blocked by an upstream dependency or design decision"
+
+- name: "status: ready-for-review"
+  color: "1d76db"
+  description: "Pull request is complete and awaiting maintainer review"
+
+# Release
+- name: "release: breaking-change"
+  color: "b60205"
+  description: "Contains breaking protocol or public API changes"
+
+- name: "release: highlight"
+  color: "006b75"
+  description: "Key highlight feature for release notes announcement"
