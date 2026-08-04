@@ -59,18 +59,11 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: Regenerate proto
-        run: |
-          if [ -f tools/proto-gen/Cargo.toml ]; then
-            cargo run --manifest-path tools/proto-gen/Cargo.toml
-          else
-            echo "tools/proto-gen not scaffolded yet (Issue #014); skipping."
-          fi
+        run: cargo run --manifest-path tools/proto-gen/Cargo.toml
       - name: Check no diff
         run: |
-          if [ -d crates/renderd-proto/src/generated/ ]; then
-            if ! git diff --quiet crates/renderd-proto/src/generated/; then
-              echo "Generated proto code is out of date. Run tools/proto-gen and commit."
-              git diff crates/renderd-proto/src/generated/
-              exit 1
-            fi
+          if ! git diff --quiet crates/renderd-proto/src/generated/; then
+            echo "Generated proto code is out of date. Run tools/proto-gen and commit."
+            git diff crates/renderd-proto/src/generated/
+            exit 1
           fi
