@@ -265,7 +265,7 @@ sliding-window fragment reassembly state machine.
 - `src/fragment.rs` — `Fragment { header: FragmentHeader, payload: Bytes }` and
   `Fragment::parse(datagram: &[u8]) -> Result<Fragment, FrameError>`
 - `src/frame.rs` — `CompleteFrame { frame_id: FrameId, is_keyframe: bool, data: Bytes }`
-- `src/window.rs` — `ReassemblyWindow` — the sliding-window state machine:
+- `src/window.rs` — `ReassemblyBuffer` — the sliding-window state machine:
   - `fn insert(&mut self, frag: Fragment) -> Option<CompleteFrame>`
   - `fn advance_deadline(&mut self, now: Instant) -> Vec<PartialFrameTimeout>`
   - Window depth `W = 4`; configurable via const generic
@@ -637,12 +637,12 @@ renderd-frame/
 ├── benches/
 │   └── reassembly.rs          # Criterion: throughput of window.insert()
 ├── src/
-│   ├── lib.rs                 # pub use {Fragment, CompleteFrame, ReassemblyWindow, ...}
+│   ├── lib.rs                 # pub use {Fragment, CompleteFrame, ReassemblyBuffer, ...}
 │   ├── error.rs               # pub enum FrameError { InvalidHeader, PayloadTooLarge, ... }
 │   ├── header.rs              # pub(crate) struct FragmentHeader; parse/serialize
 │   ├── fragment.rs            # pub struct Fragment; pub fn parse(bytes) -> Result
 │   ├── frame.rs               # pub struct CompleteFrame; pub struct PartialFrameTimeout
-│   ├── window.rs              # pub struct ReassemblyWindow<const W: usize = 4>
+│   ├── window.rs              # pub struct ReassemblyBuffer<const W: usize = 4>
 │   ├── deadline.rs            # pub struct DeadlineComputer
 │   └── tests/
 │       ├── header_tests.rs    # Unit tests for header parse/serialize roundtrip
@@ -913,7 +913,7 @@ Follow Rust API Guidelines (https://rust-lang.github.io/api-guidelines):
 
 | Item | Convention | Example |
 |------|-----------|---------|
-| Types, traits, enums | `UpperCamelCase` | `ReassemblyWindow`, `KeychainStore` |
+| Types, traits, enums | `UpperCamelCase` | `ReassemblyBuffer`, `KeychainStore` |
 | Functions, methods, variables | `snake_case` | `insert_fragment`, `pair_token` |
 | Constants | `SCREAMING_SNAKE_CASE` | `MAX_FRAGMENT_SIZE`, `WARMUP_FRAMES` |
 | Crate feature flags | `kebab-case` | `macos-bonjour`, `windows-dxgi` |
@@ -1330,7 +1330,7 @@ mod tests {
 
     #[test]
     fn single_fragment_frame_completes_immediately() {
-        let mut window = ReassemblyWindow::default();
+        let mut window = ReassemblyBuffer::default();
         let frag = make_fragment(frame_id: 1, frag_id: 0, frag_total: 1);
         let result = window.insert(frag);
         assert!(result.is_some(), "single-fragment frame must complete on first insert");
@@ -1338,7 +1338,7 @@ mod tests {
 
     #[test]
     fn out_of_order_fragments_complete_frame() {
-        let mut window = ReassemblyWindow::default();
+        let mut window = ReassemblyBuffer::default();
         // Fragment 1 arrives before fragment 0
         window.insert(make_fragment(frame_id: 1, frag_id: 1, frag_total: 2));
         let result = window.insert(make_fragment(frame_id: 1, frag_id: 0, frag_total: 2));
@@ -1364,7 +1364,7 @@ proptest! {
         frame_ids in proptest::collection::vec(0u64..100, 1..50),
         frag_counts in proptest::collection::vec(1u16..10, 1..50),
     ) {
-        let mut window = ReassemblyWindow::default();
+        let mut window = ReassemblyBuffer::default();
         let mut completed = std::collections::HashSet::new();
         for (frame_id, frag_total) in frame_ids.iter().zip(frag_counts.iter()) {
             for frag_id in 0..*frag_total {
@@ -1473,7 +1473,7 @@ of these benchmarks must be justified in the review.
 ```rust
 // benches/reassembly.rs
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
-use renderd_frame::{ReassemblyWindow, Fragment};
+use renderd_frame::{ReassemblyBuffer, Fragment};
 
 fn bench_reassembly_burst(c: &mut Criterion) {
     let mut group = c.benchmark_group("reassembly");
@@ -1486,7 +1486,7 @@ fn bench_reassembly_burst(c: &mut Criterion) {
                     .map(|i| make_fragment(1, i, count))
                     .collect();
                 b.iter(|| {
-                    let mut window = ReassemblyWindow::default();
+                    let mut window = ReassemblyBuffer::default();
                     for frag in &fragments {
                         window.insert(frag.clone());
                     }
