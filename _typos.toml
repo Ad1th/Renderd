@@ -1,5 +1,5 @@
 [default]
-extend-words = { prost = "prost", quinn = "quinn", vt = "vt", sc = "sc" }
+extend-words = { prost = "prost", quinn = "quinn", vt = "vt", sc = "sc", renderd = "renderd", Renderd = "Renderd" }
 
 [files]
 extend-exclude = ["*.proto", "target/"]
