@@ -30,3 +30,9 @@
 //! this crate, but every unsafe block is individually justified.
 
 #![cfg_attr(not(target_os = "macos"), allow(unused))]
+
+#[cfg(target_os = "macos")]
+pub mod error;
+
+#[cfg(target_os = "macos")]
+pub use error::VtError;
