@@ -7,7 +7,12 @@ rust-version.workspace = true
 description = "Layered configuration management for Renderd host and viewer daemons."
 
 [dependencies]
-serde = { workspace = true }
+serde     = { workspace = true }
+figment   = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile  = "3"
 
 [lints]
 workspace = true
