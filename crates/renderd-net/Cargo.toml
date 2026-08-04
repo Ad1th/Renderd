@@ -15,6 +15,7 @@ renderd-frame     = { workspace = true }
 renderd-crypto    = { workspace = true }
 quinn             = { workspace = true, features = ["ring", "runtime-tokio"] }
 rustls            = { workspace = true, features = ["ring", "std"] }
+prost             = { workspace = true }
 bytes             = { workspace = true }
 thiserror         = { workspace = true }
 tracing           = { workspace = true }
