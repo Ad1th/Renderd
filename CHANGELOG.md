@@ -23,3 +23,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added PR template and GitHub Issue forms for bug reports, latency regressions, and feature requests. (#010)
 - Added spell-checking configuration in `_typos.toml` and `.github/workflows/typos.yml`. (#011)
 - Added documentation deployment workflow in `.github/workflows/docs.yml` per REPO-0001 §18.5. (#012)
+- Added protobuf protocol schema definition in `proto/renderd.proto` per RFC-0002 §11. (#013)

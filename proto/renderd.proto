@@ -1,0 +1,106 @@
+syntax = "proto3";
+
+package renderd;
+
+// Main message envelope wrapping all control plane messages on Stream 0
+message Envelope {
+  oneof payload {
+    SessionHello      hello              = 1;
+    SessionConfig     config             = 2;
+    VsyncReport       vsync_report       = 3;
+    ReactiveStats     reactive_stats     = 4;
+    PeriodicStats     periodic_stats     = 5;
+    KeyframeRequest   keyframe_request   = 6;
+    BitrateAdjust     bitrate_adjust     = 7;
+    StreamReconfigure stream_reconfigure = 8;
+    Error             error              = 9;
+  }
+}
+
+// Display specifications sent by viewer
+message DisplayInfo {
+  uint32 width          = 1;
+  uint32 height         = 2;
+  float  refresh_rate   = 3;
+  bool   vrr_supported  = 4;
+}
+
+// Initial session handshake (Viewer -> Host)
+message SessionHello {
+  uint32      protocol_version     = 1;  // Sender's protocol version
+  uint32      min_required_version = 2;  // Minimum version required from peer
+  string      viewer_id            = 3;  // Viewer UUID string
+  repeated string supported_codecs = 4;  // ["hevc", "h264"]
+  uint32      max_decode_bitrate_kbps = 5;
+  DisplayInfo display              = 6;
+  bool        hw_decode_available  = 7;
+  string      session_nonce        = 8;  // Nonce for session key derivation
+}
+
+// Session configuration negotiated by Host (Host -> Viewer)
+message SessionConfig {
+  string selected_codec       = 1;  // "hevc" or "h264"
+  uint32 width                = 2;
+  uint32 height               = 3;
+  float  frame_rate           = 4;
+  uint32 initial_bitrate_kbps = 5;
+  bytes  codec_extra_data     = 6;  // HEVC VPS+SPS+PPS or H.264 SPS+PPS
+  bool   phase_sync_enabled   = 7;  // Vsync phase sync active flag
+}
+
+// Viewer -> Host: Vsync phase report (~16.7 ms period)
+message VsyncReport {
+  uint64 vsync_period_ns = 1;
+  uint64 vsync_phase_ns  = 2;  // Monotonic, local to viewer
+  uint64 clock_epoch_ns  = 3;  // Shared reference for offset computation
+}
+
+// Viewer -> Host: Short-term reactive telemetry (every 100 ms)
+message ReactiveStats {
+  float  loss_rate     = 1;  // Frame loss rate (0.0 to 1.0)
+  uint32 jitter_us     = 2;  // Fragment arrival jitter in microseconds
+  uint64 last_frame_id = 3;
+}
+
+// Viewer -> Host: Long-term periodic telemetry (every 500 ms)
+message PeriodicStats {
+  float  receive_bandwidth_kbps = 1;  // Estimated receive bandwidth
+  uint32 decode_time_us         = 2;  // Mean hardware decode time
+  uint32 render_time_us         = 3;  // Mean render + present time
+  uint64 frames_displayed       = 4;
+  uint64 frames_dropped         = 5;
+}
+
+// Viewer -> Host: Immediate keyframe request on frame loss
+message KeyframeRequest {
+  uint64 after_frame_id      = 1;
+  uint32 bandwidth_hint_kbps = 2;  // Viewer's current estimated receive BW
+}
+
+// Host -> Viewer: Dynamic bitrate adjustment decision
+message BitrateAdjust {
+  uint32 new_bitrate_kbps = 1;
+  bool   force_keyframe   = 2;
+}
+
+// Host -> Viewer: Resolution or framerate reconfiguration
+message StreamReconfigure {
+  uint32 new_width            = 1;
+  uint32 new_height           = 2;
+  float  new_frame_rate       = 3;
+  bytes  new_codec_extra_data = 4;
+}
+
+// Bidirectional protocol error notification
+message Error {
+  enum Code {
+    UNKNOWN              = 0;
+    VERSION_INCOMPATIBLE = 1;
+    NO_HW_CODEC          = 2;
+    AUTH_FAILED          = 3;
+    PAIRING_FAILED       = 4;
+    RATE_LIMITED         = 5;
+  }
+  Code   code    = 1;
+  string message = 2;
+}
