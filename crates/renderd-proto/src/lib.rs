@@ -1,5 +1,7 @@
-//! `Protobuf` types for Renderd control plane.
+//! `Protobuf` types and newtypes for Renderd control plane.
 
 pub mod generated;
+pub mod types;
 
 pub use generated::renderd::*;
+pub use types::*;

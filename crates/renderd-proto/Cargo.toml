@@ -8,6 +8,7 @@ description = "`Protobuf` types for Renderd control plane."
 
 [dependencies]
 prost = { workspace = true }
+uuid  = { workspace = true }
 
 [lints]
 workspace = true

@@ -25,3 +25,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added documentation deployment workflow in `.github/workflows/docs.yml` per REPO-0001 §18.5. (#012)
 - Added protobuf protocol schema definition in `proto/renderd.proto` per RFC-0002 §11. (#013)
 - Added `tools/proto-gen` code generator and generated `prost` Rust types in `renderd-proto` crate. (#014)
+- Added protocol domain newtypes (`FrameId`, `FragmentId`, `BitrateKbps`, `VsyncPeriodNs`, `ViewerId`, `HostId`) in `renderd-proto` crate. (#015)
