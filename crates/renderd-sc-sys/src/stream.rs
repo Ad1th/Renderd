@@ -38,12 +38,7 @@ struct RawCMTime {
 unsafe impl Encode for RawCMTime {
     const ENCODING: Encoding = Encoding::Struct(
         "CMTime",
-        &[
-            i64::ENCODING,
-            i32::ENCODING,
-            u32::ENCODING,
-            i64::ENCODING,
-        ],
+        &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
     );
 }
 
@@ -58,9 +53,14 @@ const fn to_raw_cmtime(t: CMTime) -> RawCMTime {
 
 extern "C" {
     fn CMSampleBufferGetImageBuffer(sbuf: CFTypeRef) -> *const std::ffi::c_void;
-    fn CVPixelBufferGetIOSurface(pixel_buffer: *const std::ffi::c_void) -> renderd_vt_sys::surface::IOSurfaceRef;
+    fn CVPixelBufferGetIOSurface(
+        pixel_buffer: *const std::ffi::c_void,
+    ) -> renderd_vt_sys::surface::IOSurfaceRef;
     fn CMSampleBufferGetPresentationTimeStamp(sbuf: CFTypeRef) -> CMTime;
-    fn dispatch_queue_create(label: *const i8, attr: *const std::ffi::c_void) -> *mut std::ffi::c_void;
+    fn dispatch_queue_create(
+        label: *const i8,
+        attr: *const std::ffi::c_void,
+    ) -> *mut std::ffi::c_void;
 }
 
 /// Single captured GPU video frame delivered by `ScreenStream`.
@@ -181,7 +181,8 @@ impl ScreenStream {
             // Set minimumFrameInterval to achieve target framerate
             if target_fps > 0 {
                 let interval_sec = 1.0 / f64::from(target_fps);
-                let min_interval = to_raw_cmtime(CMTime::make_with_seconds(interval_sec, 1_000_000));
+                let min_interval =
+                    to_raw_cmtime(CMTime::make_with_seconds(interval_sec, 1_000_000));
                 let _: () = msg_send![&config, setMinimumFrameInterval: min_interval];
             }
 
@@ -196,7 +197,9 @@ impl ScreenStream {
                 callback: Arc::new(callback),
             });
             let res: Option<Retained<RenderdStreamOutput>> = msg_send_id![super(partial), init];
-            res.ok_or_else(|| ScError::StreamFailed("Failed to initialize RenderdStreamOutput".into()))?
+            res.ok_or_else(|| {
+                ScError::StreamFailed("Failed to initialize RenderdStreamOutput".into())
+            })?
         };
 
         // SAFETY: initialize SCStream with filter, configuration, and delegate.
@@ -266,7 +269,8 @@ impl ScreenStream {
 
         // SAFETY: startCaptureWithCompletionHandler initiates stream capture asynchronously.
         unsafe {
-            self.stream.startCaptureWithCompletionHandler(Some(&handler));
+            self.stream
+                .startCaptureWithCompletionHandler(Some(&handler));
         }
 
         rx.recv_timeout(Duration::from_secs(5))
@@ -281,7 +285,8 @@ impl ScreenStream {
     /// # Errors
     /// Returns [`ScError::StreamFailed`] if configuration update fails.
     pub fn set_target_interval(&self, duration: Duration) -> Result<(), ScError> {
-        let min_interval = to_raw_cmtime(CMTime::make_with_seconds(duration.as_secs_f64(), 1_000_000));
+        let min_interval =
+            to_raw_cmtime(CMTime::make_with_seconds(duration.as_secs_f64(), 1_000_000));
         let _: () = unsafe { msg_send![&self.config, setMinimumFrameInterval: min_interval] };
 
         let (tx, rx) = channel();
@@ -302,8 +307,9 @@ impl ScreenStream {
                 .updateConfiguration_completionHandler(&self.config, Some(&handler));
         }
 
-        rx.recv_timeout(Duration::from_secs(2))
-            .map_err(|_| ScError::StreamFailed("Timed out updating SCStream configuration".into()))??;
+        rx.recv_timeout(Duration::from_secs(2)).map_err(|_| {
+            ScError::StreamFailed("Timed out updating SCStream configuration".into())
+        })??;
 
         Ok(())
     }
@@ -367,7 +373,11 @@ mod tests {
         let filter = ContentFilter::main_display().expect("main_display filter creation");
 
         let stream_res = ScreenStream::new(&filter, 60, |_frame| {});
-        assert!(stream_res.is_ok(), "ScreenStream::new failed: {:?}", stream_res.err());
+        assert!(
+            stream_res.is_ok(),
+            "ScreenStream::new failed: {:?}",
+            stream_res.err()
+        );
 
         let stream = stream_res.unwrap();
         assert!(!stream.is_running());

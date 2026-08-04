@@ -11,8 +11,8 @@ use std::sync::Arc;
 use crate::bindings::{
     renderd_VTCompressionSessionCreate, renderd_VTCompressionSessionEncodeFrame,
     renderd_VTCompressionSessionInvalidate, renderd_VTCompressionSessionSetBitrate,
-    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus, VTEncodeInfoFlags,
-    VTCompressionSessionRef, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
+    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus, VTCompressionSessionRef,
+    VTEncodeInfoFlags, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
@@ -44,7 +44,8 @@ impl VideoCodec {
 /// - `status`: `VtError` status code (`0` / `noErr` on success)
 /// - `info_flags`: `VideoToolbox` encode info flags
 /// - `sample_buffer`: `CoreMedia` sample buffer containing encoded NAL units
-pub type OutputCallback = Arc<dyn Fn(VtError, VTEncodeInfoFlags, CMSampleBufferRef) + Send + Sync + 'static>;
+pub type OutputCallback =
+    Arc<dyn Fn(VtError, VTEncodeInfoFlags, CMSampleBufferRef) + Send + Sync + 'static>;
 
 struct CallbackBox {
     callback: OutputCallback,
@@ -257,7 +258,9 @@ mod tests {
     use std::sync::Arc;
 
     extern "C" {
-        fn IOSurfaceCreate(properties: core_foundation::base::CFTypeRef) -> crate::surface::IOSurfaceRef;
+        fn IOSurfaceCreate(
+            properties: core_foundation::base::CFTypeRef,
+        ) -> crate::surface::IOSurfaceRef;
     }
 
     #[test]
@@ -314,7 +317,10 @@ mod tests {
         let dict = core_foundation::dictionary::CFDictionary::from_CFType_pairs(&[
             (width_key.as_CFType(), width_val.as_CFType()),
             (height_key.as_CFType(), height_val.as_CFType()),
-            (bytes_per_elem_key.as_CFType(), bytes_per_elem_val.as_CFType()),
+            (
+                bytes_per_elem_key.as_CFType(),
+                bytes_per_elem_val.as_CFType(),
+            ),
             (pixel_format_key.as_CFType(), pixel_format_val.as_CFType()),
         ]);
 

@@ -8,9 +8,7 @@
 //! This module provides [`IoSurface`], an RAII wrapper over `IOSurfaceRef` that manages
 //! CoreFoundation reference counting via `CFRetain` and `CFRelease`.
 
-use core_foundation::base::{
-    CFGetRetainCount, CFRelease, CFRetain, CFTypeID, CFTypeRef,
-};
+use core_foundation::base::{CFGetRetainCount, CFRelease, CFRetain, CFTypeID, CFTypeRef};
 
 /// Raw opaque `IOSurfaceRef` handle.
 pub type IOSurfaceRef = *const std::ffi::c_void;
@@ -160,7 +158,10 @@ mod tests {
         let dict = CFDictionary::from_CFType_pairs(&[
             (width_key.as_CFType(), width_val.as_CFType()),
             (height_key.as_CFType(), height_val.as_CFType()),
-            (bytes_per_elem_key.as_CFType(), bytes_per_elem_val.as_CFType()),
+            (
+                bytes_per_elem_key.as_CFType(),
+                bytes_per_elem_val.as_CFType(),
+            ),
         ]);
 
         // SAFETY: dict is a valid CFDictionary.
@@ -206,7 +207,8 @@ mod tests {
         assert!(!raw.is_null());
 
         // SAFETY: raw has count 1. from_raw_retained increments to 2.
-        let surface = unsafe { IoSurface::from_raw_retained(raw) }.expect("from_raw_retained failed");
+        let surface =
+            unsafe { IoSurface::from_raw_retained(raw) }.expect("from_raw_retained failed");
         assert_eq!(surface.retain_count(), 2);
 
         // Clean up the original raw reference

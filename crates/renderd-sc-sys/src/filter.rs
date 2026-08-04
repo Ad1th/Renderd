@@ -129,35 +129,38 @@ impl ContentFilter {
 fn fetch_shareable_content() -> Result<Retained<SCShareableContent>, ScError> {
     let (tx, rx) = channel();
 
-    let handler = RcBlock::new(move |content: *mut SCShareableContent, error: *mut NSError| {
-        if !error.is_null() {
-            // SAFETY: error is a valid non-null NSError object.
-            let err_msg = unsafe { (*error).localizedDescription().to_string() };
-            let _ = tx.send(Err(ScError::FilterCreationFailed(err_msg)));
-        } else if !content.is_null() {
-            // SAFETY: content is a valid non-null SCShareableContent object.
-            let retained = unsafe { Retained::retain(content) };
-            if let Some(retained) = retained {
-                let _ = tx.send(Ok(retained));
+    let handler = RcBlock::new(
+        move |content: *mut SCShareableContent, error: *mut NSError| {
+            if !error.is_null() {
+                // SAFETY: error is a valid non-null NSError object.
+                let err_msg = unsafe { (*error).localizedDescription().to_string() };
+                let _ = tx.send(Err(ScError::FilterCreationFailed(err_msg)));
+            } else if !content.is_null() {
+                // SAFETY: content is a valid non-null SCShareableContent object.
+                let retained = unsafe { Retained::retain(content) };
+                if let Some(retained) = retained {
+                    let _ = tx.send(Ok(retained));
+                } else {
+                    let _ = tx.send(Err(ScError::FilterCreationFailed(
+                        "Failed to retain SCShareableContent".into(),
+                    )));
+                }
             } else {
                 let _ = tx.send(Err(ScError::FilterCreationFailed(
-                    "Failed to retain SCShareableContent".into(),
+                    "Null shareable content returned".into(),
                 )));
             }
-        } else {
-            let _ = tx.send(Err(ScError::FilterCreationFailed(
-                "Null shareable content returned".into(),
-            )));
-        }
-    });
+        },
+    );
 
     // SAFETY: getShareableContentWithCompletionHandler is the standard ScreenCaptureKit async entrypoint.
     unsafe {
         SCShareableContent::getShareableContentWithCompletionHandler(&handler);
     }
 
-    rx.recv_timeout(Duration::from_secs(5))
-        .map_err(|_| ScError::FilterCreationFailed("Timed out waiting for SCShareableContent".into()))?
+    rx.recv_timeout(Duration::from_secs(5)).map_err(|_| {
+        ScError::FilterCreationFailed("Timed out waiting for SCShareableContent".into())
+    })?
 }
 
 #[cfg(test)]
@@ -173,7 +176,11 @@ mod tests {
         }
 
         let filter_res = ContentFilter::main_display();
-        assert!(filter_res.is_ok(), "main_display failed: {:?}", filter_res.err());
+        assert!(
+            filter_res.is_ok(),
+            "main_display failed: {:?}",
+            filter_res.err()
+        );
 
         let filter = filter_res.unwrap();
         assert!(filter.display_id() > 0);

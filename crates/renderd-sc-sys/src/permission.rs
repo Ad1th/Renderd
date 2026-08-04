@@ -67,7 +67,10 @@ mod tests {
     fn test_permission_check_returns_status_without_crashing() {
         let status = ScreenRecordingPermission::check();
         // Just verify that preflight query executes cleanly without panic.
-        assert!(matches!(status, PermissionStatus::Granted | PermissionStatus::Denied));
+        assert!(matches!(
+            status,
+            PermissionStatus::Granted | PermissionStatus::Denied
+        ));
         assert_eq!(status.is_granted(), status == PermissionStatus::Granted);
     }
 }
