@@ -16,7 +16,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Build rustdoc
         run: |
-          cargo doc --no-deps --workspace --exclude renderd-host --exclude renderd-viewer
+          cargo doc --no-deps --workspace --exclude renderd-host --exclude renderd-viewer --exclude renderd-vt-sys --exclude renderd-sc-sys
           mkdir -p site/api
           cp -r target/doc/* site/api/
       - name: Upload Pages Artifact
