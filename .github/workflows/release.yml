@@ -1,0 +1,167 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: "Tag name to release (e.g. v0.3.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  prepare-release-notes:
+    name: Prepare Release Notes
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+      changelog_notes: ${{ steps.changelog.outputs.notes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine Version & Prerelease Status
+        id: version
+        run: |
+          TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
+          VERSION="${TAG_NAME#v}"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          if [[ "${VERSION}" == *"-"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Extract Changelog Section
+        id: changelog
+        run: |
+          TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
+          SECTION=$(awk -v tag="## \[$TAG_NAME\]" -v tag_plain="## \[\(${TAG_NAME#v}\)\]" '
+            $0 ~ tag || $0 ~ tag_plain {flag=1; next}
+            /^## \[/ {flag=0}
+            flag {print}
+          ' CHANGELOG.md)
+
+          if [ -z "$SECTION" ]; then
+            SECTION="Release ${TAG_NAME} - See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed commit history."
+          fi
+
+          EOF=$(dd if=/dev/urandom bs=15 count=1 status=none | base64)
+          echo "notes<<$EOF" >> $GITHUB_OUTPUT
+          echo "$SECTION" >> $GITHUB_OUTPUT
+          echo "$EOF" >> $GITHUB_OUTPUT
+
+  build-host-mac:
+    name: Build Host (macOS Apple Silicon)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build renderd-host Release Binary
+        run: cargo build --release --target aarch64-apple-darwin --package renderd-host
+
+      - name: Package Host Artifact
+        run: |
+          TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
+          ARCHIVE_DIR="renderd-host-${TAG_NAME}-aarch64-apple-darwin"
+          mkdir -p "${ARCHIVE_DIR}"
+          cp target/aarch64-apple-darwin/release/renderd-host "${ARCHIVE_DIR}/"
+          cp README.md LICENSE "${ARCHIVE_DIR}/" || true
+          tar -czvf "${ARCHIVE_DIR}.tar.gz" "${ARCHIVE_DIR}"
+          shasum -a 256 "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
+
+      - name: Upload Host Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: host-macos-aarch64
+          path: |
+            renderd-host-*.tar.gz
+            renderd-host-*.sha256
+
+  build-viewer-windows:
+    name: Build Viewer (Windows)
+    runs-on: windows-2025
+    strategy:
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build renderd-viewer Release Binary
+        run: cargo build --release --target ${{ matrix.target }} --package renderd-viewer
+
+      - name: Package Viewer Artifact
+        shell: pwsh
+        run: |
+          $TagName = if ("${{ github.event.inputs.tag_name }}" -ne "") { "${{ github.event.inputs.tag_name }}" } else { "${{ github.ref_name }}" }
+          $ArchiveName = "renderd-viewer-${TagName}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $ArchiveName
+          Copy-Item "target/${{ matrix.target }}/release/renderd-viewer.exe" -Destination "$ArchiveName/"
+          if (Test-Path "LICENSE") { Copy-Item "LICENSE" -Destination "$ArchiveName/" }
+          Compress-Archive -Path "$ArchiveName/*" -DestinationPath "${ArchiveName}.zip"
+          $hash = (Get-FileHash -Algorithm SHA256 "${ArchiveName}.zip").Hash.ToLower()
+          "$hash  ${ArchiveName}.zip" | Out-File -Encoding ascii "${ArchiveName}.zip.sha256"
+
+      - name: Upload Viewer Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: viewer-${{ matrix.target }}
+          path: |
+            renderd-viewer-*.zip
+            renderd-viewer-*.sha256
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [prepare-release-notes, build-host-mac, build-viewer-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Aggregate Checksums
+        run: |
+          cd release-assets
+          cat *.sha256 > SHA256SUMS.txt
+          echo "Aggregated checksums:"
+          cat SHA256SUMS.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag_name || github.ref_name }}
+          name: Renderd ${{ github.event.inputs.tag_name || github.ref_name }}
+          body: ${{ needs.prepare-release-notes.outputs.changelog_notes }}
+          prerelease: ${{ needs.prepare-release-notes.outputs.is_prerelease == 'true' }}
+          draft: false
+          files: |
+            release-assets/*.tar.gz
+            release-assets/*.zip
+            release-assets/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
