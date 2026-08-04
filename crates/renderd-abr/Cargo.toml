@@ -10,5 +10,8 @@ description = "Adaptive Bitrate (ABR) control algorithm and telemetry state mach
 renderd-proto = { workspace = true }
 thiserror     = { workspace = true }
 
+[dev-dependencies]
+proptest = "1.6"
+
 [lints]
 workspace = true

@@ -45,3 +45,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added ABR state machine enum (`AbrState`) in `renderd-abr` crate per RFC-0002 §14.1. (#032)
 - Added ABR decision engine (`AbrEngine`) calculating target bitrates per RFC-0002 §14.2. (#033)
 - Added ABR telemetry report converter (`TelemetryReport`) processing PeriodicStats and ReactiveStats in `renderd-abr` crate per RFC-0002 §14.3. (#034)
+- Added ABR unit and property-based test suite in `renderd-abr` crate. (#035)
