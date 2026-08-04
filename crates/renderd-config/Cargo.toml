@@ -4,7 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Configuration schema and loading for Renderd."
+description = "Layered configuration management for Renderd host and viewer daemons."
+
+[dependencies]
+serde = { workspace = true }
 
 [lints]
 workspace = true
