@@ -1,0 +1,50 @@
+# Renderd macOS Host Daemon Configuration Template
+
+[host]
+# Display index to capture (0 = primary display)
+display_id = 0
+
+# Target capture framerate (1 to 240 fps)
+target_fps = 60
+
+# Maximum allowed hardware encoder bitrate in kbps (1000 to 200000 kbps)
+max_bitrate_kbps = 50000
+
+# Hardware video encoder codec ("hevc" or "h264")
+codec = "hevc"
+
+# Enable vsync phase synchronization with viewer
+vsync_phase_sync = true
+
+[network]
+# IP address string to bind host daemon socket
+bind_address = "0.0.0.0"
+
+# UDP port for host QUIC listener socket
+listen_port = 4433
+
+# QUIC Maximum Transmission Unit (1200 to 1500 bytes)
+quic_mtu = 1350
+
+# Peer connection timeout in milliseconds
+connect_timeout_ms = 5000
+
+[crypto]
+# macOS Keychain service name
+keychain_service = "dev.renderd.daemon"
+
+# Require mutual TLS or pairing token authentication
+require_auth = true
+
+[abr]
+# Minimum allowed encoder bitrate in kbps
+min_bitrate_kbps = 5000
+
+# Maximum allowed encoder bitrate in kbps
+max_bitrate_kbps = 100000
+
+# Bitrate step size for incremental adjustments in kbps
+step_kbps = 2000
+
+# Packet loss rate threshold triggering down-step (0.0 to 1.0)
+loss_threshold = 0.02

@@ -1,0 +1,40 @@
+# Renderd Windows 11 Viewer Client Configuration Template
+
+[viewer]
+# Initial display window width in pixels
+window_width = 1920
+
+# Initial display window height in pixels
+window_height = 1080
+
+# Start viewer in exclusive fullscreen mode
+fullscreen = false
+
+# Enable vertical synchronization on D3D12 present
+vsync = true
+
+# Enable D3D12 hardware video decode acceleration
+hw_accel = true
+
+# Target jitter buffer delay in milliseconds (0 to 500 ms)
+jitter_buffer_ms = 10
+
+[network]
+# IP address string to bind viewer client socket
+bind_address = "0.0.0.0"
+
+# UDP port for viewer client socket
+listen_port = 0
+
+# QUIC Maximum Transmission Unit (1200 to 1500 bytes)
+quic_mtu = 1350
+
+# Peer connection timeout in milliseconds
+connect_timeout_ms = 5000
+
+[crypto]
+# Windows Credential Manager service name
+keychain_service = "dev.renderd.viewer"
+
+# Require mutual TLS or pairing token authentication
+require_auth = true
