@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: GitHub Discussions Q&A
+    url: https://github.com/Ad1th/renderd/discussions/categories/q-a
+    about: Ask usage, configuration, or architectural questions.
+  - name: Security Vulnerability Reporting
+    url: https://github.com/Ad1th/renderd/security/advisories/new
+    about: Report security vulnerabilities privately per SECURITY.md.
+  - name: Project Documentation
+    url: https://github.com/Ad1th/renderd#readme
+    about: Browse architecture specs (RFC-0002) and repository documentation.

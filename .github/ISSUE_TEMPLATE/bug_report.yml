@@ -1,35 +1,77 @@
 name: Bug Report
-description: Create a bug report to help us improve Renderd
-labels: ["bug"]
+description: Report a bug or runtime failure in Renderd
+labels: ["type: bug", "status: needs-triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report a bug! Please ensure you have searched existing issues before submitting.
+
   - type: textarea
     id: summary
     attributes:
       label: Bug Summary
       description: A clear and concise description of what the bug is.
+      placeholder: e.g., Renderd Host daemon panics when client disconnects during active HEVC encoding
     validations:
       required: true
+
   - type: dropdown
     id: platform
     attributes:
-      label: Platform
-      description: What platform did this occur on?
+      label: Affected Component & Platform
+      description: Which part of the system is affected?
       options:
-        - macOS Host (Apple Silicon)
-        - Windows Viewer (Windows 10+)
-        - Both
+        - macOS Host Daemon (Apple Silicon / macOS 13+)
+        - Windows Viewer Client (x86_64 / Windows 10+)
+        - Windows Viewer Client (ARM64 / Windows 11)
+        - Both Host and Viewer (QUIC Protocol / Transport)
+        - Build system / CI / Cargo Workspace
     validations:
       required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Renderd Version / Commit SHA
+      description: Version number or commit hash (e.g. v0.3.0 or commit sha).
+      placeholder: v0.3.0
+    validations:
+      required: true
+
+  - type: input
+    id: os_environment
+    attributes:
+      label: Operating System Details
+      description: OS version and hardware specifications.
+      placeholder: macOS 14.5 Sonoma (M2 Max) / Windows 11 23H2 (RTX 4080)
+    validations:
+      required: true
+
   - type: textarea
     id: reproduction
     attributes:
       label: Steps to Reproduce
-      description: Steps to reproduce the behavior.
+      description: Step-by-step instructions to reproduce the behavior.
+      placeholder: |
+        1. Start host daemon on macOS with `renderd-host --config host.toml`
+        2. Launch viewer client on Windows 11
+        3. Terminate viewer window during stream
+        4. Observe host crash in tracing log
     validations:
       required: true
+
+  - type: textarea
+    id: expected_behavior
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
   - type: textarea
     id: logs
     attributes:
       label: Terminal / Tracing Logs
-      description: Paste relevant logs from `tracing` output.
+      description: Paste relevant logs from `tracing` output or terminal stdout/stderr.
       render: shell

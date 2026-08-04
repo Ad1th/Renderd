@@ -1,29 +1,42 @@
+# Renderd CODEOWNERS File
+# https://docs.github.com/en/repositories/managing-repository-files-with-github-codeowners/about-codeowners
+
 # Global fallback — every PR requires at least one maintainer review
 *                               @renderd/maintainers
 
-# Foundation layer — any maintainer can review
+# Foundation layer — maintainers review
 /crates/renderd-proto/          @renderd/maintainers
 /crates/renderd-config/         @renderd/maintainers
 
-# Cryptography — requires crypto-qualified reviewer
+# Cryptography & Security — requires crypto-qualified reviewer
 /crates/renderd-crypto/         @renderd/crypto-reviewers
+/SECURITY.md                    @renderd/crypto-reviewers
 
-# FFI layer — requires platform specialist
+# macOS FFI layer — requires macOS platform specialist
 /crates/renderd-vt-sys/         @renderd/macos-team
 /crates/renderd-sc-sys/         @renderd/macos-team
 
-# Algorithm layer — requires latency-domain reviewer
+# Algorithm layer — requires latency-domain specialist
 /crates/renderd-abr/            @renderd/algorithms-team
 /crates/renderd-clock/          @renderd/algorithms-team
+/crates/renderd-frame/          @renderd/algorithms-team
 
-# Host binary — macOS specialists
+# Network & Service layer — network team
+/crates/renderd-net/            @renderd/network-team
+/crates/renderd-discovery/      @renderd/network-team
+/crates/renderd-keychain/       @renderd/maintainers
+
+# Executable binaries — platform specialists
 /crates/renderd-host/           @renderd/macos-team
-
-# Viewer binary — Windows specialists
 /crates/renderd-viewer/         @renderd/windows-team
 
-# CI/CD — any maintainer
-/.github/                       @renderd/maintainers
-
-# Protocol — all protocol changes need RFC update
+# Protocol Schema — all protocol changes require maintainer review
 /proto/                         @renderd/maintainers
+/tools/proto-gen/               @renderd/maintainers
+
+# Benchmarks & Tooling
+/tools/latency-bench/           @renderd/algorithms-team
+
+# Automation, Release, and CI/CD
+/.github/                       @renderd/maintainers
+/scripts/                       @renderd/maintainers

@@ -1,0 +1,31 @@
+name: Documentation Issue
+description: Report missing, outdated, or unclear documentation in specs or README
+labels: ["type: docs", "status: needs-triage"]
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Documentation Issue Summary
+      description: Describe what needs to be added, corrected, or clarified.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: doc_location
+    attributes:
+      label: Documentation Location
+      options:
+        - README.md / CONTRIBUTING.md / SECURITY.md
+        - Architecture RFCs (`docs/RFC-0001`, `docs/RFC-0002`)
+        - Repository Spec (`docs/REPO-0001-repository.md`)
+        - Roadmap & Milestones (`docs/ISSUES-0001-milestones.md`)
+        - Benchmark & Crypto Reports (`docs/BENCHMARK-ROADMAP.md`, `docs/CRYPTO-AUDIT.md`)
+        - Rustdoc crate API documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggested_changes
+    attributes:
+      label: Suggested Content / Fix
+      description: Provide text or structure for the documentation update.

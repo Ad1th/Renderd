@@ -1,24 +1,59 @@
 name: Latency Regression Report
-description: Report a latency regression in the capture, encode, network, or decode pipeline
-labels: ["perf", "latency"]
+description: Report a glass-to-glass latency regression or pipeline stage delay
+labels: ["type: perf", "P1-high", "status: needs-triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Latency regressions violate Renderd's core sub-16ms design principle (RFC-0002 §3). Please provide precise latency numbers from `tools/latency-bench`.
+
   - type: textarea
     id: summary
     attributes:
       label: Regression Summary
-      description: Describe the observed increase in glass-to-glass latency or pipeline stage latency.
+      description: Describe the observed increase in latency or frame jitter.
+      placeholder: e.g., Glass-to-glass latency increased from 14.2ms to 22.8ms at 1080p60 after commit xyz...
     validations:
       required: true
+
+  - type: dropdown
+    id: pipeline_stage
+    attributes:
+      label: Affected Pipeline Stage
+      options:
+        - ScreenCaptureKit Frame Capture (`renderd-sc-sys`)
+        - VideoToolbox Hardware HEVC Encoder (`renderd-vt-sys`)
+        - Fragment Splitting & Codec (`renderd-frame`)
+        - QUIC Datagram Network Transmission (`renderd-net`)
+        - Sliding-Window Reassembly Buffer (`renderd-frame`)
+        - Direct3D12 / MediaFoundation Decoder & Present (`renderd-viewer`)
+        - Monotonic Clock / Vsync Sync (`renderd-clock`)
+        - Unknown / Glass-to-Glass Total
+    validations:
+      required: true
+
   - type: textarea
     id: benchmark_output
     attributes:
       label: Benchmarking Output (`latency-bench`)
-      description: Output from `tools/latency-bench` before and after the regression.
+      description: Output from `cargo run --package latency-bench` before and after regression.
       render: shell
     validations:
       required: true
+
   - type: input
     id: commit_sha
     attributes:
-      label: Suspected Commit SHA
+      label: Suspected Commit SHA / PR
       description: The commit or PR where the regression was introduced.
+      placeholder: e.g. 8c5c8ae or #035
+    validations:
+      required: true
+
+  - type: input
+    id: network_hardware
+    attributes:
+      label: Network & Display Hardware Setup
+      description: Network connection (Wi-Fi 6, 2.5GbE LAN) and display refresh rate (e.g. 120Hz/144Hz).
+    validations:
+      required: true

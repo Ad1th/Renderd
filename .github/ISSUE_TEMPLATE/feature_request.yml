@@ -1,18 +1,46 @@
 name: Feature Request
-description: Suggest an idea or feature for Renderd
-labels: ["enhancement"]
+description: Propose a new feature, architecture enhancement, or capability for Renderd
+labels: ["type: feature", "status: needs-triage"]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        Please refer to [RFC-0002 §20 (Future Work)](docs/RFC-0002-architecture.md) to check if your feature proposal is already outlined in the roadmap.
+
   - type: textarea
     id: problem
     attributes:
-      label: Problem Statement
-      description: Is your feature request related to a problem? Please describe.
+      label: Problem Statement / Motivation
+      description: Is your feature request related to a problem or limitation? Please describe clearly.
+      placeholder: e.g., Currently, audio stream multiplexing is not supported alongside video datagrams...
     validations:
       required: true
+
   - type: textarea
     id: solution
     attributes:
-      label: Proposed Solution
-      description: Describe the solution you'd like. Refer to RFC-0002 §20 (Future Work) if applicable.
+      label: Proposed Solution & Architecture
+      description: Describe the solution you'd like to see implemented. Reference affected crates and RFC sections.
     validations:
       required: true
+
+  - type: checkboxes
+    id: affected_crates
+    attributes:
+      label: Affected Crates & Components
+      options:
+        - label: `renderd-proto` (Protobuf schemas)
+        - label: `renderd-config` (Configuration settings)
+        - label: `renderd-frame` (Frame fragmentation / reassembly)
+        - label: `renderd-crypto` (Noise Protocol / Encryption)
+        - label: `renderd-vt-sys` / `renderd-sc-sys` (macOS FFI)
+        - label: `renderd-net` (QUIC transport)
+        - label: `renderd-keychain` / `renderd-discovery` (Security & mDNS)
+        - label: `renderd-abr` / `renderd-clock` (Algorithms)
+        - label: `renderd-host` / `renderd-viewer` (Daemons)
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternative Solutions Considered
+      description: Describe any alternative solutions or features you've considered.
