@@ -84,7 +84,7 @@ jobs:
           shasum -a 256 "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
 
       - name: Upload Host Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: host-macos-aarch64
           path: |
@@ -124,7 +124,7 @@ jobs:
           "$hash  ${ArchiveName}.zip" | Out-File -Encoding ascii "${ArchiveName}.zip.sha256"
 
       - name: Upload Viewer Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: viewer-${{ matrix.target }}
           path: |
