@@ -12,7 +12,7 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Build rustdoc
         run: |
@@ -21,12 +21,12 @@ jobs:
           cp -r target/doc/* site/api/
       - name: Upload Pages Artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - name: Deploy to GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
         with:
           artifact-name: github-pages
 
