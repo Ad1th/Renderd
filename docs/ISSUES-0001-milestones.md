@@ -1007,12 +1007,12 @@ Builds `renderd-host` (macOS Login Item Agent) by composing underlying crates.
 
 ## Milestone 8: Viewer Application (`renderd-viewer`) (Issues #089–#100)
 
-Builds `renderd-viewer` (Windows 11 Client) by composing underlying crates.
+Builds `renderd-viewer` (Windows 10+ Client) by composing underlying crates.
 
 ---
 
 ### Issue #089: Scaffold `renderd-viewer` Application & Window Manager (`winit`)
-- **Rationale:** Initializes Windows 11 application and handles window creation, borderless fullscreen, and message loop using `winit` (RFC-0002 §6.3).
+- **Rationale:** Initializes Windows application and handles window creation, borderless fullscreen, and message loop using `winit` (RFC-0002 §6.3).
 - **Dependencies:** #001
 - **Acceptance Criteria:**
   - Borderless fullscreen window created on Windows target using `winit`.
@@ -1128,7 +1128,7 @@ Builds `renderd-viewer` (Windows 11 Client) by composing underlying crates.
 - **Acceptance Criteria:**
   - System tray icon created via Win32 `Shell_NotifyIcon`.
   - Context menu options: "Connect to Host...", "Settings", "Disconnect", "Exit".
-- **Testing:** Manual test confirms tray icon functions on Windows 11.
+- **Testing:** Manual test confirms tray icon functions on Windows 10/11.
 - **Estimated Effort:** 5 hours
 
 ---

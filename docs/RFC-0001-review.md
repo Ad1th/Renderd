@@ -380,7 +380,7 @@ The RFC correctly identifies `dns_sd.h` (Bonjour) for macOS in §7.1 bullet poin
 
 **Proposed Solution:**  
 - macOS host: use `dns_sd.h` via `bonjour-sys` crate (or write a thin C binding) — no exceptions.
-- Windows viewer: use `mdns-sd` crate OR Windows `DnsServiceRegister` API. Evaluate which has better multicast reliability on Windows 11 with Defender Firewall.
+- Windows viewer: use `mdns-sd` crate OR Windows `DnsServiceRegister` API. Evaluate which has better multicast reliability on Windows 10/11 with Defender Firewall.
 - Add a discovery fallback: if mDNS fails (firewall, IGMP suppression, VPN), allow manual IP+port entry in the viewer UI. This is critical for corporate LAN environments where multicast is blocked.
 
 **Architectural Impact:**  
@@ -590,7 +590,7 @@ Using `DXGI_PRESENT_ALLOW_TEARING` requires:
 
 If the viewer system doesn't support tearing (e.g., integrated GPU, HDMI output without VRR, driver doesn't support it), creating the swap chain with `DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING` and calling `Present1()` with `DXGI_PRESENT_ALLOW_TEARING` will result in **`DXGI_ERROR_INVALID_CALL`** — a runtime crash.
 
-The RFC doesn't mention the capability check, meaning the viewer will crash on systems without tearing support (which is a significant portion of Windows 11 users without gaming monitors).
+The RFC doesn't mention the capability check, meaning the viewer will crash on systems without tearing support (which is a significant portion of Windows 10/11 users without gaming monitors).
 
 **Proposed Solution:**  
 - Always call `IDXGIFactory5::CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING)` at startup.

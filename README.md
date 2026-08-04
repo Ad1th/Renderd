@@ -6,9 +6,9 @@
 [![MSRV: 1.80](https://img.shields.io/badge/MSRV-1.80-blue.svg)](https://blog.rust-lang.org)
 [![Status: Pre-release](https://img.shields.io/badge/Status-Pre--release-red.svg)](#current-implementation-status)
 
-> **High-performance, peer-to-peer macOS host to Windows 11 display streaming daemon built in Rust.**
+> **High-performance, peer-to-peer macOS host to Windows 10+ display streaming daemon built in Rust.**
 
-`Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows 11 PC as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
+`Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
 > `Renderd` is currently in active pre-release development (**Milestone 2 complete**). Core infrastructure, protocol schemas, and configuration engines are established; streaming data plane pipelines are under active construction.
@@ -21,9 +21,9 @@ Software display extensions between macOS and Windows endpoints have historicall
 
 1. **Proprietary Relays & Subscription Paywalls:** Most commercial cross-platform display applications route video frames through remote cloud servers or require subscription services.
 2. **High Latency & Frame Stutter:** Protocols built on top of WebRTC or TCP struggle with jitter control and frame pacing on high-refresh-rate displays (120Hz/144Hz).
-3. **Lack of macOS Host → Windows Viewer Synergy:** Existing open-source tools (like Sunshine/Moonlight) are optimized primarily for Windows hosts streaming to client devices. There is no dedicated, lightweight daemon for a macOS host streaming to a Windows 11 viewer.
+3. **Lack of macOS Host → Windows Viewer Synergy:** Existing open-source tools (like Sunshine/Moonlight) are optimized primarily for Windows hosts streaming to client devices. There is no dedicated, lightweight daemon for a macOS host streaming to a Windows 10 or later viewer.
 
-`Renderd` solves this by pairing Apple's zero-copy `ScreenCaptureKit` and `VideoToolbox` hardware encoder directly with Windows 11's low-overhead `Direct3D12` / `MediaFoundation` decoder over a custom QUIC transport layer.
+`Renderd` solves this by pairing Apple's zero-copy `ScreenCaptureKit` and `VideoToolbox` hardware encoder directly with Windows' low-overhead `Direct3D12` / `MediaFoundation` decoder over a custom QUIC transport layer.
 
 ---
 
@@ -32,7 +32,7 @@ Software display extensions between macOS and Windows endpoints have historicall
 | Feature / Metric | Apple Sidecar | Luna Display | Sunshine / Moonlight | DeskIn / Duet | **Renderd** |
 |---|---|---|---|---|---|
 | **Host Support** | macOS | macOS / Windows | Windows / Linux | macOS / Windows | **macOS 14+** |
-| **Viewer Support** | iPadOS only | iPadOS / Mac / Win | Multi-platform | Multi-platform | **Windows 11 (x64/ARM64)** |
+| **Viewer Support** | iPadOS only | iPadOS / Mac / Win | Multi-platform | Multi-platform | **Windows 10+ (x64/ARM64)** |
 | **Protocol Transport** | Proprietary AWDL | Proprietary Wi-Fi/USB | WebRTC / Custom UDP | Cloud Relay / TCP | **QUIC Datagrams / UDP** |
 | **Hardware Video Pipeline** | AVFoundation | Custom Dongle | NVENC / AMF / VAAPI | Software / HW hybrid | **ScreenCaptureKit → D3D12** |
 | **Vsync Phase Sync** | ❌ No | ❌ No | ❌ No | ❌ No | **✅ Yes (~16.7ms phase alignment)** |
@@ -58,7 +58,7 @@ flowchart LR
         QUIC_H -. "Sub-16ms Video Datagrams" .-> QUIC_V
     end
 
-    subgraph Windows Viewer ["Windows 11 Viewer (Renderd Viewer Client)"]
+    subgraph Windows Viewer ["Windows 10+ Viewer (Renderd Viewer Client)"]
         QUIC_V --> REASS["Fragment Reassembler\n(Out-of-Order Ring Buffer)"]
         REASS --> MF["MediaFoundation\n(Hardware Video Decoder)"]
         MF --> D3D12["Direct3D12 Renderer\n(Zero-Copy Swapchain Present)"]
@@ -79,7 +79,7 @@ flowchart LR
 
 ## Key Features
 
-- **Zero-Copy Capture & Present:** Direct IOSurface binding to VideoToolbox on macOS; Direct3D12 swapchain presenting on Windows 11.
+- **Zero-Copy Capture & Present:** Direct IOSurface binding to VideoToolbox on macOS; Direct3D12 swapchain presenting on Windows.
 - **Adaptive Bitrate (ABR):** Real-time congestion control adjusting encoder bitrate dynamically based on fragment loss rate and arrival jitter.
 - **Vsync Phase Synchronization:** Monotonic clock alignment adjusting host frame dispatch to match viewer vertical display refresh intervals.
 - **Strongly Typed Protocol Schema:** Shared `renderd-proto` crate providing Protobuf definitions, validation, and domain newtypes (`FrameId`, `FragmentId`, `BitrateKbps`).
@@ -102,7 +102,7 @@ renderd/
 │   └── renderd.proto           # Control plane Protobuf schema
 ├── templates/
 │   ├── renderd-host.default.toml   # Canonical macOS host daemon configuration
-│   └── renderd-viewer.default.toml # Canonical Windows 11 viewer configuration
+│   └── renderd-viewer.default.toml # Canonical Windows viewer configuration
 ├── tools/
 │   ├── proto-gen/              # Code generator tool compiling renderd.proto -> Rust
 │   └── latency-bench/          # Frame capture & network round-trip benchmark CLI
@@ -119,7 +119,7 @@ renderd/
 │   ├── renderd-abr/            # Adaptive Bitrate control algorithm
 │   ├── renderd-clock/          # High-resolution NTP/PTP clock offset estimator
 │   ├── renderd-host/           # macOS Host daemon executable binary
-│   └── renderd-viewer/         # Windows 11 Viewer client executable binary
+│   └── renderd-viewer/         # Windows Viewer client executable binary
 └── docs/                       # Specifications and architecture docs
 ```
 
@@ -147,7 +147,7 @@ renderd/
 | Component | Operating System | Target Architecture |
 |---|---|---|
 | **Renderd Host Daemon** | macOS 14.0+ (Sonoma / Sequoia) | `aarch64-apple-darwin` (Apple Silicon) |
-| **Renderd Viewer Client** | Windows 11 (22H2+) | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` |
+| **Renderd Viewer Client** | Windows 10 or later (primary supported platform); Windows 11 expected to work; Windows 7 planned where feasible | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` |
 
 ---
 
@@ -157,7 +157,7 @@ renderd/
 
 - **Rust:** Stable toolchain 1.80+ (`rustup toolchain install stable`)
 - **macOS (Host Development):** Xcode Command Line Tools (`xcode-select --install`)
-- **Windows (Viewer Development):** Visual Studio 2022 C++ Workload (Windows 11 SDK)
+- **Windows (Viewer Development):** Visual Studio 2022 C++ Workload (Windows 10 / 11 SDK)
 
 ### Building the Workspace
 

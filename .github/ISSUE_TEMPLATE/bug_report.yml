@@ -16,7 +16,7 @@ body:
       description: What platform did this occur on?
       options:
         - macOS Host (Apple Silicon)
-        - Windows 11 Viewer
+        - Windows Viewer (Windows 10+)
         - Both
     validations:
       required: true

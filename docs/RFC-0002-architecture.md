@@ -68,7 +68,7 @@ Renderd is designed from first principles as a display receiver, not a remote de
 | Glass-to-glass latency | ≤ 40 ms @ 1440p60 on Gigabit LAN |
 | Frame rate | 60 FPS minimum |
 | Host platform | macOS 13.0+ (Apple Silicon) |
-| Viewer platform | Windows 11 (22H2+) |
+| Viewer platform | Windows 10 or later (primary supported platform); Windows 11 expected to work; Windows 7 planned where feasible |
 | Transport | Peer-to-peer, no relay |
 | Discovery | Automatic LAN discovery (zero manual configuration) |
 | Pairing | Secure one-time pairing (6-digit PIN) |
@@ -137,7 +137,7 @@ The following are explicitly out of scope for v1.0:
 └────────────────────────────────────────────────────────────┼─────────────┘
                                                              │ LAN (UDP/QUIC)
 ┌────────────────────────────────────────────────────────────┼─────────────┐
-│  Windows 11 Viewer                                          │             │
+│  Windows 10+ Viewer                                          │             │
 │                                                  ┌──────────▼──────────┐ │
 │                                                  │  renderd-viewer     │ │
 │  ┌──────────────┐  ┌──────────────────┐          │                     │ │
@@ -256,7 +256,7 @@ QUIC datagrams (RFC 9221) are explicitly **unreliable and unordered**. The data 
 
 ### 6.1 Codec Selection
 
-| Codec | HW Encoder (macOS AS) | HW Decoder (Win11) | Encode Latency | Notes |
+| Codec | HW Encoder (macOS AS) | HW Decoder (Windows) | Encode Latency | Notes |
 |-------|-----------------------|--------------------|----------------|-------|
 | **H.265 (HEVC)** | ✅ VideoToolbox | ✅ D3D12VA / NVDEC / QSV | Low | **Primary; 10-bit HDR capable** |
 | H.264 (AVC) | ✅ VideoToolbox | ✅ D3D12VA / NVDEC / QSV / DXVA2 | Low | Fallback; 8-bit only |
@@ -314,7 +314,7 @@ Fragment into QUIC datagrams (burst send, §12)
 ### 6.3 Viewer Decode and Render Pipeline
 
 ```
-[renderd-viewer — Windows 11]
+[renderd-viewer — Windows 10+]
 
 QUIC datagrams arrive (unordered)
     │
@@ -325,7 +325,7 @@ Sliding-window reassembly buffer (§12.2)
     │
     ▼
 D3D12 Video Decode (ID3D12VideoDecoder)
-  Primary:  D3D12 Video Decode API (driver-agnostic, Win11)
+  Primary:  D3D12 Video Decode API (driver-agnostic, Windows 10+)
   Fallback: Direct to NVDEC via CUDA (NVIDIA-only path)
   Fallback: Intel MFX (Intel Arc/Iris Xe)
   Output: NV12 (8-bit) or P010 (10-bit) GPU surface

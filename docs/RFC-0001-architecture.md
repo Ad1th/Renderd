@@ -59,7 +59,7 @@ Existing open alternatives (VNC, RDP, Parsec) are designed for *remote control*,
 | Glass-to-glass latency | ≤ 30 ms on Gigabit LAN |
 | Frame rate | 60 FPS minimum, 120 FPS stretch goal |
 | Host platform | macOS 13+ (Apple Silicon) |
-| Viewer platform | Windows 11 |
+| Viewer platform | Windows 10 or later (primary supported platform); Windows 11 expected to work; Windows 7 planned where feasible |
 | Transport | Peer-to-peer, no relay by default |
 | Discovery | Automatic LAN discovery (no manual IP entry) |
 | Pairing | Secure one-time pairing (PIN or QR code) |
@@ -115,7 +115,7 @@ The following are explicitly **out of scope for v1.0**:
 └──────────────────────────────────────────────────────────┼──────────┘
                                                            │ LAN (UDP/QUIC)
 ┌──────────────────────────────────────────────────────────┼──────────┐
-│  Windows 11 Viewer                                        │          │
+│  Windows 10+ Viewer                                       │          │
 │                                                  ┌────────▼───────┐ │
 │                                                  │ renderd-viewer │ │
 │  ┌──────────────┐    ┌──────────────┐            │               │ │
@@ -248,7 +248,7 @@ This section evaluates candidate transport protocols against Renderd's requireme
 
 ### 6.1 Codec Selection
 
-| Codec | HW Encoder (macOS AS) | HW Decoder (Win11) | Latency | Compression | Notes |
+| Codec | HW Encoder (macOS AS) | HW Decoder (Windows) | Latency | Compression | Notes |
 |-------|-----------------------|--------------------|---------|-------------|-------|
 | H.264 | ✅ VideoToolbox | ✅ DXVA2 / D3D12VA / NVDEC / QSV | ✅ Low | ⚠️ Medium | Universal; 8-bit only |
 | H.265 | ✅ VideoToolbox (Apple Silicon) | ✅ NVDEC / QSV / D3D12VA | ✅ Low | ✅ High | 10-bit HDR; **recommended** |
@@ -259,7 +259,7 @@ This section evaluates candidate transport protocols against Renderd's requireme
 
 Rationale:
 - All Apple Silicon M-series chips have a VideoToolbox H.265 hardware encoder.
-- Windows 11 with any modern AMD/NVIDIA/Intel GPU has a hardware H.265 decoder.
+- Windows 10 or later with any modern AMD/NVIDIA/Intel GPU has a hardware H.265 decoder.
 - H.265 achieves ~40% better compression vs H.264, directly reducing frame transmission time.
 - 10-bit encoding eliminates banding on typical UI content.
 - Codec is negotiated at session start; H.264 fallback ensures broad compatibility.
@@ -288,7 +288,7 @@ Key points:
 - No B-frames: I + P frames only for lowest encode latency.
 - If no hardware encoder is available, fail loudly rather than silent software fallback.
 
-**Viewer (Windows 11):**
+**Viewer (Windows 10 or later):**
 
 ```
 QUIC datagram → Frame reassembly buffer
