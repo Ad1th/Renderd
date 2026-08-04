@@ -38,3 +38,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added fragment header validation logic (`ValidateHeader` trait) in `renderd-frame` crate. (#025)
 - Added sliding-window fragment reassembly buffer state machine (`ReassemblyBuffer`) in `renderd-frame` crate per RFC-0002 §12.2. (#026)
 - Added property-based tests for fragment header codec and reassembly buffer in `renderd-frame` crate. (#027)
+- Added high-resolution monotonic clock instant wrapper (`MonoInstant`) in `renderd-clock` crate per RFC-0002 §13.1. (#028)
