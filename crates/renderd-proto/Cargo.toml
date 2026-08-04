@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "`Protobuf` types for Renderd control plane."
+description = "`Protobuf` types and newtypes for Renderd control plane."
 
 [dependencies]
-prost = { workspace = true }
-uuid  = { workspace = true }
+prost     = { workspace = true }
+uuid      = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true
