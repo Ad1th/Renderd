@@ -2,6 +2,8 @@ name: Docs
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
 
 jobs:
   deploy-docs:
@@ -15,10 +17,12 @@ jobs:
       - name: Build rustdoc
         run: cargo doc --no-deps --workspace --exclude renderd-host --exclude renderd-viewer
       - name: Upload Pages Artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
         uses: actions/upload-pages-artifact@v3
         with:
           path: target/doc
       - name: Deploy to GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
         uses: actions/deploy-pages@v4
         with:
           artifact-name: github-pages
