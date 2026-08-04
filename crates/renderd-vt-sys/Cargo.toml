@@ -1,10 +1,26 @@
 [package]
-name        = "renderd-vt-sys"
+name              = "renderd-vt-sys"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "VideoToolbox hardware encode FFI wrapper."
+description       = "VideoToolbox hardware encode FFI wrapper."
+build             = "build.rs"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = { workspace = true }
+core-media      = { workspace = true }
+thiserror       = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.build-dependencies]
+cc = { workspace = true }
 
 [lints.rust]
 unsafe_code = "warn"
+
+[lints.clippy]
+all      = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+nursery  = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc      = "allow"
