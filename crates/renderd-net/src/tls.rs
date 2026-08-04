@@ -1,10 +1,10 @@
 //! TLS configuration builders for Renderd server and client transport endpoints.
 
-use std::sync::Arc;
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, ServerName};
 use rustls::server::danger::{ClientCertVerified, ClientCertVerifier};
 use rustls::{ClientConfig, ServerConfig, SignatureScheme};
+use std::sync::Arc;
 
 use crate::error::NetError;
 
