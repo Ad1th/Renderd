@@ -15,6 +15,8 @@ fn link_macos_frameworks() {
     println!("cargo:rustc-link-lib=framework=VideoToolbox");
     // CoreMedia: CMSampleBufferRef, CMTime, CMBlockBufferRef
     println!("cargo:rustc-link-lib=framework=CoreMedia");
+    // CoreVideo: CVPixelBufferRef, CVPixelBufferCreateWithIOSurface
+    println!("cargo:rustc-link-lib=framework=CoreVideo");
     // CoreFoundation: CFTypeRef, CFRetain, CFRelease, CFDictionaryRef, etc.
     println!("cargo:rustc-link-lib=framework=CoreFoundation");
     // IOSurface: GPU-resident surface handles (IOSurfaceRef)

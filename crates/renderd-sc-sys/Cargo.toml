@@ -1,10 +1,28 @@
 [package]
-name        = "renderd-sc-sys"
+name              = "renderd-sc-sys"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "ScreenCaptureKit macOS capture FFI wrapper."
+description       = "ScreenCaptureKit macOS capture FFI wrapper."
+
+[dependencies]
+block2                   = { version = "0.5" }
+core-foundation          = { workspace = true }
+core-media               = { workspace = true }
+objc2                    = { workspace = true }
+objc2-foundation         = { workspace = true, features = ["all"] }
+objc2-screen-capture-kit = { workspace = true, features = ["all", "libc"] }
+renderd-vt-sys           = { workspace = true }
+thiserror                = { workspace = true }
+tracing                  = { workspace = true }
 
 [lints.rust]
 unsafe_code = "warn"
+
+[lints.clippy]
+all                     = { level = "warn", priority = -1 }
+pedantic                = { level = "warn", priority = -1 }
+nursery                 = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc      = "allow"
