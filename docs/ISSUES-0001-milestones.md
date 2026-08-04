@@ -427,13 +427,13 @@ Builds `renderd-frame` (wire header & sliding-window reassembly) and `renderd-cr
 
 ---
 
-## Milestone 4: FFI Layer (Issues #036–#047)
+## Milestone 4: FFI Layer (Issues #036–#047) [COMPLETED]
 
 Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptureKit ObjC bridge).
 
 ---
 
-### Issue #036: Scaffold `renderd-vt-sys` Crate & Build Script (macOS)
+### Issue #036: Scaffold `renderd-vt-sys` Crate & Build Script (macOS) [✓ COMPLETED]
 - **Rationale:** Establishes the FFI crate boundary for Apple's VideoToolbox framework.
 - **Dependencies:** #001
 - **Acceptance Criteria:**
@@ -444,7 +444,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #037: Implement VideoToolbox C Bridge Shim (`renderd-vt-sys/c-shims/videotoolbox_shim.c`)
+### Issue #037: Implement VideoToolbox C Bridge Shim (`renderd-vt-sys/c-shims/videotoolbox_shim.c`) [✓ COMPLETED]
 - **Rationale:** Bridges VideoToolbox's C-callback API into a safe function pointer suitable for Rust FFI (RFC-0002 §6.2).
 - **Dependencies:** #036
 - **Acceptance Criteria:**
@@ -455,7 +455,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #038: Implement `CompressionSession` Safe Wrapper (`renderd-vt-sys/src/session.rs`)
+### Issue #038: Implement `CompressionSession` Safe Wrapper (`renderd-vt-sys/src/session.rs`) [✓ COMPLETED]
 - **Rationale:** Wraps opaque `VTCompressionSessionRef` in a safe Rust struct with `Drop` cleanup.
 - **Dependencies:** #037
 - **Acceptance Criteria:**
@@ -466,7 +466,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #039: Implement Bitrate and Keyframe Controls in `CompressionSession`
+### Issue #039: Implement Bitrate and Keyframe Controls in `CompressionSession` [✓ COMPLETED]
 - **Rationale:** Exposes runtime controls to alter bitrate dynamically and force immediate keyframes.
 - **Dependencies:** #038
 - **Acceptance Criteria:**
@@ -477,7 +477,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #040: Implement `IOSurface` Rust Wrapper (`renderd-vt-sys/src/surface.rs`)
+### Issue #040: Implement `IOSurface` Rust Wrapper (`renderd-vt-sys/src/surface.rs`) [✓ COMPLETED]
 - **Rationale:** Wraps macOS `IOSurfaceRef` GPU memory handles safely.
 - **Dependencies:** #036
 - **Acceptance Criteria:**
@@ -487,7 +487,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #041: Implement `VtError` OSStatus Decoder (`renderd-vt-sys/src/error.rs`)
+### Issue #041: Implement `VtError` OSStatus Decoder (`renderd-vt-sys/src/error.rs`) [✓ COMPLETED]
 - **Rationale:** Translates cryptic negative `OSStatus` error codes into human-readable messages.
 - **Dependencies:** #036
 - **Acceptance Criteria:**
@@ -497,7 +497,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #042: Scaffold `renderd-sc-sys` Crate (macOS)
+### Issue #042: Scaffold `renderd-sc-sys` Crate (macOS) [✓ COMPLETED]
 - **Rationale:** Establishes FFI crate boundary for Apple's ScreenCaptureKit API.
 - **Dependencies:** #001, #023
 - **Acceptance Criteria:**
@@ -508,7 +508,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #043: Implement Screen Recording Permission Checker (`renderd-sc-sys/src/permission.rs`)
+### Issue #043: Implement Screen Recording Permission Checker (`renderd-sc-sys/src/permission.rs`) [✓ COMPLETED]
 - **Rationale:** Checks TCC screen capture authorization status before starting capture stream.
 - **Dependencies:** #042
 - **Acceptance Criteria:**
@@ -518,7 +518,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #044: Implement Content Filter Builder (`renderd-sc-sys/src/filter.rs`)
+### Issue #044: Implement Content Filter Builder (`renderd-sc-sys/src/filter.rs`) [✓ COMPLETED]
 - **Rationale:** Selects main display for capture using `SCContentFilter`.
 - **Dependencies:** #042
 - **Acceptance Criteria:**
@@ -528,7 +528,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #045: Implement `ScreenStream` Wrapper (`renderd-sc-sys/src/stream.rs`)
+### Issue #045: Implement `ScreenStream` Wrapper (`renderd-sc-sys/src/stream.rs`) [✓ COMPLETED]
 - **Rationale:** Wraps `SCStream` to capture GPU-resident frames via callback on `QOS_CLASS_USER_INTERACTIVE` thread.
 - **Dependencies:** #040, #044
 - **Acceptance Criteria:**
@@ -539,7 +539,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #046: Add Vsync Phase Pacing Controls to `ScreenStream`
+### Issue #046: Add Vsync Phase Pacing Controls to `ScreenStream` [✓ COMPLETED]
 - **Rationale:** Allows setting `minimumFrameInterval` dynamically for presentation clock synchronization (§7).
 - **Dependencies:** #045
 - **Acceptance Criteria:**
@@ -549,7 +549,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-### Issue #047: Implement `ScError` Hierarchy (`renderd-sc-sys/src/error.rs`)
+### Issue #047: Implement `ScError` Hierarchy (`renderd-sc-sys/src/error.rs`) [✓ COMPLETED]
 - **Rationale:** Provides typed errors for ScreenCaptureKit failure modes.
 - **Dependencies:** #042
 - **Acceptance Criteria:**
