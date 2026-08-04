@@ -11,7 +11,12 @@ renderd-proto = { workspace = true }
 thiserror     = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.6"
+criterion = { workspace = true }
+proptest  = "1.6"
+
+[[bench]]
+name    = "abr_bench"
+harness = false
 
 [lints]
 workspace = true

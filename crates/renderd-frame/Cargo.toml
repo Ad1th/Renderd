@@ -12,7 +12,12 @@ thiserror     = { workspace = true }
 bytes         = { workspace = true }
 
 [dev-dependencies]
-proptest = "1.6"
+criterion = { workspace = true }
+proptest  = "1.6"
+
+[[bench]]
+name    = "frame_bench"
+harness = false
 
 [lints]
 workspace = true
