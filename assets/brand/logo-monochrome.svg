@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" width="480" height="120" role="img" aria-label="Renderd logo monochrome">
+  <title>Renderd (Monochrome)</title>
+  <desc>Renderd monochrome logo — for use on colored or light backgrounds</desc>
+
+  <!-- Icon: all black -->
+  <rect x="0" y="0" width="120" height="120" rx="12" fill="#000000"/>
+
+  <!-- Vertical stroke -->
+  <rect x="28" y="24" width="8" height="72" fill="#FFFFFF"/>
+  <!-- Top bar -->
+  <rect x="28" y="24" width="44" height="8" fill="#FFFFFF"/>
+  <!-- Mid bar -->
+  <rect x="28" y="56" width="44" height="8" fill="#FFFFFF"/>
+  <!-- Right vertical top -->
+  <rect x="72" y="24" width="8" height="40" fill="#FFFFFF"/>
+  <!-- Stepped diagonal -->
+  <rect x="56" y="64" width="8" height="8" fill="#FFFFFF"/>
+  <rect x="64" y="72" width="8" height="8" fill="#FFFFFF"/>
+  <rect x="72" y="80" width="8" height="8" fill="#FFFFFF"/>
+  <rect x="80" y="88" width="8" height="8" fill="#FFFFFF"/>
+  <!-- Accent pixel: monochrome = white -->
+  <rect x="80" y="24" width="8" height="8" fill="#FFFFFF"/>
+
+  <!-- Wordmark: black -->
+  <text
+    x="144"
+    y="78"
+    font-family="'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', monospace"
+    font-size="52"
+    font-weight="700"
+    letter-spacing="-1"
+    fill="#000000"
+  >renderd</text>
+
+  <!-- Underline -->
+  <rect x="144" y="87" width="220" height="3" fill="#000000" opacity="0.25"/>
+</svg>
