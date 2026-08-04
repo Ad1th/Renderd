@@ -35,4 +35,10 @@
 pub mod error;
 
 #[cfg(target_os = "macos")]
+pub mod surface;
+
+#[cfg(target_os = "macos")]
 pub use error::VtError;
+
+#[cfg(target_os = "macos")]
+pub use surface::IoSurface;
