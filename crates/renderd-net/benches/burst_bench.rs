@@ -25,11 +25,9 @@ fn bench_fragment_burst(c: &mut Criterion) {
         )
         .unwrap();
 
-        let client_tls = ClientTlsConfig::with_pinned_cert(
-            Some((vec![cert_der.clone()], key_der)),
-            cert_der,
-        )
-        .unwrap();
+        let client_tls =
+            ClientTlsConfig::with_pinned_cert(Some((vec![cert_der.clone()], key_der)), cert_der)
+                .unwrap();
 
         let server_addr: SocketAddr = "127.0.0.1:0".parse().unwrap();
         let server = QuicServer::bind(server_addr, server_tls).unwrap();
@@ -49,9 +47,7 @@ fn bench_fragment_burst(c: &mut Criterion) {
         (client_conn, server_conn)
     });
 
-    let fragments: Vec<Bytes> = (0u8..55u8)
-        .map(|i| Bytes::from(vec![i; 1150]))
-        .collect();
+    let fragments: Vec<Bytes> = (0u8..55u8).map(|i| Bytes::from(vec![i; 1150])).collect();
 
     c.bench_function("burst_send_55_fragments", |b| {
         b.iter(|| {

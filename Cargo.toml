@@ -81,11 +81,12 @@ security-framework       = { version = "2" }
 # Windows-specific dependencies
 winit    = { version = "0.30" }
 windows  = { version = "0.58", features = [
+    "Win32_Foundation",
     "Win32_Media_MediaFoundation",
     "Win32_Graphics_Direct3D12",
     "Win32_Graphics_Dxgi",
     "Win32_UI_WindowsAndMessaging",
-    "Win32_System_Credentials",
+    "Win32_Security_Credentials",
     "Win32_NetworkManagement_Dns",
     "Win32_System_Com",
 ] }
