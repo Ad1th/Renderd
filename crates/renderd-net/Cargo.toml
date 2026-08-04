@@ -22,4 +22,9 @@ tracing           = { workspace = true }
 tokio             = { workspace = true }
 
 [dev-dependencies]
+criterion         = { workspace = true }
 rcgen             = { workspace = true }
+
+[[bench]]
+name    = "burst_bench"
+harness = false
