@@ -11,5 +11,8 @@ renderd-proto = { workspace = true }
 thiserror     = { workspace = true }
 bytes         = { workspace = true }
 
+[dev-dependencies]
+proptest = "1.6"
+
 [lints]
 workspace = true

@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 0f98c6af95659810936cccbacd014fc16eb3b0fe45560dfa1c1e694b18ec9b37 # shrinks to payload_data = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 30, 111, 81, 196, 65, 168, 21, 140, 226, 57, 106, 225, 221, 101, 192, 69, 206, 30, 115, 222, 76, 74, 186, 228, 252, 21, 251, 43, 166, 88, 117, 236, 58, 102, 26, 199, 133, 250, 188, 152, 41, 5, 247, 56, 111, 213, 162, 185, 80, 127, 58, 77, 80, 50, 202], num_frags = 14
