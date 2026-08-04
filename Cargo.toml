@@ -15,6 +15,7 @@ members = [
     "crates/renderd-host",
     "crates/renderd-viewer",
     "tools/latency-bench",
+    "tools/proto-gen",
 ]
 
 [workspace.package]
