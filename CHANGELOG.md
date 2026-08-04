@@ -33,3 +33,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added configuration validation rules (`ValidateConfig` trait) for `RenderdConfig` in `renderd-config` crate. (#020)
 - Added `ConfigError` enum hierarchy (`FileNotFound`, `ParseError`, `ValidationError`) and `Display` implementations in `renderd-config` crate. (#021)
 - Added canonical host and viewer default configuration templates (`renderd-host.default.toml`, `renderd-viewer.default.toml`) and template validation integration tests. (#022)
+- Added 16-byte fixed binary fragment header codec (`FragmentHeader`) in `renderd-frame` crate per RFC-0002 §12.1. (#023)

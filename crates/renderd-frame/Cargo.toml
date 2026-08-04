@@ -4,7 +4,12 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "Wire format and sliding-window frame reassembly."
+description = "Fragment header codec and sliding-window frame reassembly state machine."
+
+[dependencies]
+renderd-proto = { workspace = true }
+thiserror     = { workspace = true }
+bytes         = { workspace = true }
 
 [lints]
 workspace = true
