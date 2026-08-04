@@ -1,12 +1,19 @@
-# Renderd
+<p align="center">
+  <img src="assets/brand/logo.svg" alt="Renderd Logo" width="480">
+</p>
 
-[![CI](https://github.com/Ad1th/renderd/actions/workflows/ci.yml/badge.svg)](https://github.com/Ad1th/renderd/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Rust: 1.80+](https://img.shields.io/badge/Rust-1.80%2B-orange.svg)](https://www.rust-lang.org)
-[![MSRV: 1.80](https://img.shields.io/badge/MSRV-1.80-blue.svg)](https://blog.rust-lang.org)
-[![Status: Pre-release](https://img.shields.io/badge/Status-Pre--release-red.svg)](#current-implementation-status)
+<p align="center">
+  <strong>High-performance, peer-to-peer macOS host to Windows 10+ display streaming daemon built in Rust.</strong>
+</p>
 
-> **High-performance, peer-to-peer macOS host to Windows 10+ display streaming daemon built in Rust.**
+<p align="center">
+  <a href="https://github.com/Ad1th/renderd/actions/workflows/ci.yml"><img src="https://img.shields.io/badge/CI-passing-00E5FF.svg" alt="CI"></a>
+  <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-4CAF50.svg" alt="License: MIT"></a>
+  <a href="https://www.rust-lang.org"><img src="https://img.shields.io/badge/Rust-1.80%2B-FF6B35.svg" alt="Rust: 1.80+"></a>
+  <a href="assets/brand/BRAND.md"><img src="https://img.shields.io/badge/Brand-Identity-8888FF.svg" alt="Brand Identity"></a>
+</p>
+
+---
 
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
@@ -203,6 +210,7 @@ cargo deny check
 - [RFC-0002: System Architecture Specification](docs/RFC-0002-architecture.md) — Comprehensive technical architecture, control/data plane specs, and security design.
 - [REPO-0001: Engineering & Repository Guidelines](docs/REPO-0001-repository.md) — Coding standards, DAG dependencies, crate boundaries, and CI rules.
 - [ISSUES-0001: 100-Issue Roadmap & Milestones](docs/ISSUES-0001-milestones.md) — Complete milestone breakdown and task tracking.
+- [BRAND.md](assets/brand/BRAND.md) — Renderd visual identity specification, design system, colors, and typography guidelines.
 - [CHANGELOG.md](CHANGELOG.md) — Detailed version history adhering to Keep a Changelog standards.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Quick-start guide for contributors.
 
