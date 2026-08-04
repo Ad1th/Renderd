@@ -1,0 +1,56 @@
+name: "Lint PR Title"
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  pull-requests: read
+  statuses: write
+
+jobs:
+  main:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            perf
+            refactor
+            docs
+            test
+            chore
+            ci
+            security
+            revert
+          scopes: |
+            renderd-proto
+            renderd-config
+            renderd-frame
+            renderd-crypto
+            renderd-vt-sys
+            renderd-sc-sys
+            renderd-net
+            renderd-keychain
+            renderd-discovery
+            renderd-abr
+            renderd-clock
+            renderd-host
+            renderd-viewer
+            deps
+            ci
+            docs
+            release
+          requireScope: false
+          subjectPattern: ^(?![A-Z]).+$
+          subjectPatternError: |
+            The PR title subject must start with a lowercase letter.
