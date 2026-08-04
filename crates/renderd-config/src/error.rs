@@ -22,3 +22,33 @@ pub enum ConfigError {
         reason: String,
     },
 }
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_config_error_display() {
+        let err_fnf = ConfigError::FileNotFound("/etc/renderd.toml".to_string());
+        assert_eq!(
+            format!("{err_fnf}"),
+            "Configuration file not found: /etc/renderd.toml"
+        );
+
+        let err_parse = ConfigError::ParseError("invalid key".to_string());
+        assert_eq!(
+            format!("{err_parse}"),
+            "Failed to parse configuration: invalid key"
+        );
+
+        let err_val = ConfigError::ValidationError {
+            field: "host.target_fps",
+            reason: "out of range".to_string(),
+        };
+        assert_eq!(
+            format!("{err_val}"),
+            "Invalid configuration field 'host.target_fps': out of range"
+        );
+    }
+}

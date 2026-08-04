@@ -31,3 +31,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added configuration schema structs (`RenderdConfig`, `HostConfig`, `ViewerConfig`, `NetworkConfig`, `CryptoConfig`, `AbrConfig`) in `renderd-config` crate. (#018)
 - Added Figment-based layered config loader (`ConfigBuilder`) supporting defaults, TOML files, environment variables, and CLI overrides in `renderd-config` crate. (#019)
 - Added configuration validation rules (`ValidateConfig` trait) for `RenderdConfig` in `renderd-config` crate. (#020)
+- Added `ConfigError` enum hierarchy (`FileNotFound`, `ParseError`, `ValidationError`) and `Display` implementations in `renderd-config` crate. (#021)
