@@ -10,8 +10,7 @@
 //! The crate is organized into four modules:
 //!
 //! - [`schema`] — [`RenderdConfig`], [`HostConfig`], [`ViewerConfig`],
-//!   [`NetworkConfig`], [`AbrConfig`], [`LogConfig`] structs with `serde`
-//!   defaults and documentation.
+//!   [`NetworkConfig`], [`AbrConfig`] structs with `serde` defaults and documentation.
 //! - [`load`] — [`ConfigBuilder`] implementing the Figment-based priority loader.
 //!   Config file path resolution is the **binary's** responsibility; this module
 //!   accepts a resolved `Option<&Path>`.

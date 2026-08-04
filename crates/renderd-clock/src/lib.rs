@@ -34,7 +34,7 @@
 //!
 //! # Design Note
 //!
-//! Like [`renderd_abr`], all types in this crate are **pure state machines** driven
+//! Like `renderd-abr`, all types in this crate are **pure state machines** driven
 //! by the application layer. No threads, timers, or async runtimes are spawned here.
 //!
 //! # Panics

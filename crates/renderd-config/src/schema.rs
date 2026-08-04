@@ -76,6 +76,10 @@ pub struct ViewerConfig {
     pub hw_accel: bool,
 
     /// Target jitter buffer delay in milliseconds.
+    ///
+    /// **TODO:** RFC-0002 §19.3 eliminates the jitter buffer entirely for wired LAN
+    /// operation. This field is a placeholder; implementation should confirm whether
+    /// this becomes a Wi-Fi-mode tunable or is removed before the first public release.
     pub jitter_buffer_ms: u32,
 }
 
@@ -149,6 +153,10 @@ pub struct AbrConfig {
     pub min_bitrate_kbps: u32,
 
     /// Maximum allowed encoder bitrate in kbps.
+    ///
+    /// **TODO:** RFC-0002 §13.3 sets the v1.0 maximum at **50,000 kbps** until the
+    /// burst-send path is benchmarked and validated. This default (`100_000`) exceeds
+    /// that limit and must be corrected before the first public release.
     pub max_bitrate_kbps: u32,
 
     /// Bitrate step size for incremental adjustments in kbps.
