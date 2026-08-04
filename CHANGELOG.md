@@ -42,3 +42,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added 4-timestamp NTP/PTP monotonic clock epoch estimator (`ClockEpochEstimator`) in `renderd-clock` crate per RFC-0002 §13.2. (#029)
 - Added stack-allocated rolling statistics ring buffer (`RollingStats`) in `renderd-clock` crate per RFC-0002 §13.3. (#030)
 - Added integration test suite for clock offset estimation and rolling statistics in `renderd-clock` crate. (#031)
+- Added ABR state machine enum (`AbrState`) in `renderd-abr` crate per RFC-0002 §14.1. (#032)
