@@ -32,6 +32,9 @@
 #![cfg_attr(not(target_os = "macos"), allow(unused))]
 
 #[cfg(target_os = "macos")]
+pub mod bindings;
+
+#[cfg(target_os = "macos")]
 pub mod error;
 
 #[cfg(target_os = "macos")]

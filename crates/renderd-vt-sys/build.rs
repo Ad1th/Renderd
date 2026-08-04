@@ -1,7 +1,7 @@
 /// Build script for `renderd-vt-sys`.
 ///
-/// On macOS, links the three Apple frameworks required by `VideoToolbox` and compiles
-/// the C bridge shim (`c-shims/videotoolbox_shim.c`) once it is added in issue #037.
+/// On macOS, links the four Apple frameworks required by `VideoToolbox` and compiles
+/// the C bridge shim (`c-shims/videotoolbox_shim.c`).
 /// On non-macOS targets the script is a no-op, ensuring the crate remains compilable
 /// in workspace-wide `cargo check` runs on Linux/Windows CI agents.
 fn main() {
@@ -20,8 +20,17 @@ fn link_macos_frameworks() {
     // IOSurface: GPU-resident surface handles (IOSurfaceRef)
     println!("cargo:rustc-link-lib=framework=IOSurface");
 
-    // Re-run this build script only if the build script itself changes.
-    // The C shim compilation step (added in #037) will add its own rerun-if-changed
-    // directives once the shim file exists.
+    // Compile C bridge shim
+    cc::Build::new()
+        .file("c-shims/videotoolbox_shim.c")
+        .flag("-Wall")
+        .flag("-Wextra")
+        .flag("-Werror")
+        .flag("-std=c99")
+        .compile("videotoolbox_shim");
+
+    // Re-run this build script if build.rs or C shim sources change.
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=c-shims/videotoolbox_shim.c");
+    println!("cargo:rerun-if-changed=c-shims/videotoolbox_shim.h");
 }
