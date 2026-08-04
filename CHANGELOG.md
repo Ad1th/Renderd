@@ -36,3 +36,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added 16-byte fixed binary fragment header codec (`FragmentHeader`) in `renderd-frame` crate per RFC-0002 §12.1. (#023)
 - Added type-safe fragment header bitfield flags (`FragmentFlags`) in `renderd-frame` crate. (#024)
 - Added fragment header validation logic (`ValidateHeader` trait) in `renderd-frame` crate. (#025)
+- Added sliding-window fragment reassembly buffer state machine (`ReassemblyBuffer`) in `renderd-frame` crate per RFC-0002 §12.2. (#026)
