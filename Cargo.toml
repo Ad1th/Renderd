@@ -75,7 +75,7 @@ objc2                    = { version = "0.5" }
 objc2-foundation         = { version = "0.2" }
 objc2-screen-capture-kit = { version = "0.2" }
 core-foundation          = { version = "0.10" }
-core-media               = { version = "0.2" }
+core-media               = { version = "0.8" }
 security-framework       = { version = "2" }
 
 # Windows-specific dependencies
