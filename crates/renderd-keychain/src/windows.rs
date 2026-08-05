@@ -34,7 +34,7 @@ fn to_utf16(s: &str) -> Vec<u16> {
 
 impl KeychainStore for WindowsCredentialManager {
     fn save_pairing(&self, entry: &PairingEntry) -> Result<(), KeychainError> {
-        let payload = serde_json::to_vec(entry).map_err(|e| {
+        let mut payload = serde_json::to_vec(entry).map_err(|e| {
             KeychainError::Serialization(format!("Failed to serialize pairing entry: {e}"))
         })?;
 
@@ -47,7 +47,7 @@ impl KeychainStore for WindowsCredentialManager {
             CredentialBlobSize: u32::try_from(payload.len()).map_err(|_| {
                 KeychainError::Serialization("Payload length exceeds u32".to_string())
             })?,
-            CredentialBlob: payload.as_ptr() as *mut u8,
+            CredentialBlob: payload.as_mut_ptr(),
             Persist: CRED_PERSIST_LOCAL_MACHINE,
             ..Default::default()
         };
@@ -87,7 +87,7 @@ impl KeychainStore for WindowsCredentialManager {
             let entry: PairingEntry = serde_json::from_slice(slice)
                 .map_err(|e| KeychainError::Serialization(format!("Deserialization error: {e}")))?;
 
-            CredFree(cred_ptr.cast());
+            CredFree(cred_ptr.cast::<std::ffi::c_void>());
             Ok(entry)
         }
     }
@@ -141,7 +141,7 @@ impl KeychainStore for WindowsCredentialManager {
                 }
             }
 
-            CredFree(creds_ptr.cast());
+            CredFree(creds_ptr.cast::<std::ffi::c_void>());
             Ok(entries)
         }
     }
