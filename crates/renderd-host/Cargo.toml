@@ -24,8 +24,10 @@ renderd-abr        = { workspace = true }
 renderd-clock      = { workspace = true }
 
 [target.'cfg(target_os = "macos")'.dependencies]
-renderd-vt-sys = { workspace = true }
-renderd-sc-sys = { workspace = true }
+objc2            = { workspace = true }
+objc2-foundation = { workspace = true }
+renderd-vt-sys   = { workspace = true }
+renderd-sc-sys   = { workspace = true }
 
 [lints.rust]
 unsafe_code = "warn"
