@@ -19,7 +19,7 @@ pub use autostart::{AutoStart, AutoStartManager, AutoStartStatus};
 pub use capture::CapturePipeline;
 pub use cli::HostCli;
 pub use clock::ClockController;
-pub use encode::EncodePipeline;
+pub use encode::{EncodePipeline, EncodedFrame};
 pub use error::HostError;
 pub use network::{
     control::ControlDispatcher, data::DataSender, server::HostServer, NetworkManager,
