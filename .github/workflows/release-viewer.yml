@@ -1,0 +1,40 @@
+name: Release Viewer App (Windows)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run release packaging without publishing'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  package-viewer-win:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build renderd-viewer (release)
+        run: cargo build --release --package renderd-viewer
+
+      - name: Package Windows Viewer Executable
+        shell: powershell
+        run: .\tools\package-viewer\package.ps1 -Profile release
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderd-viewer-windows-zip
+          path: |
+            target/dist/renderd-viewer-windows.zip
+            target/release/renderd-viewer.exe
