@@ -22,6 +22,7 @@ renderd-crypto     = { workspace = true }
 renderd-net        = { workspace = true }
 renderd-keychain   = { workspace = true }
 renderd-discovery  = { workspace = true }
+uuid               = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_UI_HiDpi"] }
