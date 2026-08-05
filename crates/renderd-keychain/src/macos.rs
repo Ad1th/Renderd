@@ -76,6 +76,7 @@ impl KeychainStore for MacosKeychain {
         let search_results = ItemSearchOptions::new()
             .class(ItemClass::generic_password())
             .service(SERVICE_NAME)
+            .limit(security_framework::item::Limit::All)
             .load_data(true)
             .search();
 
