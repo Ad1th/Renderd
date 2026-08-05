@@ -134,10 +134,10 @@ impl Browser for WinDnsBrowser {
     }
 
     fn stop_browse(&mut self) -> Result<(), DiscoveryError> {
-        if let Some(mut cancel) = self.cancel.take() {
+        if let Some(cancel) = self.cancel.take() {
             // SAFETY: DnsServiceBrowseCancel cancels active DnsServiceBrowse query.
             unsafe {
-                let _ = DnsServiceBrowseCancel(&mut cancel);
+                let _ = DnsServiceBrowseCancel(&cancel);
             }
         }
         Ok(())
