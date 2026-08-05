@@ -2106,6 +2106,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "objc2",
+ "objc2-foundation",
  "renderd-abr",
  "renderd-clock",
  "renderd-config",

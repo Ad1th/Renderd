@@ -15,7 +15,7 @@ mod ui;
 
 pub use abr::AbrManager;
 pub use app::HostApp;
-pub use autostart::AutoStartManager;
+pub use autostart::{AutoStart, AutoStartManager, AutoStartStatus};
 pub use capture::CapturePipeline;
 pub use cli::HostCli;
 pub use clock::ClockController;
@@ -99,6 +99,12 @@ mod tests {
     #[test]
     fn test_init_logging() {
         init_logging("warn");
+    }
+
+    #[test]
+    fn test_autostart_scaffold() {
+        let _autostart = AutoStart::new();
+        let _status = AutoStart::status();
     }
 
     #[test]
