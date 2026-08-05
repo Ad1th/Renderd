@@ -13,6 +13,7 @@ pub mod frame_queue;
 pub mod platform;
 pub mod renderer;
 pub mod state;
+pub mod tearing;
 pub mod window;
 
 pub use app::App;
@@ -22,4 +23,5 @@ pub use error::ViewerError;
 pub use frame_queue::FrameQueue;
 pub use renderer::{NullRenderer, Renderer, ViewportSize};
 pub use state::{AppState, ConnectionState, ViewerMetrics};
+pub use tearing::check_tearing_support;
 pub use window::WindowSystem;
