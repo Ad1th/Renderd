@@ -7,35 +7,193 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> Milestone 3 in progress: Core Data Structures & Utilities
-> (`renderd-frame`, `renderd-clock`, `renderd-abr`).
+> All 8 milestones complete. Pre-release hardening and end-to-end integration in progress.
+> Note: `renderd-host` and `renderd-viewer` initialize their respective subsystems and run
+> loops successfully. End-to-end streaming between host and viewer is **not yet integrated**
+> — the components are implemented individually and tested in isolation. Full pipeline
+> integration is planned for v1.0.
+
+---
+
+## [0.8.0-viewer] — 2026-08-06
+
+> Milestone 8 complete: Viewer Application (`renderd-viewer`).
+
+### Added
+- Scaffolded `renderd-viewer` application with native `winit` event loop, borderless
+  fullscreen window management, and Per-Monitor v2 DPI awareness on Windows. (#089)
+- Implemented DXGI Allow-Tearing feature check (`check_tearing_support()`) for safe swap
+  chain creation. (#090)
+- Implemented D3D12 swap chain and renderer with YUV-to-RGB HLSL pixel shader and
+  conditional `DXGI_PRESENT_ALLOW_TEARING` presentation. (#091)
+- Implemented `ID3D12VideoDecoder` hardware H.265/H.264 video decoder integration with
+  GPU VRAM surface output. (#092)
+- Implemented QUIC datagram receiver and sliding-window `ReassemblyWindow` task forwarding
+  completed frames to the decoder. (#093)
+- Implemented DWM vsync phase reporter querying `DwmGetCompositionTimingInfo` and
+  transmitting `VsyncReport` over QUIC Stream 0. (#094)
+- Implemented dual-timescale ABR feedback exporter: `ReactiveStats` at 100 ms,
+  `PeriodicStats` at 500 ms, and immediate `KeyframeRequest` on loss. (#095)
+- Implemented viewer pairing UI with SPAKE2+ prover handshake over QUIC Stream 0,
+  storing derived `PairToken` in Windows Credential Manager on success. (#096)
+- Implemented reconnect watchdog with mDNS re-discovery filtering by stored `host_uuid`
+  for automatic recovery on host IP change. (#097)
+- Implemented semi-transparent `Reconnecting...` status UI overlay during disconnect
+  state without closing window. (#098)
+- Implemented Windows system tray icon via `Shell_NotifyIcon` with context menu:
+  "Connect to Host...", "Settings", "Disconnect", "Exit". (#099)
+- Added Windows viewer release packaging CI workflow on `windows-2025` runner
+  (`release-viewer.yml`) producing standalone installer artifact. (#100)
+- Wired `HostApp::run()` with full subsystem initialization (capture, encode, clock,
+  ABR, session, network, UI) and persistent SIGINT/SIGTERM signal handler loop
+  replacing placeholder print-and-exit entrypoint. (#101)
+
+---
+
+## [0.7.0-host] — 2026-08-05
+
+> Milestone 7 complete: Host Application (`renderd-host`).
+
+### Added
+- Scaffolded `renderd-host` application crate with `Info.plist`, entitlements, and macOS
+  app bundle layout. (#076)
+- Added macOS app bundle packaging script (`tools/bundle-host/assemble.sh`). (#077)
+- Implemented app startup, CLI argument parsing, Figment config loading, and structured
+  panic hook via `tracing-subscriber`. (#078)
+- Implemented macOS login item auto-start using `SMAppService.mainApp` with enable,
+  disable, and status query. (#079)
+- Implemented `HostSession` state machine (`IDLE → PAIRING → CONNECTED → STREAMING`)
+  with typed `SessionError` transitions. (#080)
+- Implemented pairing handler with 6-digit PIN generation, SPAKE2+ verifier protocol,
+  exponential failure lockout, and keychain storage. (#081)
+- Implemented `DeviceRegistry` for paired viewer listing and keychain revocation. (#082)
+- Implemented `CapturePipeline` and `EncodePipeline` wiring ScreenCaptureKit frames
+  directly to VideoToolbox encoder via lock-free SPSC ring buffer. (#083)
+- Implemented datagram burst sender task fragmenting NAL units and sending non-yielding
+  QUIC datagram bursts per frame. (#084)
+- Connected `ClockController` and `AbrManager` to host control loop processing
+  `VsyncReport`, `ReactiveStats`, and `PeriodicStats` messages. (#085)
+- Implemented macOS menu bar UI with status icon, pairing PIN display, paired device
+  list, and quit action via `MenuBar`. (#086)
+- Implemented `NotificationManager` posting macOS user notifications on session start
+  and device pairing events. (#087)
+- Added host release packaging CI workflow (`release-host.yml`) with code signing,
+  notarization, stapling, and DMG artifact creation. (#088)
+
+---
+
+## [0.6.0-algorithms] — 2026-08-04
+
+> Milestone 6 complete: Algorithm Layer (ABR & Clock Sync).
+
+### Added
+- Scaffolded `renderd-abr` crate with pure `RampPolicy` step-up/step-down bitrate math
+  clamped to [5 Mbps, 50 Mbps]. (#064)
+- Implemented `BandwidthEstimator` exponential moving average filter for receive bandwidth
+  samples. (#065)
+- Implemented `AbrEngine` dual-timescale state machine: reactive (100 ms, loss-triggered)
+  and proactive (500 ms, bandwidth-degradation) bitrate adjustment. (#066)
+- Added `proptest` property tests asserting `AbrEngine` bitrate decisions remain in
+  configured bounds for arbitrary inputs. (#067)
+- Added Criterion benchmark for `on_reactive` and `on_proactive` ABR decision calls. (#068)
+- Scaffolded `renderd-clock` crate with `ClockOffset::compute()` for host/viewer clock
+  domain translation using QUIC RTT. (#069)
+- Implemented `JitterFilter` median-window outlier rejection for vsync phase reports. (#070)
+- Implemented `ClockSync` state machine with 30-frame warmup, phase tracking, and
+  capture pacing output. (#071)
+- Added `proptest` property tests asserting pacing interval is bounded in [8 ms, 33 ms]. (#072)
+- Added Criterion benchmark for `on_vsync_report` and `next_capture_time`. (#073)
+- Created `tools/latency-bench` CLI skeleton with `--frames`, `--resolution`, and
+  `--codec` flag support. (#074)
+- Implemented pipeline microsecond stage telemetry with p50/p95/p99/max latency
+  reporting across all pipeline stages. (#075)
+
+---
+
+## [0.5.0-services] — 2026-08-04
+
+> Milestone 5 complete: Service Layer (Net, Keychain & Discovery).
+
+### Added
+- Implemented `ServerTlsConfig` and `ClientTlsConfig` with strict mutual TLS 1.3 and
+  pinned certificate verification in `renderd-net`. (#048)
+- Implemented `QuicServer` and QUIC connection listener in `renderd-net`. (#049)
+- Implemented `QuicClient` with QUIC connection initiation and TLS handshake in
+  `renderd-net`. (#050)
+- Implemented 4-byte length-prefixed control stream framing (`send_control` /
+  `recv_control`) in `renderd-net`. (#051)
+- Implemented non-yielding `FragmentBurst::send_all()` datagram burst sender in
+  `renderd-net`. (#052)
+- Implemented RTT telemetry exporter via `quinn::ConnectionStats` in `renderd-net`. (#053)
+- Scaffolded `renderd-keychain` crate with `KeychainStore` trait and `PairingEntry`
+  struct. (#054)
+- Implemented macOS Keychain Services backend (`MacosKeychain`) using
+  `kSecClassGenericPassword`. (#055)
+- Implemented Windows Credential Manager backend (`WindowsCredentialManager`) using
+  `CredWrite` / `CredRead` / `CredDelete`. (#056)
+- Implemented `MockKeychain` in-memory store for headless testing. (#057)
+- Scaffolded `renderd-discovery` crate with `Advertiser` and `Browser` traits and
+  `ServiceRecord` struct. (#058)
+- Implemented macOS Bonjour discovery backend using `dns_sd.h` bindings. (#059)
+- Implemented Windows Win32 mDNS backend using `DnsServiceRegister` / `DnsServiceBrowse`. (#060)
+- Implemented `ManualBrowser` static IP fallback for corporate network environments. (#061)
+- Implemented `DiscoveryError` hierarchy (`BindFailed`, `ServiceRegistrationFailed`,
+  `BrowseFailed`). (#062)
+- Implemented `MockConnection` in-memory transport for integration testing. (#063)
+
+---
+
+## [0.4.0-ffi] — 2026-08-04
+
+> Milestone 4 complete: FFI Layer (VideoToolbox & ScreenCaptureKit shims).
+
+### Added
+- Scaffolded `renderd-vt-sys` crate with `build.rs` linking VideoToolbox, CoreMedia, and
+  CoreFoundation frameworks. (#036)
+- Implemented `renderd_VTCompressionSessionCreate` C bridge shim for Rust FFI callback
+  compatibility. (#037)
+- Implemented `CompressionSession` safe Rust wrapper with H.265 real-time hardware encoder
+  initialization and `Drop` cleanup. (#038)
+- Implemented dynamic bitrate control (`set_bitrate`) and force-keyframe trigger in
+  `CompressionSession`. (#039)
+- Implemented `IOSurface` Rust wrapper with `CFRetain`/`CFRelease` lifetime management. (#040)
+- Implemented `VtError` OSStatus decoder with human-readable error messages. (#041)
+- Scaffolded `renderd-sc-sys` crate with ObjC2 ScreenCaptureKit framework imports. (#042)
+- Implemented `ScreenRecordingPermission::check()` TCC authorization query. (#043)
+- Implemented `ContentFilter::main_display()` display enumeration and selection. (#044)
+- Implemented `ScreenStream` wrapper with GPU-resident frame callback on
+  `QOS_CLASS_USER_INTERACTIVE` GCD queue. (#045)
+- Implemented dynamic `minimumFrameInterval` vsync pacing controls on `ScreenStream`. (#046)
+- Implemented `ScError` hierarchy (`PermissionDenied`, `NoDisplaysFound`,
+  `StreamFailed`). (#047)
+
+---
+
+## [0.3.0-primitives] — 2026-08-03
+
+> Milestone 3 complete: Primitive Layer (Frame & Crypto).
 
 ### Added
 - Added 16-byte fixed binary fragment header codec (`FragmentHeader`) in `renderd-frame`
   crate per RFC-0002 §12.1. (#023)
 - Added type-safe fragment header bitfield flags (`FragmentFlags`) in `renderd-frame`
   crate. (#024)
-- Added fragment header validation logic (`ValidateHeader` trait) in `renderd-frame`
-  crate. (#025)
-- Added sliding-window fragment reassembly buffer state machine (`ReassemblyBuffer`) in
+- Added `Fragment` and `CompleteFrame` types in `renderd-frame` crate. (#025)
+- Added sliding-window fragment reassembly buffer state machine (`ReassemblyWindow`) in
   `renderd-frame` crate per RFC-0002 §12.2. (#026)
-- Added property-based tests for fragment header codec and reassembly buffer in
-  `renderd-frame` crate. (#027)
-- Added high-resolution monotonic clock instant wrapper (`MonoInstant`) in
-  `renderd-clock` crate per RFC-0002 §13.1. (#028)
-- Added 4-timestamp NTP/PTP monotonic clock epoch estimator (`ClockEpochEstimator`) in
-  `renderd-clock` crate per RFC-0002 §13.2. (#029)
-- Added stack-allocated rolling statistics ring buffer (`RollingStats`) in `renderd-clock`
-  crate per RFC-0002 §13.3. (#030)
-- Added integration test suite for clock offset estimation and rolling statistics in
-  `renderd-clock` crate. (#031)
-- Added ABR state machine enum (`AbrState`) in `renderd-abr` crate per RFC-0002 §14.1.
-  (#032)
-- Added ABR decision engine (`AbrEngine`) calculating target bitrates per RFC-0002 §14.2.
-  (#033)
-- Added ABR telemetry report converter (`TelemetryReport`) processing `PeriodicStats` and
-  `ReactiveStats` in `renderd-abr` crate per RFC-0002 §14.3. (#034)
-- Added ABR unit and property-based test suite in `renderd-abr` crate. (#035)
+- Added dynamic fragment deadline computer (`DeadlineComputer`) in `renderd-frame`. (#027)
+- Added `proptest` property tests for reassembly window safety under arbitrary reordering. (#028)
+- Added Criterion benchmark for reassembly window throughput. (#029)
+- Scaffolded `renderd-crypto` crate with `PairToken` and `SessionKey` types with
+  `Zeroize` on drop. (#030)
+- Added RFC 9382 SPAKE2+ test vectors as unit test suite. (#031)
+- Implemented SPAKE2+ `Prover` and `Verifier` state machines for P-256 pairing. (#032)
+- Implemented HKDF-SHA256 key derivation helpers (`derive_pair_token`,
+  `derive_session_key`) with canonical info strings. (#033)
+- Implemented TLS certificate generator (`generate_cert`) using `rcgen` with pair token
+  derived key material. (#034)
+- Added Criterion benchmarks for crypto operations (`derive_pair_token`,
+  `generate_cert`). (#035)
 
 ---
 
@@ -80,11 +238,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   target support. (#001)
 - Configured workspace-level dependency versions, lint policies, and build profiles
   (`dev`, `release`, `bench`). (#001)
-- Configured workspace-level `clippy.toml` setting `msrv = "1.80"`, disallowing
+- Configured workspace-level `clippy.toml` setting `msrv = \"1.80\"`, disallowing
   `std::process::exit` and `std::env::var`, and restricting raw array pair-tokens.
   (#002)
-- Added per-crate lint overrides: `unsafe_code = "deny"` for non-FFI crates;
-  `unsafe_code = "warn"` for FFI crates (`renderd-vt-sys`, `renderd-sc-sys`) per
+- Added per-crate lint overrides: `unsafe_code = \"deny\"` for non-FFI crates;
+  `unsafe_code = \"warn\"` for FFI crates (`renderd-vt-sys`, `renderd-sc-sys`) per
   REPO-0001 §9. (#002)
 - Added root `.rustfmt.toml` workspace formatting configuration per REPO-0001 §10.
   (#003)
@@ -106,6 +264,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/Ad1th/renderd/compare/v0.2.0-foundation...HEAD
+[Unreleased]: https://github.com/Ad1th/renderd/compare/v0.8.0-viewer...HEAD
+[0.8.0-viewer]: https://github.com/Ad1th/renderd/compare/v0.7.0-host...v0.8.0-viewer
+[0.7.0-host]: https://github.com/Ad1th/renderd/compare/v0.6.0-algorithms...v0.7.0-host
+[0.6.0-algorithms]: https://github.com/Ad1th/renderd/compare/v0.5.0-services...v0.6.0-algorithms
+[0.5.0-services]: https://github.com/Ad1th/renderd/compare/v0.4.0-ffi...v0.5.0-services
+[0.4.0-ffi]: https://github.com/Ad1th/renderd/compare/v0.3.0-primitives...v0.4.0-ffi
+[0.3.0-primitives]: https://github.com/Ad1th/renderd/compare/v0.2.0-foundation...v0.3.0-primitives
 [0.2.0-foundation]: https://github.com/Ad1th/renderd/compare/v0.1.0-bootstrap...v0.2.0-foundation
 [0.1.0-bootstrap]: https://github.com/Ad1th/renderd/releases/tag/v0.1.0-bootstrap

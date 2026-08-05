@@ -3,9 +3,10 @@
 ```
 Title:      Renderd — GitHub Issues & Project Roadmap
 Doc:        ISSUES-0001
-Status:     Draft
+Status:     Complete (all 8 milestones implemented, 100/100 issues closed)
 Applies:    All milestones and crates
 Created:    2026-08-04
+Updated:    2026-08-06
 Refs:       RFC-0002-architecture.md, REPO-0001-repository.md
 Total:      100 granular issues across 8 milestones (< 1 day effort each)
 ```
@@ -38,7 +39,7 @@ This document breaks down the implementation of Renderd into **100 actionable, b
 
 ---
 
-## Milestone 1: Repository Bootstrap & Infrastructure (Issues #001–#012)
+## Milestone 1: Repository Bootstrap & Infrastructure (Issues #001–#012) [✓ COMPLETED]
 
 Focuses strictly on workspace configuration, tooling enforcement, CI workflows, and build automation. No feature code is included.
 
@@ -173,7 +174,7 @@ Focuses strictly on workspace configuration, tooling enforcement, CI workflows, 
 
 ---
 
-## Milestone 2: Foundation Layer (Issues #013–#022)
+## Milestone 2: Foundation Layer (Issues #013–#022) [✓ COMPLETED]
 
 Builds `renderd-proto` (protobuf definitions) and `renderd-config` (validated settings).
 
@@ -284,7 +285,7 @@ Builds `renderd-proto` (protobuf definitions) and `renderd-config` (validated se
 
 ---
 
-## Milestone 3: Primitive Layer (Issues #023–#035)
+## Milestone 3: Primitive Layer (Issues #023–#035) [✓ COMPLETED]
 
 Builds `renderd-frame` (wire header & sliding-window reassembly) and `renderd-crypto` (SPAKE2+ & HKDF).
 
@@ -559,7 +560,7 @@ Builds `renderd-vt-sys` (VideoToolbox C shim) and `renderd-sc-sys` (ScreenCaptur
 
 ---
 
-## Milestone 5: Service Layer (Issues #048–#063)
+## Milestone 5: Service Layer (Issues #048–#063) [✓ COMPLETED]
 
 Builds `renderd-net` (QUIC transport), `renderd-keychain` (credential storage), and `renderd-discovery` (mDNS).
 
@@ -729,7 +730,7 @@ Builds `renderd-net` (QUIC transport), `renderd-keychain` (credential storage), 
 
 ---
 
-## Milestone 6: Algorithm Layer (Issues #064–#075)
+## Milestone 6: Algorithm Layer (Issues #064–#075) [✓ COMPLETED]
 
 Builds `renderd-abr` (adaptive bitrate) and `renderd-clock` (presentation clock sync).
 
@@ -860,7 +861,7 @@ Builds `renderd-abr` (adaptive bitrate) and `renderd-clock` (presentation clock 
 
 ---
 
-## Milestone 7: Host Application (`renderd-host`) (Issues #076–#088)
+## Milestone 7: Host Application (`renderd-host`) (Issues #076–#088) [✓ COMPLETED]
 
 Builds `renderd-host` (macOS Login Item Agent) by composing underlying crates.
 
@@ -1005,7 +1006,7 @@ Builds `renderd-host` (macOS Login Item Agent) by composing underlying crates.
 
 ---
 
-## Milestone 8: Viewer Application (`renderd-viewer`) (Issues #089–#100)
+## Milestone 8: Viewer Application (`renderd-viewer`) (Issues #089–#100) [✓ COMPLETED]
 
 Builds `renderd-viewer` (Windows 10+ Client) by composing underlying crates.
 
@@ -1145,4 +1146,4 @@ Builds `renderd-viewer` (Windows 10+ Client) by composing underlying crates.
 
 ---
 
-*End of ISSUES-0001*
+*End of ISSUES-0001 — All 100 issues implemented across 8 milestones. Updated 2026-08-06.*
