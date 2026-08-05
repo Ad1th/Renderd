@@ -7,23 +7,23 @@ rust-version.workspace = true
 description = "Windows viewer display client."
 
 [dependencies]
-thiserror         = { workspace = true }
-tracing           = { workspace = true }
+thiserror          = { workspace = true }
+tracing            = { workspace = true }
 tracing-subscriber = "0.3"
-tokio             = { workspace = true }
-winit             = { workspace = true }
-renderd-config    = { workspace = true }
-renderd-proto     = { workspace = true }
-renderd-frame     = { workspace = true }
-renderd-clock     = { workspace = true }
-renderd-abr       = { workspace = true }
-renderd-crypto    = { workspace = true }
-renderd-net       = { workspace = true }
-renderd-keychain  = { workspace = true }
-renderd-discovery = { workspace = true }
+tokio              = { workspace = true }
+winit              = { workspace = true }
+renderd-config     = { workspace = true }
+renderd-proto      = { workspace = true }
+renderd-frame      = { workspace = true }
+renderd-clock      = { workspace = true }
+renderd-abr        = { workspace = true }
+renderd-crypto     = { workspace = true }
+renderd-net        = { workspace = true }
+renderd-keychain   = { workspace = true }
+renderd-discovery  = { workspace = true }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { workspace = true }
+windows = { workspace = true, features = ["Win32_UI_HiDpi"] }
 
 [lints.rust]
 unsafe_code = "warn"
