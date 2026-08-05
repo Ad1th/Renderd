@@ -1,5 +1,7 @@
 //! DXGI capability detection for variable refresh rate and low-latency tearing present flags.
 
+#![allow(unsafe_code)]
+
 /// Queries whether the host display driver and GPU support DXGI variable refresh rate tearing (`DXGI_FEATURE_PRESENT_ALLOW_TEARING`).
 ///
 /// On Windows systems, this queries `IDXGIFactory5::CheckFeatureSupport`.
