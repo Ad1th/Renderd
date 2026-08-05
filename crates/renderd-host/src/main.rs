@@ -119,7 +119,8 @@ mod tests {
         let _encode = EncodePipeline::new();
         let _network = NetworkManager::new();
         let _session = HostSession::new();
-        let _ui = UiManager::new();
+        let ui = UiManager::new();
+        ui.handle_menu_action(ui::MenuItemAction::PairNewDevice);
         let _control = ControlDispatcher::new();
         let _data = DataSender::new();
         let _server = HostServer::new();

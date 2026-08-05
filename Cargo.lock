@@ -2119,6 +2119,7 @@ dependencies = [
  "crossbeam-channel",
  "objc2",
  "objc2-foundation",
+ "quinn",
  "renderd-abr",
  "renderd-clock",
  "renderd-config",
