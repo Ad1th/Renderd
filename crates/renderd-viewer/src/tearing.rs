@@ -6,6 +6,12 @@
 ///
 /// On Windows systems, this queries `IDXGIFactory5::CheckFeatureSupport`.
 /// On non-Windows platforms, this function safely returns `false`.
+///
+/// # Panics
+///
+/// Panics if `size_of::<BOOL>()` does not fit in a `u32`. This cannot
+/// happen on any supported Windows target because `BOOL` is `i32` (4 bytes)
+/// and 4 always fits in `u32`.
 #[must_use]
 #[allow(clippy::missing_const_for_fn)]
 pub fn check_tearing_support() -> bool {
