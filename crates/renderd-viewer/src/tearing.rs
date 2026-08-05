@@ -29,7 +29,7 @@ pub fn check_tearing_support() -> bool {
             };
 
             let mut allow_tearing = BOOL(0);
-            let size = std::mem::size_of::<BOOL>() as u32;
+            let size = u32::try_from(std::mem::size_of::<BOOL>()).expect("BOOL size fits into u32");
 
             if factory5
                 .CheckFeatureSupport(
