@@ -121,6 +121,7 @@ mod tests {
         let _session = HostSession::new();
         let ui = UiManager::new();
         ui.handle_menu_action(ui::MenuItemAction::PairNewDevice);
+        ui.notifications.notify_session_started("Test Viewer");
         let _control = ControlDispatcher::new();
         let _data = DataSender::new();
         let _server = HostServer::new();
