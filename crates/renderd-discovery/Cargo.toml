@@ -8,3 +8,15 @@ description = "mDNS service discovery interface."
 
 [lints]
 workspace = true
+
+[dependencies]
+thiserror     = { workspace = true }
+uuid          = { workspace = true, features = ["v5"] }
+renderd-proto = { workspace = true }
+tokio         = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
