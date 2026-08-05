@@ -43,10 +43,7 @@ impl WindowSystem {
             window.set_fullscreen(Some(Fullscreen::Borderless(None)));
         }
 
-        Ok(Self {
-            window,
-            fullscreen,
-        })
+        Ok(Self { window, fullscreen })
     }
 
     /// Returns a reference to the inner `winit` [`Window`].
@@ -75,7 +72,8 @@ impl WindowSystem {
     pub fn toggle_fullscreen(&mut self) {
         self.fullscreen = !self.fullscreen;
         if self.fullscreen {
-            self.window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+            self.window
+                .set_fullscreen(Some(Fullscreen::Borderless(None)));
         } else {
             self.window.set_fullscreen(None);
         }

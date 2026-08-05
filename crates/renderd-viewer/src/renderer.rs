@@ -1,8 +1,8 @@
 //! Graphics renderer abstraction for swapchain management and frame presentation.
 
-use std::fmt::Debug;
 use crate::decoder::DecodedFrame;
 use crate::error::ViewerError;
+use std::fmt::Debug;
 
 /// Surface dimensions for rendering viewport in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -59,7 +59,10 @@ impl NullRenderer {
     pub const fn new() -> Self {
         Self {
             initialized: false,
-            size: ViewportSize { width: 0, height: 0 },
+            size: ViewportSize {
+                width: 0,
+                height: 0,
+            },
         }
     }
 
@@ -90,14 +93,18 @@ impl Renderer for NullRenderer {
 
     fn render_frame(&mut self, _frame: &DecodedFrame) -> Result<(), ViewerError> {
         if !self.initialized {
-            return Err(ViewerError::Renderer("Renderer not initialized".to_string()));
+            return Err(ViewerError::Renderer(
+                "Renderer not initialized".to_string(),
+            ));
         }
         Ok(())
     }
 
     fn present(&mut self) -> Result<(), ViewerError> {
         if !self.initialized {
-            return Err(ViewerError::Renderer("Renderer not initialized".to_string()));
+            return Err(ViewerError::Renderer(
+                "Renderer not initialized".to_string(),
+            ));
         }
         Ok(())
     }
