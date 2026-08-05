@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` is currently in active pre-release development (**Milestone 3 in progress**). Core infrastructure, protocol schemas, and configuration engines are established; data-structure and utility crates (`renderd-frame`, `renderd-clock`, `renderd-abr`) are under active construction.
+> `Renderd` is currently in active pre-release development (**Milestones 1–5 complete; preparing for Milestone 6**). Core protocol schemas, configuration engines, frame reassembly pipelines, presentation clocks, ABR controllers, crypto primitives, ScreenCaptureKit/VideoToolbox host capture wrappers, QUIC transport, platform keychains, and mDNS discovery are fully implemented and tested across the workspace.
 
 ---
 
@@ -38,8 +38,8 @@ Software display extensions between macOS and Windows endpoints have historicall
 
 | Feature / Metric | Apple Sidecar | Luna Display | Sunshine / Moonlight | DeskIn / Duet | **Renderd** |
 |---|---|---|---|---|---|
-| **Host Support** | macOS | macOS / Windows | Windows / Linux | macOS / Windows | **macOS 13+** |
-| **Viewer Support** | iPadOS only | iPadOS / Mac / Win | Multi-platform | Multi-platform | **Windows 10+ (x64/ARM64)** |
+| **Host Support** | macOS | macOS / Windows | Windows / Linux | macOS / Windows | **macOS 13+ (Apple Silicon)** |
+| **Viewer Support** | iPadOS only | iPadOS / Mac / Win | Multi-platform | Multi-platform | **Windows 10+ (x86_64 / ARM64)** |
 | **Protocol Transport** | Proprietary AWDL | Proprietary Wi-Fi/USB | WebRTC / Custom UDP | Cloud Relay / TCP | **QUIC Datagrams / UDP** |
 | **Hardware Video Pipeline** | AVFoundation | Custom Dongle | NVENC / AMF / VAAPI | Software / HW hybrid | **ScreenCaptureKit → D3D12** |
 | **Vsync Phase Sync** | ❌ No | ❌ No | ❌ No | ❌ No | **✅ Yes (~16.7ms phase alignment)** |
@@ -86,12 +86,17 @@ flowchart LR
 
 ## Key Features
 
-- **Zero-Copy Capture & Present:** Direct IOSurface binding to VideoToolbox on macOS; Direct3D12 swapchain presenting on Windows.
-- **Adaptive Bitrate (ABR):** Real-time congestion control adjusting encoder bitrate dynamically based on fragment loss rate and arrival jitter.
-- **Vsync Phase Synchronization:** Monotonic clock alignment adjusting host frame dispatch to match viewer vertical display refresh intervals.
-- **Strongly Typed Protocol Schema:** Shared `renderd-proto` crate providing Protobuf definitions, validation, and domain newtypes (`FrameId`, `FragmentId`, `BitrateKbps`).
-- **Layered Configuration:** Flexible settings loaded from defaults, TOML files (`host.toml` / `viewer.toml`), `RENDERD_*` environment variables, or CLI flags via Figment.
-- **Cross-Platform MSRV:** Pinned Rust 1.80+ supporting `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`, and `aarch64-pc-windows-msvc`.
+- **`renderd-proto`:** Shared Protobuf definitions, envelope validation, and domain newtypes (`FrameId`, `FragmentId`, `BitrateKbps`).
+- **`renderd-config`:** Layered configuration loader with TOML template defaults, environment variable overrides (`RENDERD_*`), and CLI flag parsing.
+- **`renderd-frame`:** Low-overhead 16-byte fragment header codec and out-of-order sliding-window reassembly state machine.
+- **`renderd-clock`:** Presentation clock estimation, rolling network statistics, and monotonic instant tracking for vsync phase alignment.
+- **`renderd-abr`:** Adaptive Bitrate control algorithm with AIMD state transitions, panic state keyframe requests, and bandwidth probing.
+- **`renderd-crypto`:** SPAKE2+ P-256 key exchange (RFC 9382), HKDF-SHA256 key derivation, and TLS 1.3 certificate generation.
+- **`renderd-vt-sys`:** Safe C/FFI bindings to Apple's `VideoToolbox` framework for hardware video encoding.
+- **`renderd-sc-sys`:** Safe C/FFI bindings to Apple's `ScreenCaptureKit` framework for zero-copy GPU frame capture.
+- **`renderd-net`:** QUIC transport engine (`QuicServer` / `QuicClient`), 4-byte length-prefixed control stream framing, non-yielding datagram burst sender, and smooth path RTT telemetry exporter.
+- **`renderd-keychain`:** Platform-agnostic `KeychainStore` interface with macOS Keychain Services (`kSecClassGenericPassword`), Windows Credential Manager (`CredWriteW`/`CredReadW`), and headless mock stores.
+- **`renderd-discovery`:** mDNS peer discovery with macOS Bonjour (`dns_sd.h`), Windows Win32 mDNS (`DnsServiceRegister`/`DnsServiceBrowse`), and static IP resolution fallbacks.
 
 ---
 
@@ -99,7 +104,7 @@ flowchart LR
 
 ```text
 renderd/
-├── Cargo.toml                  # Workspace root manifest (15 member crates)
+├── Cargo.toml                  # Workspace root manifest (16 member crates)
 ├── rust-toolchain.toml         # Rust toolchain pinning (MSRV 1.80+)
 ├── clippy.toml                 # Workspace Clippy lint rules
 ├── .rustfmt.toml               # Code formatting rules
@@ -118,14 +123,14 @@ renderd/
 │   ├── renderd-proto/          # Protobuf types, newtypes, and envelope validation
 │   ├── renderd-config/         # Layered config loader, schemas, and validators
 │   ├── renderd-frame/          # Fragment header codec & reassembly state machine
+│   ├── renderd-clock/          # Presentation clock synchronization (vsync phase)
+│   ├── renderd-abr/            # Adaptive Bitrate control algorithm
 │   ├── renderd-crypto/         # SPAKE2+ (RFC 9382), HKDF key derivation, TLS certs
 │   ├── renderd-vt-sys/         # VideoToolbox hardware encoder FFI bindings
 │   ├── renderd-sc-sys/         # ScreenCaptureKit capture FFI bindings
-│   ├── renderd-net/            # QUIC socket transport & datagram pipeline
+│   ├── renderd-net/            # QUIC socket transport, framing & datagram pipeline
 │   ├── renderd-keychain/       # macOS Keychain & Windows Credential Manager
 │   ├── renderd-discovery/      # mDNS / Bonjour peer discovery
-│   ├── renderd-abr/            # Adaptive Bitrate control algorithm
-│   ├── renderd-clock/          # Presentation clock synchronization (vsync phase)
 │   ├── renderd-host/           # macOS Host daemon executable binary
 │   └── renderd-viewer/         # Windows Viewer client executable binary
 └── docs/                       # Specifications and architecture docs
@@ -133,20 +138,20 @@ renderd/
 
 ---
 
-## Current Implementation Status
+## Roadmap & Implementation Status
 
 `Renderd` is executing across a 10-milestone engineering roadmap defined in [`ISSUES-0001-milestones.md`](docs/ISSUES-0001-milestones.md).
 
 - [x] **Milestone 1: Repository Bootstrap & Infrastructure** (`v0.1.0-bootstrap`)
-- [x] **Milestone 2: Foundation Layer** (Protobuf schema, `renderd-proto`, `renderd-config`)
-- [ ] **Milestone 3: Core Data Structures & Utilities** (`renderd-frame`, `renderd-clock`, `renderd-abr`) ← *in progress*
-- [ ] **Milestone 4: macOS Host Capture Engine** (`renderd-sc-sys`, `renderd-vt-sys`)
-- [ ] **Milestone 5: Networking & Transport** (`renderd-net`, `renderd-discovery`, `renderd-crypto`)
-- [ ] **Milestone 6: Windows Viewer Engine** (Direct3D12, MediaFoundation decoder)
-- [ ] **Milestone 7: Integration & Daemons** (`renderd-host`, `renderd-viewer`)
+- [x] **Milestone 2: Foundation Layer** (`v0.2.0-foundation`)
+- [x] **Milestone 3: Core Data Structures & Utilities** (`v0.3.0-primitives`)
+- [x] **Milestone 4: Platform Capture Engine** (`v0.4.0-platform`)
+- [x] **Milestone 5: Networking, Discovery & Secure Pairing** (`v0.5.0-networking`)
+- [ ] **Milestone 6: Windows Viewer Engine** (Direct3D12 & MediaFoundation Decoder)
+- [ ] **Milestone 7: End-to-End Daemons** (`renderd-host` & `renderd-viewer`)
 - [ ] **Milestone 8: Benchmarks & Tooling** (`latency-bench`)
-- [ ] **Milestone 9: Documentation & Quality**
-- [ ] **Milestone 10: Pre-Release Audit & v0.1.0**
+- [ ] **Milestone 9: Documentation & Quality Audit**
+- [ ] **Milestone 10: Pre-Release Audit & v1.0 Production Readiness**
 
 ---
 
@@ -156,6 +161,18 @@ renderd/
 |---|---|---|
 | **Renderd Host Daemon** | macOS 13.0+ (Ventura / Sonoma / Sequoia) | `aarch64-apple-darwin` (Apple Silicon) |
 | **Renderd Viewer Client** | Windows 10 or later (primary); Windows 11 supported | `x86_64-pc-windows-msvc`, `aarch64-pc-windows-msvc` |
+
+---
+
+## Continuous Integration (CI)
+
+Our GitHub Actions CI pipeline validates every commit across **Linux** (`ubuntu-latest`), **macOS** (`macos-15`), and **Windows** (`windows-2025`) using:
+
+- **Formatting Check:** `cargo fmt --check`
+- **Linting:** `cargo clippy --workspace --all-targets -- -D warnings`
+- **Test Suite:** `cargo nextest run --profile ci`
+- **Protocol Validation:** `proto-check` verifying `renderd.proto` codegen sync
+- **Spell Check:** `typos` checking codebase spelling integrity
 
 ---
 
@@ -198,9 +215,6 @@ cargo nextest run --workspace
 
 # Fallback if cargo-nextest is not installed
 cargo test --workspace
-
-# Run cargo-deny dependency & license audit
-cargo deny check
 ```
 
 ---
@@ -218,11 +232,9 @@ cargo deny check
 
 ## Contributing
 
-Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
-quick-start guide and [`docs/REPO-0001-repository.md`](docs/REPO-0001-repository.md)
-for the complete engineering standards before submitting code.
+Contributions are welcome! Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the quick-start guide and [`docs/REPO-0001-repository.md`](docs/REPO-0001-repository.md) for the complete engineering standards before submitting code.
 
-1. Ensure all code passes `cargo fmt`, `cargo clippy --all-targets -- -D warnings`, and `cargo nextest run`.
+1. Ensure all code passes `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo nextest run`.
 2. Follow Conventional Commits format (`feat(...)`, `fix(...)`, `ci(...)`, `docs(...)`).
 3. Check [`CODEOWNERS`](.github/CODEOWNERS) for domain-specific review routing.
 4. See §21 of REPO-0001 for the full pull request checklist and what not to contribute.
