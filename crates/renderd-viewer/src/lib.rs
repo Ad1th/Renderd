@@ -6,6 +6,7 @@
 #![allow(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod abr;
 pub mod app;
 pub mod clock_sync;
 pub mod config;
@@ -21,6 +22,7 @@ pub mod state;
 pub mod tearing;
 pub mod window;
 
+pub use abr::FeedbackExporter;
 pub use app::App;
 pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
