@@ -4,10 +4,10 @@
 
 use std::ptr;
 use uuid::Uuid;
-use windows::core::PCWSTR;
+use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Security::Credentials::{
     CredDeleteW, CredEnumerateW, CredFree, CredReadW, CredWriteW, CREDENTIALW,
-    CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
+    CRED_ENUMERATE_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
 };
 
 use crate::entry::PairingEntry;
@@ -39,11 +39,11 @@ impl KeychainStore for WindowsCredentialManager {
         })?;
 
         let target_name_str = format!("{TARGET_PREFIX}{}", entry.viewer_id);
-        let target_name_u16 = to_utf16(&target_name_str);
+        let mut target_name_u16 = to_utf16(&target_name_str);
 
         let cred = CREDENTIALW {
             Type: CRED_TYPE_GENERIC,
-            TargetName: PCWSTR(target_name_u16.as_ptr()),
+            TargetName: PWSTR(target_name_u16.as_mut_ptr()),
             CredentialBlobSize: u32::try_from(payload.len()).map_err(|_| {
                 KeychainError::Serialization("Payload length exceeds u32".to_string())
             })?,
@@ -54,7 +54,7 @@ impl KeychainStore for WindowsCredentialManager {
 
         // SAFETY: CredWriteW takes a pointer to a valid CREDENTIALW structure.
         unsafe {
-            CredWriteW(&cred, 0).ok().map_err(|e| {
+            CredWriteW(&cred, 0).map_err(|e| {
                 KeychainError::Platform(format!("CredWriteW failed for {target_name_str}: {e}"))
             })?;
         }
@@ -75,7 +75,6 @@ impl KeychainStore for WindowsCredentialManager {
                 0,
                 &mut cred_ptr,
             )
-            .ok()
             .map_err(|e| KeychainError::NotFound(format!("{target_name_str} ({e})")))?;
 
             if cred_ptr.is_null() {
@@ -100,7 +99,6 @@ impl KeychainStore for WindowsCredentialManager {
         // SAFETY: CredDeleteW deletes the target credential.
         unsafe {
             CredDeleteW(PCWSTR(target_name_u16.as_ptr()), CRED_TYPE_GENERIC, 0)
-                .ok()
                 .map_err(|e| KeychainError::NotFound(format!("{target_name_str} ({e})")))?;
         }
 
@@ -116,9 +114,13 @@ impl KeychainStore for WindowsCredentialManager {
 
         // SAFETY: CredEnumerateW enumerates all credentials matching filter_u16.
         unsafe {
-            if CredEnumerateW(PCWSTR(filter_u16.as_ptr()), 0, &mut count, &mut creds_ptr)
-                .ok()
-                .is_err()
+            if CredEnumerateW(
+                PCWSTR(filter_u16.as_ptr()),
+                CRED_ENUMERATE_FLAGS(0),
+                &mut count,
+                &mut creds_ptr,
+            )
+            .is_err()
                 || creds_ptr.is_null()
             {
                 return Ok(vec![]);
