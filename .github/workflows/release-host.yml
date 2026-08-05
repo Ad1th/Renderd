@@ -1,0 +1,94 @@
+name: Release Host App (macOS)
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run release packaging without notarization'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  package-host-mac:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build renderd-host (release)
+        run: cargo build --release --package renderd-host
+
+      - name: Assemble app bundle
+        run: ./tools/bundle-host/assemble.sh
+        env:
+          PROFILE: release
+
+      - name: Sign App Bundle
+        run: |
+          BUNDLE_PATH="target/bundle/renderd-host.app"
+          ENTITLEMENTS="crates/renderd-host/entitlements.plist"
+
+          if [ -n "${MACOS_CERTIFICATE_DATA:-}" ]; then
+            echo "==> Signing with Developer ID certificate"
+            echo "$MACOS_CERTIFICATE_DATA" | base64 --decode > cert.p12
+            security create-keychain -p secret build.keychain
+            security default-keychain -s build.keychain
+            security unlock-keychain -p secret build.keychain
+            security import cert.p12 -k build.keychain -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k secret build.keychain
+            codesign --force --options runtime --deep --sign "Developer ID Application" --entitlements "$ENTITLEMENTS" "$BUNDLE_PATH"
+          else
+            echo "==> Signing with ad-hoc identity (dry-run mode)"
+            codesign --force --options runtime --deep --sign - --entitlements "$ENTITLEMENTS" "$BUNDLE_PATH"
+          fi
+        env:
+          MACOS_CERTIFICATE_DATA: ${{ secrets.MACOS_CERTIFICATE_DATA }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+
+      - name: Notarize and Staple (if credentials available)
+        run: |
+          BUNDLE_PATH="target/bundle/renderd-host.app"
+
+          if [ -n "${NOTARY_KEY_ID:-}" ]; then
+            echo "==> Submitting to Apple Notary Service"
+            zip -r renderd-host.zip "$BUNDLE_PATH"
+            xcrun notarytool submit renderd-host.zip \
+              --key-id "$NOTARY_KEY_ID" \
+              --issuer "$NOTARY_ISSUER_ID" \
+              --key "$NOTARY_KEY_FILE" \
+              --wait
+            xcrun stapler staple "$BUNDLE_PATH"
+          else
+            echo "==> Skipping Apple Notarization (credentials not provided or dry-run)"
+          fi
+        env:
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+          NOTARY_KEY_FILE: ${{ secrets.NOTARY_KEY_FILE }}
+
+      - name: Create DMG Disk Image
+        run: |
+          mkdir -p target/dist
+          BUNDLE_PATH="target/bundle/renderd-host.app"
+          DMG_PATH="target/dist/renderd-host.dmg"
+
+          echo "==> Creating DMG at ${DMG_PATH}"
+          hdiutil create -volname "Renderd Host" -srcfolder "$BUNDLE_PATH" -ov -format UDZO "$DMG_PATH"
+          echo "==> DMG created successfully"
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: renderd-host-macos-dmg
+          path: |
+            target/dist/renderd-host.dmg
+            target/bundle/renderd-host.app
