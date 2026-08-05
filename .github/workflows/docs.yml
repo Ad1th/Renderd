@@ -21,7 +21,7 @@ jobs:
           cp -r target/doc/* site/api/
       - name: Upload Pages Artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
       - name: Deploy to GitHub Pages
