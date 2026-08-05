@@ -16,14 +16,14 @@ use crate::store::KeychainStore;
 
 const TARGET_PREFIX: &str = "Renderd/Pairing/";
 
-/// KeychainStore implementation backed by Windows Credential Manager.
+/// [`KeychainStore`] implementation backed by Windows Credential Manager.
 #[derive(Debug, Default)]
 pub struct WindowsCredentialManager;
 
 impl WindowsCredentialManager {
     /// Creates a new [`WindowsCredentialManager`] instance.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -54,7 +54,7 @@ impl KeychainStore for WindowsCredentialManager {
 
         // SAFETY: CredWriteW takes a pointer to a valid CREDENTIALW structure.
         unsafe {
-            CredWriteW(&cred, 0).map_err(|e| {
+            CredWriteW(&cred, 0).ok().map_err(|e| {
                 KeychainError::Platform(format!("CredWriteW failed for {target_name_str}: {e}"))
             })?;
         }
@@ -75,6 +75,7 @@ impl KeychainStore for WindowsCredentialManager {
                 0,
                 &mut cred_ptr,
             )
+            .ok()
             .map_err(|e| KeychainError::NotFound(format!("{target_name_str} ({e})")))?;
 
             if cred_ptr.is_null() {
@@ -87,7 +88,7 @@ impl KeychainStore for WindowsCredentialManager {
             let entry: PairingEntry = serde_json::from_slice(slice)
                 .map_err(|e| KeychainError::Serialization(format!("Deserialization error: {e}")))?;
 
-            CredFree(cred_ptr as *const _);
+            CredFree(cred_ptr.cast());
             Ok(entry)
         }
     }
@@ -99,6 +100,7 @@ impl KeychainStore for WindowsCredentialManager {
         // SAFETY: CredDeleteW deletes the target credential.
         unsafe {
             CredDeleteW(PCWSTR(target_name_u16.as_ptr()), CRED_TYPE_GENERIC, 0)
+                .ok()
                 .map_err(|e| KeychainError::NotFound(format!("{target_name_str} ({e})")))?;
         }
 
@@ -114,7 +116,9 @@ impl KeychainStore for WindowsCredentialManager {
 
         // SAFETY: CredEnumerateW enumerates all credentials matching filter_u16.
         unsafe {
-            if CredEnumerateW(PCWSTR(filter_u16.as_ptr()), 0, &mut count, &mut creds_ptr).is_err()
+            if CredEnumerateW(PCWSTR(filter_u16.as_ptr()), 0, &mut count, &mut creds_ptr)
+                .ok()
+                .is_err()
                 || creds_ptr.is_null()
             {
                 return Ok(vec![]);
@@ -135,7 +139,7 @@ impl KeychainStore for WindowsCredentialManager {
                 }
             }
 
-            CredFree(creds_ptr as *const _);
+            CredFree(creds_ptr.cast());
             Ok(entries)
         }
     }
