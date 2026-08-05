@@ -16,6 +16,7 @@ tokio              = { workspace = true }
 uuid               = { workspace = true }
 bytes              = { workspace = true }
 crossbeam-channel  = { workspace = true }
+quinn              = { workspace = true }
 renderd-config     = { workspace = true }
 renderd-proto      = { workspace = true }
 renderd-frame      = { workspace = true }
