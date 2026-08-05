@@ -142,7 +142,7 @@ renderd/
 
 ## Roadmap & Implementation Status
 
-`Renderd` is executing across a 10-milestone engineering roadmap defined in [`ISSUES-0001-milestones.md`](docs/ISSUES-0001-milestones.md).
+`Renderd` is executing across an engineering roadmap defined in [`ISSUES-0001-milestones.md`](docs/ISSUES-0001-milestones.md) (Milestones 1–8) and [`ISSUES-0002-integration.md`](docs/ISSUES-0002-integration.md) (Milestone 9).
 
 - [x] **Milestone 1: Repository Bootstrap & Infrastructure** (`v0.1.0-bootstrap`)
 - [x] **Milestone 2: Foundation Layer** (`v0.2.0-foundation`)
@@ -152,6 +152,7 @@ renderd/
 - [x] **Milestone 6: Algorithm Layer (ABR & Clock Sync)** (`v0.6.0-algorithms`)
 - [x] **Milestone 7: Host Application (`renderd-host`)** (`v0.7.0-host`)
 - [x] **Milestone 8: Viewer Application (`renderd-viewer`)** (`v0.8.0-viewer`)
+- [ ] **Milestone 9: End-to-End Integration & System Validation** (`v0.9.0-integration`)
 
 ---
 
@@ -233,7 +234,8 @@ cargo run -p renderd-viewer
 
 - [RFC-0002: System Architecture Specification](docs/RFC-0002-architecture.md) — Comprehensive technical architecture, control/data plane specs, and security design.
 - [REPO-0001: Engineering & Repository Guidelines](docs/REPO-0001-repository.md) — Coding standards, DAG dependencies, crate boundaries, and CI rules.
-- [ISSUES-0001: 100-Issue Roadmap & Milestones](docs/ISSUES-0001-milestones.md) — Complete milestone breakdown and task tracking.
+- [ISSUES-0001: Milestones 1–8 Component Roadmap](docs/ISSUES-0001-milestones.md) — 100-issue breakdown covering component implementation across Milestones 1–8.
+- [ISSUES-0002: Milestone 9 Integration & Validation Roadmap](docs/ISSUES-0002-integration.md) — 18-issue breakdown for end-to-end integration and system validation.
 - [BRAND.md](assets/brand/BRAND.md) — Renderd visual identity specification, design system, colors, and typography guidelines.
 - [CHANGELOG.md](CHANGELOG.md) — Detailed version history adhering to Keep a Changelog standards.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Quick-start guide for contributors.
