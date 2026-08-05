@@ -13,7 +13,6 @@
 /// happen on any supported Windows target because `BOOL` is `i32` (4 bytes)
 /// and 4 always fits in `u32`.
 #[must_use]
-#[allow(clippy::missing_const_for_fn)]
 pub fn check_tearing_support() -> bool {
     #[cfg(target_os = "windows")]
     {
@@ -54,6 +53,7 @@ pub fn check_tearing_support() -> bool {
 
     #[cfg(not(target_os = "windows"))]
     {
+        tracing::debug!("DXGI tearing support check is not applicable on non-Windows platforms");
         false
     }
 }

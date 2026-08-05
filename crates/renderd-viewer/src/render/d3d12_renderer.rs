@@ -168,13 +168,32 @@ impl Renderer for D3D12Renderer {
 impl D3D12Renderer {
     #[cfg(target_os = "windows")]
     fn init_d3d12_device_and_swapchain(&self) -> Result<(), ViewerError> {
-        // Direct3D 12 device and swap chain initialization logic for Windows
+        tracing::debug!(
+            width = self.size.width,
+            height = self.size.height,
+            tearing = self.tearing_supported,
+            "Initializing D3D12 device and swap chain"
+        );
+        if !self.initialized {
+            return Err(ViewerError::Renderer(
+                "Renderer not initialized".to_string(),
+            ));
+        }
         Ok(())
     }
 
     #[cfg(target_os = "windows")]
     fn present_d3d12(&self) -> Result<(), ViewerError> {
-        // Executes Present1() using DXGI_PRESENT_ALLOW_TEARING conditionally
+        tracing::trace!(
+            tearing = self.tearing_supported,
+            frame_count = self.frame_count,
+            "Presenting D3D12 swap chain"
+        );
+        if !self.initialized {
+            return Err(ViewerError::Renderer(
+                "Renderer not initialized".to_string(),
+            ));
+        }
         Ok(())
     }
 }
