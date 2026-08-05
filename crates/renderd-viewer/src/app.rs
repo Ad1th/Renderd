@@ -99,7 +99,10 @@ impl ApplicationHandler for App {
                     if let Err(e) = self.renderer.initialize(viewport) {
                         tracing::error!("Failed to initialize renderer: {e}");
                     }
-                    if let Err(e) = self.decoder.initialize("hevc", viewport.width, viewport.height) {
+                    if let Err(e) = self
+                        .decoder
+                        .initialize("hevc", viewport.width, viewport.height)
+                    {
                         tracing::error!("Failed to initialize decoder: {e}");
                     }
                     self.window_system = Some(ws);

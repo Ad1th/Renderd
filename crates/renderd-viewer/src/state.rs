@@ -65,7 +65,10 @@ impl AppState {
     /// Gets the current [`ConnectionState`].
     #[must_use]
     pub fn connection_state(&self) -> ConnectionState {
-        *self.connection_state.read().unwrap_or_else(std::sync::PoisonError::into_inner)
+        *self
+            .connection_state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Sets the [`ConnectionState`].

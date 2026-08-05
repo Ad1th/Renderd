@@ -1,8 +1,8 @@
 //! Bounded thread-safe queue for buffering decoded video frames between networking and rendering.
 
+use crate::decoder::DecodedFrame;
 use std::collections::VecDeque;
 use std::sync::Mutex;
-use crate::decoder::DecodedFrame;
 
 /// Bounded thread-safe queue for decoded frames with automatic stale-frame dropping for latency control.
 #[derive(Debug)]
@@ -24,7 +24,10 @@ impl FrameQueue {
     /// Pushes a new [`DecodedFrame`] into the queue.
     /// Returns `true` if an old frame was dropped due to queue overflow.
     pub fn push(&self, frame: DecodedFrame) -> bool {
-        let mut queue = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut queue = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let dropped = if queue.len() >= self.capacity {
             queue.pop_front();
             true
@@ -38,13 +41,19 @@ impl FrameQueue {
     /// Pops the next frame ready for rendering.
     #[must_use]
     pub fn pop(&self) -> Option<DecodedFrame> {
-        let mut queue = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut queue = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         queue.pop_front()
     }
 
     /// Drops all frames older than `min_pts_ns`. Returns the number of stale frames dropped.
     pub fn drop_stale(&self, min_pts_ns: u64) -> usize {
-        let mut queue = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut queue = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let initial_len = queue.len();
         queue.retain(|f| f.pts_ns >= min_pts_ns);
         initial_len - queue.len()
@@ -53,7 +62,10 @@ impl FrameQueue {
     /// Returns current number of buffered frames.
     #[must_use]
     pub fn len(&self) -> usize {
-        let queue = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let queue = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         queue.len()
     }
 
@@ -65,7 +77,10 @@ impl FrameQueue {
 
     /// Clears all buffered frames from the queue.
     pub fn clear(&self) {
-        let mut queue = self.buffer.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut queue = self
+            .buffer
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         queue.clear();
     }
 }
@@ -73,8 +88,8 @@ impl FrameQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use crate::decoder::PixelFormat;
+    use std::time::Duration;
 
     fn make_test_frame(id: u64, pts: u64) -> DecodedFrame {
         DecodedFrame {
