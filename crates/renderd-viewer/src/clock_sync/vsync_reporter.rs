@@ -92,7 +92,6 @@ impl VsyncReporter {
 
     #[cfg(target_os = "windows")]
     fn query_dwm_timing(&self) -> Option<(u64, u64)> {
-        Ok(()).ok()?;
         None
     }
 }
