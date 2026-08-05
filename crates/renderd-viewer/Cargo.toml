@@ -6,5 +6,31 @@ license.workspace = true
 rust-version.workspace = true
 description = "Windows viewer display client."
 
-[lints]
-workspace = true
+[dependencies]
+thiserror         = { workspace = true }
+tracing           = { workspace = true }
+tracing-subscriber = "0.3"
+tokio             = { workspace = true }
+winit             = { workspace = true }
+renderd-config    = { workspace = true }
+renderd-proto     = { workspace = true }
+renderd-frame     = { workspace = true }
+renderd-clock     = { workspace = true }
+renderd-abr       = { workspace = true }
+renderd-crypto    = { workspace = true }
+renderd-net       = { workspace = true }
+renderd-keychain  = { workspace = true }
+renderd-discovery = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { workspace = true }
+
+[lints.rust]
+unsafe_code = "warn"
+
+[lints.clippy]
+all                     = { level = "warn", priority = -1 }
+pedantic                = { level = "warn", priority = -1 }
+nursery                 = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc      = "allow"
