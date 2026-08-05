@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` is currently in active pre-release development (**Milestones 1–6 complete; preparing for Milestone 7**). Core protocol schemas, configuration engines, frame reassembly pipelines, presentation clocks, ABR controllers, crypto primitives, ScreenCaptureKit/VideoToolbox host capture wrappers, QUIC transport, platform keychains, mDNS discovery, and the Windows Viewer architecture (winit event loop, DPI awareness, renderer/decoder abstractions, thread-safe frame queue, application state orchestration) are fully implemented and tested across the workspace.
+> `Renderd` is currently in active pre-release development (**all 8 milestones complete**). The complete architecture is implemented and tested: protocol schemas, configuration engine, frame reassembly pipeline, presentation clock, ABR controller, crypto primitives, ScreenCaptureKit/VideoToolbox host capture FFI, QUIC transport, platform keychains, mDNS discovery, the `renderd-host` macOS daemon (with full subsystem initialization, session state machine, menu bar UI, and persistent SIGINT/SIGTERM run loop), and the `renderd-viewer` Windows application (winit event loop, D3D12 renderer, D3D12 video decoder, datagram reassembly, vsync reporter, dual-timescale ABR feedback, SPAKE2+ pairing UI, reconnect watchdog, status overlay, system tray icon, and CI release packaging). All 136 workspace tests pass.
 
 ---
 
@@ -97,7 +97,8 @@ flowchart LR
 - **`renderd-net`:** QUIC transport engine (`QuicServer` / `QuicClient`), 4-byte length-prefixed control stream framing, non-yielding datagram burst sender, and smooth path RTT telemetry exporter.
 - **`renderd-keychain`:** Platform-agnostic `KeychainStore` interface with macOS Keychain Services (`kSecClassGenericPassword`), Windows Credential Manager (`CredWriteW`/`CredReadW`), and headless mock stores.
 - **`renderd-discovery`:** mDNS peer discovery with macOS Bonjour (`dns_sd.h`), Windows Win32 mDNS (`DnsServiceRegister`/`DnsServiceBrowse`), and static IP resolution fallbacks.
-- **`renderd-viewer`:** Windows viewer display application architecture featuring native `winit` event loop management, Per-Monitor v2 DPI awareness, decoupled `Renderer` and `Decoder` trait abstractions, bounded thread-safe `FrameQueue` with stale frame eviction, central `AppState` metrics tracking, and application lifecycle orchestration.
+- **`renderd-host`:** macOS host daemon orchestrating all subsystems via `HostApp::run()`: `CapturePipeline` (zero-copy ScreenCaptureKit frames), `EncodePipeline` (VideoToolbox HEVC hardware encoder with SPSC ring buffer), `ClockController` (vsync pacing from `VsyncReport`), `AbrManager` (dual-timescale bitrate decisions), `HostSession` (`IDLE → PAIRING → CONNECTED → STREAMING` state machine), `NetworkManager`, and `UiManager` (macOS menu bar and user notifications). Runs persistently via SIGINT/SIGTERM signal handler.
+- **`renderd-viewer`:** Windows viewer display application featuring native `winit` event loop management, Per-Monitor v2 DPI awareness, D3D12 swap chain and YUV-to-RGB shader renderer, `ID3D12VideoDecoder` hardware video decoder, datagram receiver and sliding-window reassembly task, DWM vsync phase reporter (`VsyncReport` via QUIC Stream 0), dual-timescale ABR feedback exporter (`ReactiveStats` at 100 ms / `PeriodicStats` at 500 ms), SPAKE2+ prover pairing UI with PIN entry, reconnect watchdog with mDNS re-discovery, semi-transparent "Reconnecting" status overlay, Windows system tray icon via `Shell_NotifyIcon`, and CI release packaging workflow.
 
 ---
 
@@ -145,14 +146,12 @@ renderd/
 
 - [x] **Milestone 1: Repository Bootstrap & Infrastructure** (`v0.1.0-bootstrap`)
 - [x] **Milestone 2: Foundation Layer** (`v0.2.0-foundation`)
-- [x] **Milestone 3: Core Data Structures & Utilities** (`v0.3.0-primitives`)
-- [x] **Milestone 4: Platform Capture Engine** (`v0.4.0-platform`)
-- [x] **Milestone 5: Networking, Discovery & Secure Pairing** (`v0.5.0-networking`)
-- [x] **Milestone 6: Windows Viewer Engine** (`v0.6.0-viewer`)
-- [x] **Milestone 7: End-to-End Daemons** (`renderd-host` & `renderd-viewer`)
-- [ ] **Milestone 8: Benchmarks & Tooling** (`latency-bench`)
-- [ ] **Milestone 9: Documentation & Quality Audit**
-- [ ] **Milestone 10: Pre-Release Audit & v1.0 Production Readiness**
+- [x] **Milestone 3: Primitive Layer (Frame & Crypto)** (`v0.3.0-primitives`)
+- [x] **Milestone 4: FFI Layer (VideoToolbox & ScreenCaptureKit)** (`v0.4.0-ffi`)
+- [x] **Milestone 5: Service Layer (Net, Keychain & Discovery)** (`v0.5.0-services`)
+- [x] **Milestone 6: Algorithm Layer (ABR & Clock Sync)** (`v0.6.0-algorithms`)
+- [x] **Milestone 7: Host Application (`renderd-host`)** (`v0.7.0-host`)
+- [x] **Milestone 8: Viewer Application (`renderd-viewer`)** (`v0.8.0-viewer`)
 
 ---
 
@@ -216,6 +215,16 @@ cargo nextest run --workspace
 
 # Fallback if cargo-nextest is not installed
 cargo test --workspace
+```
+
+### Running the Applications
+
+```bash
+# Run the macOS host daemon (blocks and runs event loop until Ctrl+C)
+cargo run -p renderd-host
+
+# Run the Windows viewer application (launches window and renderer)
+cargo run -p renderd-viewer
 ```
 
 ---

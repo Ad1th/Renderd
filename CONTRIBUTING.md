@@ -147,7 +147,7 @@ Renderd strictly enforces **Conventional Commits** (https://www.conventionalcomm
 ## 7. Labels & Milestones
 
 - Issues and PRs are categorized using standard label taxonomies (`type/*`, `crate/*`, `platform/*`, `priority/*`, `status/*`).
-- Development is structured into numbered engineering milestones (`Milestone 1` through `Milestone 10`). Refer to [`docs/ISSUES-0001-milestones.md`](docs/ISSUES-0001-milestones.md) for current progress.
+- Development is structured into 8 numbered engineering milestones (all completed). Refer to [`docs/ISSUES-0001-milestones.md`](docs/ISSUES-0001-milestones.md) for the complete issue breakdown.
 
 ---
 
