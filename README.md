@@ -149,7 +149,7 @@ renderd/
 - [x] **Milestone 4: Platform Capture Engine** (`v0.4.0-platform`)
 - [x] **Milestone 5: Networking, Discovery & Secure Pairing** (`v0.5.0-networking`)
 - [x] **Milestone 6: Windows Viewer Engine** (`v0.6.0-viewer`)
-- [ ] **Milestone 7: End-to-End Daemons** (`renderd-host` & `renderd-viewer`)
+- [x] **Milestone 7: End-to-End Daemons** (`renderd-host` & `renderd-viewer`)
 - [ ] **Milestone 8: Benchmarks & Tooling** (`latency-bench`)
 - [ ] **Milestone 9: Documentation & Quality Audit**
 - [ ] **Milestone 10: Pre-Release Audit & v1.0 Production Readiness**
