@@ -142,6 +142,11 @@ mod macos {
             let Some(class) = AnyClass::get("SMAppService") else {
                 return AutoStartStatus::Unknown;
             };
+            let sel = objc2::sel!(mainApp);
+            let responds: bool = msg_send![class, respondsToSelector: sel];
+            if !responds {
+                return AutoStartStatus::Unknown;
+            }
             let service: Option<Retained<objc2::runtime::AnyObject>> = msg_send_id![class, mainApp];
             let Some(service) = service else {
                 return AutoStartStatus::Unknown;
