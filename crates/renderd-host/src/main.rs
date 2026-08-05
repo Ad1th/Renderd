@@ -124,9 +124,9 @@ mod tests {
         let _data = DataSender::new();
         let _server = HostServer::new();
         let _auth = AuthManager::new();
-        let _devices = DeviceRegistry::new();
-        let _pairing =
-            PairingHandler::new(std::sync::Arc::new(renderd_keychain::MockKeychain::new()));
+        let keychain = std::sync::Arc::new(renderd_keychain::MockKeychain::new());
+        let _devices = DeviceRegistry::new(keychain.clone());
+        let _pairing = PairingHandler::new(keychain);
         let _devices_panel = DevicesPanel::new();
         let _menubar = MenuBar::new();
         let _notifications = NotificationManager::new();
