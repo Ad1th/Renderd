@@ -8,9 +8,10 @@ description = "macOS host display mirroring agent."
 
 [dependencies]
 anyhow             = { workspace = true }
+clap               = { workspace = true }
 thiserror          = { workspace = true }
 tracing            = { workspace = true }
-tracing-subscriber = "0.3"
+tracing-subscriber = { workspace = true }
 tokio              = { workspace = true }
 renderd-config     = { workspace = true }
 renderd-proto      = { workspace = true }
