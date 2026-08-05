@@ -3,6 +3,7 @@
 //! Provides the application lifecycle, Win32/cross-platform windowing subsystem,
 //! thread-safe frame queue, and abstractions for hardware video decoding and graphics rendering.
 
+#![allow(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod app;
