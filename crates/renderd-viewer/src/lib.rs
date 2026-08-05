@@ -7,6 +7,7 @@
 #![warn(missing_docs)]
 
 pub mod app;
+pub mod clock_sync;
 pub mod config;
 pub mod decode;
 pub mod decoder;
@@ -21,6 +22,7 @@ pub mod tearing;
 pub mod window;
 
 pub use app::App;
+pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
 pub use decode::D3D12Decoder;
 pub use decoder::{DecodedFrame, Decoder, NullDecoder, PixelFormat};
