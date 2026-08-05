@@ -8,6 +8,7 @@
 
 pub mod app;
 pub mod config;
+pub mod decode;
 pub mod decoder;
 pub mod error;
 pub mod frame_queue;
@@ -20,6 +21,7 @@ pub mod window;
 
 pub use app::App;
 pub use config::ViewerAppConfig;
+pub use decode::D3D12Decoder;
 pub use decoder::{DecodedFrame, Decoder, NullDecoder, PixelFormat};
 pub use error::ViewerError;
 pub use frame_queue::FrameQueue;
