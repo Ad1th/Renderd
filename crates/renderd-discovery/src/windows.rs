@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::ptr;
 use tokio::sync::mpsc::{channel, Receiver};
 use uuid::Uuid;
-use windows::core::PCWSTR;
+use windows::core::PWSTR;
 use windows::Win32::NetworkManagement::Dns::{
     DnsServiceBrowse, DnsServiceBrowseCancel, DnsServiceDeRegister, DnsServiceRegister,
     DNS_SERVICE_BROWSE_REQUEST, DNS_SERVICE_CANCEL, DNS_SERVICE_INSTANCE,
@@ -44,10 +44,10 @@ impl Advertiser for WinDnsAdvertiser {
         self.unregister()?;
 
         let instance_name = format!("{}._renderd._udp.local", record.name);
-        let instance_u16 = to_utf16(&instance_name);
+        let mut instance_u16 = to_utf16(&instance_name);
 
         let mut instance = DNS_SERVICE_INSTANCE {
-            pszInstanceName: PCWSTR(instance_u16.as_ptr()),
+            pszInstanceName: PWSTR(instance_u16.as_mut_ptr()),
             wPort: record.port,
             ..Default::default()
         };
@@ -59,10 +59,11 @@ impl Advertiser for WinDnsAdvertiser {
         };
 
         // SAFETY: DnsServiceRegister takes valid DNS_SERVICE_REGISTER_REQUEST structure pointers.
-        unsafe {
-            DnsServiceRegister(&request, None).map_err(|e| {
-                DiscoveryError::ServiceRegistrationFailed(format!("DnsServiceRegister failed: {e}"))
-            })?;
+        let status = unsafe { DnsServiceRegister(&request, None) };
+        if status != 0 && status != 9506 {
+            return Err(DiscoveryError::ServiceRegistrationFailed(format!(
+                "DnsServiceRegister failed with error code {status}"
+            )));
         }
 
         self.handle = Some(instance);
@@ -114,22 +115,22 @@ impl Browser for WinDnsBrowser {
         self.stop_browse()?;
 
         let (_tx, rx) = channel(32);
-        let query_u16 = to_utf16("_renderd._udp.local");
+        let mut query_u16 = to_utf16("_renderd._udp.local");
         let mut cancel_handle = DNS_SERVICE_CANCEL::default();
 
         let request = DNS_SERVICE_BROWSE_REQUEST {
             Version: 1,
-            QueryName: PCWSTR(query_u16.as_ptr()),
+            QueryName: PWSTR(query_u16.as_mut_ptr()),
             pQueryContext: ptr::null_mut(),
-            pBrowseCallback: None,
             ..Default::default()
         };
 
         // SAFETY: DnsServiceBrowse initiates mDNS discovery using Win32 DNS API.
-        unsafe {
-            DnsServiceBrowse(&request, &mut cancel_handle).map_err(|e| {
-                DiscoveryError::BrowseFailed(format!("DnsServiceBrowse failed: {e}"))
-            })?;
+        let status = unsafe { DnsServiceBrowse(&request, &mut cancel_handle) };
+        if status != 0 && status != 9506 {
+            return Err(DiscoveryError::BrowseFailed(format!(
+                "DnsServiceBrowse failed with error code {status}"
+            )));
         }
 
         self.cancel = Some(cancel_handle);
