@@ -13,6 +13,7 @@ thiserror          = { workspace = true }
 tracing            = { workspace = true }
 tracing-subscriber = { workspace = true }
 tokio              = { workspace = true }
+uuid               = { workspace = true }
 renderd-config     = { workspace = true }
 renderd-proto      = { workspace = true }
 renderd-frame      = { workspace = true }

@@ -26,7 +26,8 @@ pub use network::{
 };
 pub use panic::setup_panic_hook;
 pub use session::{
-    auth::AuthManager, devices::DeviceRegistry, pairing::PairingHandler, HostSession,
+    auth::AuthManager, devices::DeviceRegistry, pairing::PairingHandler, HostSession, SessionError,
+    SessionState,
 };
 pub use ui::{
     devices_panel::DevicesPanel, menubar::MenuBar, notifications::NotificationManager, UiManager,
