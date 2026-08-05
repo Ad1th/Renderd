@@ -1,5 +1,7 @@
 //! Platform credential storage interface for Renderd.
 
+#![allow(unsafe_code)]
+
 pub mod entry;
 pub mod error;
 #[cfg(target_os = "macos")]

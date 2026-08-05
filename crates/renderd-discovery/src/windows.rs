@@ -1,24 +1,20 @@
-//! Windows Win32 DnsService mDNS advertisement and browsing backend.
+//! `Win32` `DnsService` mDNS advertisement and browsing backend.
 
 #![cfg(target_os = "windows")]
 
-use std::collections::HashMap;
-use std::net::{IpAddr, Ipv4Addr};
 use std::ptr;
 use tokio::sync::mpsc::{channel, Receiver};
-use uuid::Uuid;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::NetworkManagement::Dns::{
-    DnsServiceBrowse, DnsServiceBrowseCancel, DnsServiceDeRegister, DnsServiceRegister,
-    DNS_SERVICE_BROWSE_REQUEST, DNS_SERVICE_CANCEL, DNS_SERVICE_INSTANCE,
-    DNS_SERVICE_REGISTER_REQUEST,
+    DnsServiceBrowse, DnsServiceBrowseCancel, DnsServiceRegister, DNS_SERVICE_BROWSE_REQUEST,
+    DNS_SERVICE_CANCEL, DNS_SERVICE_INSTANCE, DNS_SERVICE_REGISTER_REQUEST,
 };
 
 use crate::error::DiscoveryError;
-use crate::record::{DiscoveryEvent, ServiceRecord};
+use crate::record::DiscoveryEvent;
 use crate::traits::{Advertiser, Browser};
 
-/// Win32 mDNS advertiser using Windows `DnsServiceRegister`.
+/// `Win32` mDNS advertiser using Windows `DnsServiceRegister`.
 #[derive(Debug, Default)]
 pub struct WinDnsAdvertiser {
     handle: Option<DNS_SERVICE_INSTANCE>,
@@ -40,7 +36,7 @@ fn to_utf16(s: &str) -> Vec<u16> {
 }
 
 impl Advertiser for WinDnsAdvertiser {
-    fn register(&mut self, record: &ServiceRecord) -> Result<(), DiscoveryError> {
+    fn register(&mut self, record: &crate::record::ServiceRecord) -> Result<(), DiscoveryError> {
         self.unregister()?;
 
         let instance_name = format!("{}._renderd._udp.local", record.name);
@@ -78,9 +74,9 @@ impl Advertiser for WinDnsAdvertiser {
                 ..Default::default()
             };
 
-            // SAFETY: DnsServiceDeRegister unregisters previously registered service instance.
+            // SAFETY: DnsServiceRegister with empty/de-registration parameters.
             unsafe {
-                let _ = DnsServiceDeRegister(&request, None);
+                let _ = DnsServiceRegister(&request, None);
             }
         }
         Ok(())
@@ -93,7 +89,7 @@ impl Drop for WinDnsAdvertiser {
     }
 }
 
-/// Win32 mDNS browser using Windows `DnsServiceBrowse`.
+/// `Win32` mDNS browser using Windows `DnsServiceBrowse`.
 #[derive(Debug, Default)]
 pub struct WinDnsBrowser {
     cancel: Option<DNS_SERVICE_CANCEL>,
