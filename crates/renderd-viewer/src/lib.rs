@@ -22,6 +22,7 @@ pub mod render;
 pub mod renderer;
 pub mod state;
 pub mod tearing;
+pub mod ui;
 pub mod window;
 
 pub use abr::FeedbackExporter;
@@ -39,4 +40,5 @@ pub use render::D3D12Renderer;
 pub use renderer::{NullRenderer, Renderer, ViewportSize};
 pub use state::{AppState, ConnectionState, ViewerMetrics};
 pub use tearing::check_tearing_support;
+pub use ui::StatusOverlay;
 pub use window::WindowSystem;
