@@ -40,5 +40,5 @@ pub use render::D3D12Renderer;
 pub use renderer::{NullRenderer, Renderer, ViewportSize};
 pub use state::{AppState, ConnectionState, ViewerMetrics};
 pub use tearing::check_tearing_support;
-pub use ui::StatusOverlay;
+pub use ui::{StatusOverlay, SystemTrayManager, TrayMenuAction, ViewerSettingsState};
 pub use window::WindowSystem;
