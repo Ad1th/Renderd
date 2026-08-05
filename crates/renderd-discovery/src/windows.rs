@@ -7,7 +7,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::ptr;
 use tokio::sync::mpsc::{channel, Receiver};
 use uuid::Uuid;
-use windows::core::PWSTR;
+use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::NetworkManagement::Dns::{
     DnsServiceBrowse, DnsServiceBrowseCancel, DnsServiceDeRegister, DnsServiceRegister,
     DNS_SERVICE_BROWSE_REQUEST, DNS_SERVICE_CANCEL, DNS_SERVICE_INSTANCE,
@@ -115,12 +115,12 @@ impl Browser for WinDnsBrowser {
         self.stop_browse()?;
 
         let (_tx, rx) = channel(32);
-        let mut query_u16 = to_utf16("_renderd._udp.local");
+        let query_u16 = to_utf16("_renderd._udp.local");
         let mut cancel_handle = DNS_SERVICE_CANCEL::default();
 
         let request = DNS_SERVICE_BROWSE_REQUEST {
             Version: 1,
-            QueryName: PWSTR(query_u16.as_mut_ptr()),
+            QueryName: PCWSTR(query_u16.as_ptr()),
             pQueryContext: ptr::null_mut(),
             ..Default::default()
         };
