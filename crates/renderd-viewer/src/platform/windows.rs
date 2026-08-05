@@ -13,11 +13,9 @@ use windows::Win32::UI::HiDpi::{
 pub fn enable_dpi_awareness() -> Result<(), crate::error::ViewerError> {
     // SAFETY: SetProcessDpiAwarenessContext calls Win32 API to enable Per-Monitor v2 DPI awareness.
     unsafe {
-        if SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).is_err() {
-            tracing::warn!(
-                "Failed to set Per-Monitor v2 DPI awareness; falling back to system defaults"
-            );
-        }
+        SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2).map_err(|e| {
+            crate::error::ViewerError::Window(format!("Failed to set DPI awareness: {e:?}"))
+        })?;
     }
     Ok(())
 }

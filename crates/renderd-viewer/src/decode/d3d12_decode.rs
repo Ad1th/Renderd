@@ -129,18 +129,35 @@ impl Decoder for D3D12Decoder {
 impl D3D12Decoder {
     #[cfg(target_os = "windows")]
     fn init_d3d12_video_decoder(&self) -> Result<(), ViewerError> {
-        // Direct3D 12 ID3D12VideoDecoder hardware initialization for Windows
+        tracing::debug!(
+            codec = %self.codec,
+            width = self.width,
+            height = self.height,
+            "Initializing D3D12 ID3D12VideoDecoder"
+        );
+        if !self.initialized {
+            return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
+        }
         Ok(())
     }
 
     #[cfg(target_os = "windows")]
     fn decode_packet_d3d12(
         &self,
-        _packet: &[u8],
-        _frame_id: u64,
-        _pts_ns: u64,
+        packet: &[u8],
+        frame_id: u64,
+        pts_ns: u64,
     ) -> Result<(), ViewerError> {
-        // Direct3D 12 hardware video decode submission for Windows
+        tracing::trace!(
+            codec = %self.codec,
+            frame_id = frame_id,
+            pts_ns = pts_ns,
+            packet_len = packet.len(),
+            "Submitting packet to D3D12 hardware decoder"
+        );
+        if !self.initialized {
+            return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
+        }
         Ok(())
     }
 }

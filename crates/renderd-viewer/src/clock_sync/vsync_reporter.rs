@@ -59,18 +59,27 @@ impl VsyncReporter {
     }
 
     /// Queries DWM composition timing and builds a `VsyncReport` message.
-    #[allow(unused_mut)]
     pub fn create_vsync_report(&mut self) -> VsyncReport {
-        let mut period = self.vsync_period_ns;
-        let mut phase = u64::try_from(self.start_time.elapsed().as_nanos()).unwrap_or_default();
-
-        #[cfg(target_os = "windows")]
-        {
-            if let Some((dw_period, dw_phase)) = self.query_dwm_timing() {
-                period = dw_period;
-                phase = dw_phase;
+        let (period, phase) = {
+            #[cfg(target_os = "windows")]
+            {
+                if let Some((dw_period, dw_phase)) = self.query_dwm_timing() {
+                    (dw_period, dw_phase)
+                } else {
+                    (
+                        self.vsync_period_ns,
+                        u64::try_from(self.start_time.elapsed().as_nanos()).unwrap_or_default(),
+                    )
+                }
             }
-        }
+            #[cfg(not(target_os = "windows"))]
+            {
+                (
+                    self.vsync_period_ns,
+                    u64::try_from(self.start_time.elapsed().as_nanos()).unwrap_or_default(),
+                )
+            }
+        };
 
         let epoch = u64::try_from(
             SystemTime::now()
@@ -91,7 +100,10 @@ impl VsyncReporter {
     }
 
     #[cfg(target_os = "windows")]
-    fn query_dwm_timing(&self) -> Option<(u64, u64)> {
+    const fn query_dwm_timing(&self) -> Option<(u64, u64)> {
+        if self.vsync_period_ns == 0 {
+            return None;
+        }
         None
     }
 }

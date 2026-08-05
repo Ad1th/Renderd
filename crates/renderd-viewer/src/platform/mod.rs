@@ -7,11 +7,14 @@ pub mod windows;
 ///
 /// # Errors
 /// Returns [`crate::error::ViewerError`] if platform initialization fails.
-#[allow(clippy::missing_const_for_fn)]
 pub fn init_platform() -> Result<(), crate::error::ViewerError> {
     #[cfg(target_os = "windows")]
     {
         windows::enable_dpi_awareness()?;
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        tracing::debug!("No platform-specific windowing hooks required for non-Windows OS");
     }
     Ok(())
 }

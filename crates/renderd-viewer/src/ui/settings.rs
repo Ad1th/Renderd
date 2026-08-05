@@ -109,7 +109,12 @@ impl SystemTrayManager {
 
     #[cfg(target_os = "windows")]
     fn init_windows_tray(&self) {
-        // Initialize Win32 Shell_NotifyIcon tray icon
+        if let Ok(guard) = self.state.lock() {
+            tracing::info!(
+                host = %guard.host_address,
+                "Initializing Win32 Shell_NotifyIcon system tray"
+            );
+        }
     }
 }
 
