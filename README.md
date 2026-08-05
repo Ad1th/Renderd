@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` is currently in active pre-release development (**Milestones 1–5 complete; preparing for Milestone 6**). Core protocol schemas, configuration engines, frame reassembly pipelines, presentation clocks, ABR controllers, crypto primitives, ScreenCaptureKit/VideoToolbox host capture wrappers, QUIC transport, platform keychains, and mDNS discovery are fully implemented and tested across the workspace.
+> `Renderd` is currently in active pre-release development (**Milestones 1–6 complete; preparing for Milestone 7**). Core protocol schemas, configuration engines, frame reassembly pipelines, presentation clocks, ABR controllers, crypto primitives, ScreenCaptureKit/VideoToolbox host capture wrappers, QUIC transport, platform keychains, mDNS discovery, and the Windows Viewer architecture (winit event loop, DPI awareness, renderer/decoder abstractions, thread-safe frame queue, application state orchestration) are fully implemented and tested across the workspace.
 
 ---
 
@@ -97,6 +97,7 @@ flowchart LR
 - **`renderd-net`:** QUIC transport engine (`QuicServer` / `QuicClient`), 4-byte length-prefixed control stream framing, non-yielding datagram burst sender, and smooth path RTT telemetry exporter.
 - **`renderd-keychain`:** Platform-agnostic `KeychainStore` interface with macOS Keychain Services (`kSecClassGenericPassword`), Windows Credential Manager (`CredWriteW`/`CredReadW`), and headless mock stores.
 - **`renderd-discovery`:** mDNS peer discovery with macOS Bonjour (`dns_sd.h`), Windows Win32 mDNS (`DnsServiceRegister`/`DnsServiceBrowse`), and static IP resolution fallbacks.
+- **`renderd-viewer`:** Windows viewer display application architecture featuring native `winit` event loop management, Per-Monitor v2 DPI awareness, decoupled `Renderer` and `Decoder` trait abstractions, bounded thread-safe `FrameQueue` with stale frame eviction, central `AppState` metrics tracking, and application lifecycle orchestration.
 
 ---
 
@@ -132,7 +133,7 @@ renderd/
 │   ├── renderd-keychain/       # macOS Keychain & Windows Credential Manager
 │   ├── renderd-discovery/      # mDNS / Bonjour peer discovery
 │   ├── renderd-host/           # macOS Host daemon executable binary
-│   └── renderd-viewer/         # Windows Viewer client executable binary
+│   └── renderd-viewer/         # Windows Viewer display client architecture
 └── docs/                       # Specifications and architecture docs
 ```
 
@@ -147,7 +148,7 @@ renderd/
 - [x] **Milestone 3: Core Data Structures & Utilities** (`v0.3.0-primitives`)
 - [x] **Milestone 4: Platform Capture Engine** (`v0.4.0-platform`)
 - [x] **Milestone 5: Networking, Discovery & Secure Pairing** (`v0.5.0-networking`)
-- [ ] **Milestone 6: Windows Viewer Engine** (Direct3D12 & MediaFoundation Decoder)
+- [x] **Milestone 6: Windows Viewer Engine** (`v0.6.0-viewer`)
 - [ ] **Milestone 7: End-to-End Daemons** (`renderd-host` & `renderd-viewer`)
 - [ ] **Milestone 8: Benchmarks & Tooling** (`latency-bench`)
 - [ ] **Milestone 9: Documentation & Quality Audit**
