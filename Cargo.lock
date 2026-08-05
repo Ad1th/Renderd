@@ -2094,6 +2094,24 @@ dependencies = [
 [[package]]
 name = "renderd-host"
 version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "renderd-abr",
+ "renderd-clock",
+ "renderd-config",
+ "renderd-crypto",
+ "renderd-discovery",
+ "renderd-frame",
+ "renderd-keychain",
+ "renderd-net",
+ "renderd-proto",
+ "renderd-sc-sys",
+ "renderd-vt-sys",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
 
 [[package]]
 name = "renderd-keychain"
