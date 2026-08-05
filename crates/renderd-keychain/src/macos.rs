@@ -126,8 +126,10 @@ mod tests {
         if let Err(KeychainError::Platform(msg)) = keychain.save_pairing(&entry) {
             if msg.contains("authorization")
                 || msg.contains("User interaction is not allowed")
+                || msg.contains("User canceled the operation")
                 || msg.contains("code: -25308")
                 || msg.contains("code: -25293")
+                || msg.contains("code: -128")
             {
                 return;
             }
@@ -142,8 +144,10 @@ mod tests {
             Err(KeychainError::Platform(msg))
                 if msg.contains("authorization")
                     || msg.contains("User interaction is not allowed")
+                    || msg.contains("User canceled the operation")
                     || msg.contains("code: -25308")
-                    || msg.contains("code: -25293") =>
+                    || msg.contains("code: -25293")
+                    || msg.contains("code: -128") =>
             {
                 vec![entry.clone()]
             }
