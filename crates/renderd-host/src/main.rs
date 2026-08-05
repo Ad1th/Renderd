@@ -26,8 +26,10 @@ pub use network::{
 };
 pub use panic::setup_panic_hook;
 pub use session::{
-    auth::AuthManager, devices::DeviceRegistry, pairing::PairingHandler, HostSession, SessionError,
-    SessionState,
+    auth::AuthManager,
+    devices::DeviceRegistry,
+    pairing::{PairingError, PairingHandler},
+    HostSession, SessionError, SessionState,
 };
 pub use ui::{
     devices_panel::DevicesPanel, menubar::MenuBar, notifications::NotificationManager, UiManager,
@@ -123,7 +125,8 @@ mod tests {
         let _server = HostServer::new();
         let _auth = AuthManager::new();
         let _devices = DeviceRegistry::new();
-        let _pairing = PairingHandler::new();
+        let _pairing =
+            PairingHandler::new(std::sync::Arc::new(renderd_keychain::MockKeychain::new()));
         let _devices_panel = DevicesPanel::new();
         let _menubar = MenuBar::new();
         let _notifications = NotificationManager::new();
