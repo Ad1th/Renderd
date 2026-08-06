@@ -29,7 +29,7 @@ use crate::capture::CapturePipeline;
 use crate::clock::ClockController;
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
-use crate::network::{ControlDispatcher, NetworkManager};
+use crate::network::{ControlDispatcher, DataSender, NetworkManager};
 use crate::session::HostSession;
 use crate::ui::UiManager;
 
@@ -259,23 +259,36 @@ impl HostApp {
                             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
                             let target_fps = cfg.frame_rate as u32;
 
-                            let mut capture_guard =
-                                capture.lock().expect("CapturePipeline mutex poisoned");
-                            if let Err(e) = capture_guard.start(
-                                cfg.width,
-                                cfg.height,
-                                target_fps,
-                                encode.clone(),
-                            ) {
-                                tracing::warn!("Capture pipeline start failed: {e}");
-                            } else {
-                                tracing::info!(
-                                    width = cfg.width,
-                                    height = cfg.height,
-                                    fps = target_fps,
-                                    "ScreenCaptureKit capture and VideoToolbox encoder active"
-                                );
+                            {
+                                let mut capture_guard =
+                                    capture.lock().expect("CapturePipeline mutex poisoned");
+                                if let Err(e) = capture_guard.start(
+                                    cfg.width,
+                                    cfg.height,
+                                    target_fps,
+                                    encode.clone(),
+                                ) {
+                                    tracing::warn!("Capture pipeline start failed: {e}");
+                                } else {
+                                    tracing::info!(
+                                        width = cfg.width,
+                                        height = cfg.height,
+                                        fps = target_fps,
+                                        "ScreenCaptureKit capture and VideoToolbox encoder active"
+                                    );
+                                }
                             }
+
+                            // Spawn DataSender task to transmit encoded ring buffer frames over QUIC datagrams (#107)
+                            let data_sender = DataSender::new();
+                            let data_conn = conn.clone();
+                            let encode_rx = encode.receiver();
+                            let shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                            tokio::spawn(async move {
+                                data_sender
+                                    .run_loop(data_conn, encode_rx, shutdown_flag)
+                                    .await;
+                            });
                         }
                         Err(e) => {
                             tracing::warn!("Stream 0 handshake failed: {e}");
