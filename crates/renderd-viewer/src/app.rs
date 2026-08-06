@@ -1,5 +1,6 @@
 //! Application lifecycle and winit event loop handler.
 
+use std::net::SocketAddr;
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -8,11 +9,13 @@ use winit::window::WindowId;
 
 use crate::config::ViewerAppConfig;
 use crate::decoder::{Decoder, NullDecoder};
+use crate::discovery::DiscoveryManager;
 use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
 use crate::platform::init_platform;
 use crate::renderer::{NullRenderer, Renderer, ViewportSize};
 use crate::state::AppState;
+use crate::ui::SystemTrayManager;
 use crate::window::WindowSystem;
 
 /// Main application orchestrator managing lifecycle, windowing, rendering, and decoding.
@@ -23,6 +26,8 @@ pub struct App {
     renderer: Box<dyn Renderer>,
     decoder: Box<dyn Decoder>,
     frame_queue: Arc<FrameQueue>,
+    discovery: DiscoveryManager,
+    tray: SystemTrayManager,
 }
 
 impl App {
@@ -36,6 +41,8 @@ impl App {
             renderer: Box::new(NullRenderer::new()),
             decoder: Box::new(NullDecoder::new()),
             frame_queue: Arc::new(FrameQueue::new(4)),
+            discovery: DiscoveryManager::new(),
+            tray: SystemTrayManager::new(),
         }
     }
 
@@ -69,8 +76,72 @@ impl App {
     ///
     /// # Errors
     /// Returns [`ViewerError`] if event loop execution fails.
+    ///
+    /// # Panics
+    /// Panics if the tokio runtime cannot be built (OS resource exhaustion).
     pub fn run(mut self) -> Result<(), ViewerError> {
         init_platform()?;
+
+        // ----------------------------------------------------------------
+        // Issue #102: Start platform mDNS browser (or fall back to manual)
+        // and wire discovered hosts into the system tray UI.
+        // ----------------------------------------------------------------
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .map_err(|e| ViewerError::Window(format!("Failed to create tokio runtime: {e}")))?;
+
+        let discovery = self.discovery.clone();
+
+        // Start the platform mDNS browser; on failure fall back to the
+        // configured manual host address from the viewer config.
+        rt.block_on(async {
+            match discovery.start_platform_browse() {
+                Ok(()) => {
+                    tracing::info!(
+                        "mDNS browser started — listening for _renderd._udp.local. services"
+                    );
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "mDNS browser unavailable ({e}); activating ManualBrowser fallback"
+                    );
+                    let fallback_addr = self.config.config.network.listen_port;
+                    let addr: SocketAddr = format!("127.0.0.1:{fallback_addr}")
+                        .parse()
+                        .unwrap_or_else(|_| {
+                            "127.0.0.1:4433".parse().expect("hardcoded addr is valid")
+                        });
+                    if let Err(e2) = discovery.add_manual(addr, "Manual Fallback") {
+                        tracing::warn!("ManualBrowser fallback also failed: {e2}");
+                    }
+                }
+            }
+        });
+
+        // Spawn a background task that watches for new discovery events and
+        // updates the system tray host address whenever a new host appears.
+        let discovery_watch = self.discovery.clone();
+        let tray_watch = self.tray.clone();
+        rt.spawn(async move {
+            let mut last_count = 0usize;
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                let snap = discovery_watch.snapshot();
+                let count = snap.hosts.len();
+                if count != last_count {
+                    last_count = count;
+                    if let Some(addr) = snap.primary_addr() {
+                        tracing::info!(
+                            host_addr = %addr,
+                            "Discovery: primary host target updated in system tray"
+                        );
+                        tray_watch.set_host_address(addr);
+                    }
+                }
+            }
+        });
 
         let event_loop = EventLoop::new()
             .map_err(|e| ViewerError::Window(format!("Failed to create event loop: {e}")))?;
@@ -78,6 +149,9 @@ impl App {
         event_loop
             .run_app(&mut self)
             .map_err(|e| ViewerError::Window(format!("Event loop failure: {e}")))?;
+
+        // Shutdown the tokio runtime cleanly when the event loop exits.
+        rt.shutdown_background();
 
         Ok(())
     }
