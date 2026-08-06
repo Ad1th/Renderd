@@ -71,7 +71,7 @@ fn main() -> Result<(), HostError> {
         "Configuration loaded successfully"
     );
 
-    let mut app = HostApp::new();
+    let mut app = HostApp::new(config);
     app.run()
 }
 
@@ -81,7 +81,8 @@ mod tests {
 
     #[test]
     fn test_host_app_scaffold() {
-        let app = HostApp::new();
+        let config = renderd_config::RenderdConfig::default();
+        let app = HostApp::new(config);
         // Verify all subsystems are constructed; run() is not called as it blocks on SIGINT/SIGTERM.
         let _ = app;
     }

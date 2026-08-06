@@ -8,10 +8,21 @@
 //! - Session lifecycle manager (`HostSession`)
 //! - Network manager (`NetworkManager`)
 //! - UI manager (`UiManager`)
+//! - QUIC server listener (`QuicServer`)
+//! - mDNS Bonjour advertiser (`BonjourAdvertiser`)
 //!
 //! The run loop blocks until the process receives SIGINT or SIGTERM.
 
+use std::collections::HashMap;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
+
+use rcgen::generate_simple_self_signed;
+use renderd_config::RenderdConfig;
+use renderd_discovery::{Advertiser, BonjourAdvertiser, ServiceRecord};
+use renderd_net::{QuicServer, ServerTlsConfig};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+use uuid::Uuid;
 
 use crate::abr::AbrManager;
 use crate::capture::CapturePipeline;
@@ -27,6 +38,7 @@ use crate::ui::UiManager;
 /// Owns all long-lived subsystem components and drives the run loop until shutdown.
 #[derive(Debug)]
 pub struct HostApp {
+    config: RenderdConfig,
     capture: CapturePipeline,
     encode: Arc<EncodePipeline>,
     clock: ClockController,
@@ -36,17 +48,13 @@ pub struct HostApp {
     ui: UiManager,
 }
 
-impl Default for HostApp {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HostApp {
-    /// Creates a new `HostApp` with all subsystems in their default initialized states.
+    /// Creates a new `HostApp` with all subsystems in their default initialized states,
+    /// using the provided [`RenderdConfig`].
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(config: RenderdConfig) -> Self {
         Self {
+            config,
             capture: CapturePipeline::new(),
             encode: Arc::new(EncodePipeline::new()),
             clock: ClockController::new(),
@@ -59,8 +67,12 @@ impl HostApp {
 
     /// Runs the host application run loop.
     ///
-    /// Initializes all subsystems, transitions the session to `IDLE` (listening state),
-    /// and blocks until the process receives SIGINT or SIGTERM.
+    /// Initializes all subsystems, spawns the QUIC server listener on the configured
+    /// port, registers the mDNS `_renderd._udp.local.` service advertisement, and
+    /// blocks until the process receives SIGINT or SIGTERM.
+    ///
+    /// On shutdown, unregisters the mDNS advertisement and closes the QUIC socket
+    /// cleanly.
     ///
     /// # Errors
     ///
@@ -116,24 +128,108 @@ impl HostApp {
             "Session state machine ready — host is listening for viewer connections"
         );
 
+        // ----------------------------------------------------------------
+        // Issue #101: Spawn QUIC server and register mDNS advertisement.
+        // ----------------------------------------------------------------
+
+        // Generate a self-signed TLS certificate for this host's QUIC endpoint.
+        // The certificate is ephemeral (regenerated each launch). Paired viewers will
+        // pin the certificate DER bytes via the SPAKE2+ pairing ceremony (Issue #104).
+        let cert_gen =
+            generate_simple_self_signed(vec!["renderd-host".to_string()]).map_err(|e| {
+                HostError::Initialization(format!("Failed to generate self-signed cert: {e}"))
+            })?;
+        let cert_der = CertificateDer::from(cert_gen.cert.der().to_vec());
+        let key_der = PrivateKeyDer::Pkcs8(cert_gen.key_pair.serialize_der().into());
+
+        let tls_config = ServerTlsConfig::from_cert(vec![cert_der], key_der, None)
+            .map_err(|e| HostError::Initialization(format!("TLS configuration failed: {e}")))?;
+
+        // Bind QUIC server on the configured address and port.
+        let listen_port = self.config.network.listen_port;
+        let bind_addr: SocketAddr = format!("{}:{listen_port}", self.config.network.bind_address)
+            .parse()
+            .map_err(|e| {
+                HostError::Initialization(format!(
+                    "Invalid bind address '{}:{}': {e}",
+                    self.config.network.bind_address, listen_port
+                ))
+            })?;
+
+        let quic_server = QuicServer::bind(bind_addr, tls_config).map_err(|e| {
+            HostError::Initialization(format!("Failed to bind QUIC server on {bind_addr}: {e}"))
+        })?;
+
+        let actual_addr = quic_server.local_addr().map_err(|e| {
+            HostError::Initialization(format!("Failed to query QUIC server address: {e}"))
+        })?;
+
+        tracing::info!(
+            listen_addr = %actual_addr,
+            "QUIC server endpoint listening for incoming viewer connections"
+        );
+
+        // Register mDNS _renderd._udp.local. service advertisement via BonjourAdvertiser.
+        let host_id = Uuid::new_v4();
+        let mut txt = HashMap::new();
+        txt.insert("width".to_string(), "1920".to_string());
+        txt.insert("height".to_string(), "1080".to_string());
+        txt.insert("fps".to_string(), self.config.host.target_fps.to_string());
+        txt.insert("id".to_string(), host_id.to_string());
+
+        let service_record = ServiceRecord {
+            host_id,
+            name: format!("renderd-{}", &host_id.to_string()[..8]),
+            addr: IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            port: actual_addr.port(),
+            txt,
+        };
+
+        let mut advertiser = BonjourAdvertiser::new();
+        advertiser.register(&service_record).map_err(|e| {
+            HostError::Initialization(format!("mDNS service registration failed: {e}"))
+        })?;
+
+        tracing::info!(
+            host_id = %host_id,
+            service_name = %service_record.name,
+            port = actual_addr.port(),
+            "mDNS service _renderd._udp.local. registered"
+        );
+
+        // Reflect listening state in the menu bar.
+        self.ui.menu_bar.update_status("Idle — Listening");
+
         tracing::info!(
             "renderd-host subsystems initialized — entering run loop (press Ctrl+C to stop)"
         );
 
         // Block the current thread until SIGINT or SIGTERM is received.
-        // All real work (QUIC server, capture, encoding) will run on background threads/tasks
-        // spawned by the respective subsystems when fully wired in future milestones.
-        Self::wait_for_shutdown()
+        // Accepted QUIC connections and actual streaming tasks will be wired
+        // on the tokio runtime in subsequent issues (#103, #106, #107).
+        Self::wait_for_shutdown()?;
+
+        // ----------------------------------------------------------------
+        // Graceful shutdown: unregister mDNS and close QUIC socket.
+        // ----------------------------------------------------------------
+        tracing::info!("Unregistering mDNS service advertisement");
+        if let Err(e) = advertiser.unregister() {
+            tracing::warn!("mDNS unregister error (non-fatal): {e}");
+        }
+
+        tracing::info!(addr = %actual_addr, "Closing QUIC server endpoint");
+        quic_server.close(0, b"host-shutdown");
+
+        tracing::info!("renderd-host shutdown complete");
+        Ok(())
     }
 
     /// Blocks until SIGINT (Ctrl+C) or SIGTERM is received.
     fn wait_for_shutdown() -> Result<(), HostError> {
         use std::sync::atomic::{AtomicBool, Ordering};
-        use std::sync::Arc;
 
         let stop = Arc::new(AtomicBool::new(false));
 
-        // Register handlers for SIGINT and SIGTERM using ctrlc crate semantics via std hooks.
         let stop_clone = Arc::clone(&stop);
         ctrlc::set_handler(move || {
             tracing::info!("Received shutdown signal — stopping renderd-host");
@@ -141,12 +237,10 @@ impl HostApp {
         })
         .map_err(|e| HostError::Initialization(format!("Failed to install signal handler: {e}")))?;
 
-        // Park main thread until signal fires
         while !stop.load(Ordering::SeqCst) {
             std::thread::park_timeout(std::time::Duration::from_millis(250));
         }
 
-        tracing::info!("renderd-host shutdown complete");
         Ok(())
     }
 }
@@ -157,7 +251,8 @@ mod tests {
 
     #[test]
     fn test_host_app_instantiation() {
-        let app = HostApp::new();
+        let config = RenderdConfig::default();
+        let app = HostApp::new(config);
         assert!(matches!(app.session.state(), SessionState::Idle));
     }
 }
