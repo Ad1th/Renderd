@@ -105,20 +105,74 @@ impl Decoder for NullDecoder {
 
     fn decode_packet(
         &mut self,
-        _packet: &[u8],
+        packet: &[u8],
         frame_id: u64,
         pts_ns: u64,
     ) -> Result<(), ViewerError> {
+        static DECODE_LOG_COUNT: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
+
         if !self.initialized {
             return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
         }
+
+        let width = self.width;
+        let height = self.height;
+        let num_pixels = (width * height) as usize;
+        let mut buffer = vec![0u8; num_pixels * 4];
+
+        // If packet matches raw image dimensions, copy it; otherwise generate dynamic desktop color pattern
+        if packet.len() == num_pixels * 4 {
+            buffer.copy_from_slice(packet);
+        } else {
+            #[allow(clippy::cast_possible_truncation)]
+            let frame_offset = ((frame_id * 7) % 256) as u8;
+            for y in 0..height {
+                for x in 0..width {
+                    let idx = ((y * width + x) * 4) as usize;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let r = ((x * 255) / width.max(1)) as u8;
+                    #[allow(clippy::cast_possible_truncation)]
+                    let g = ((y * 255) / height.max(1)) as u8;
+                    let b = r.wrapping_add(g).wrapping_add(frame_offset);
+                    buffer[idx] = b; // Blue
+                    buffer[idx + 1] = g; // Green
+                    buffer[idx + 2] = r; // Red
+                    buffer[idx + 3] = 255; // Alpha
+                }
+            }
+        }
+
+        let count = DECODE_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if count == 1 {
+            let first_64 = &buffer[..64.min(buffer.len())];
+            let min_val = buffer.iter().copied().min().unwrap_or(0);
+            let max_val = buffer.iter().copied().max().unwrap_or(0);
+            let mut unique_set = std::collections::HashSet::new();
+            for &byte in &buffer {
+                unique_set.insert(byte);
+            }
+            tracing::info!(
+                count = count,
+                frame_id = frame_id,
+                width = width,
+                height = height,
+                format = ?PixelFormat::Bgra8,
+                min_byte = min_val,
+                max_byte = max_val,
+                unique_bytes = unique_set.len(),
+                first_64_bytes = ?first_64,
+                "Decoder: decoded first frame bitstream into BGRA8 image buffer"
+            );
+        }
+
         self.last_frame = Some(DecodedFrame {
             frame_id,
             pts_ns,
-            width: self.width,
-            height: self.height,
+            width,
+            height,
             format: PixelFormat::Bgra8,
-            buffer: vec![255; (self.width * self.height * 4) as usize],
+            buffer,
             decode_duration: Duration::from_millis(1),
         });
         Ok(())
