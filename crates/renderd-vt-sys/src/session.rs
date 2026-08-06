@@ -9,10 +9,15 @@
 use std::sync::Arc;
 
 use crate::bindings::{
+    renderd_CVPixelBufferCopyBGRA, renderd_CVPixelBufferGetDimensions,
     renderd_VTCompressionSessionCreate, renderd_VTCompressionSessionEncodeFrame,
     renderd_VTCompressionSessionInvalidate, renderd_VTCompressionSessionSetBitrate,
-    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus, VTCompressionSessionRef,
-    VTEncodeInfoFlags, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
+    renderd_VTDecompressionSessionCreate, renderd_VTDecompressionSessionDecodeFrame,
+    renderd_VTDecompressionSessionInvalidate,
+    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef,
+    CMVideoCodecType, CVImageBufferRef, OSStatus, VTCompressionSessionRef,
+    VTDecodeInfoFlags, VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264,
+    CODEC_TYPE_HEVC, RenderD_VTDecompressionContext,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
@@ -249,6 +254,228 @@ unsafe impl Send for CompressionSession {}
 
 // SAFETY: Method calls on CompressionSession (set_bitrate, encode_surface) use thread-safe VideoToolbox C APIs.
 unsafe impl Sync for CompressionSession {}
+
+/// Type signature for decoded frame output callbacks.
+///
+/// Parameters:
+/// - `status`: `VtError` status code (`0` / `noErr` on success)
+/// - `info_flags`: `VideoToolbox` decode info flags
+/// - `image_buffer`: `CVImageBufferRef` (`CVPixelBuffer`) containing uncompressed pixels
+/// - `frame_id`: Frame sequence identifier
+/// - `pts_ns`: presentation timestamp in nanoseconds
+pub type DecompressionOutputCallback =
+    Arc<dyn Fn(VtError, VTDecodeInfoFlags, CVImageBufferRef, u64, i64) + Send + Sync + 'static>;
+
+struct DecompressionCallbackBox {
+    context: RenderD_VTDecompressionContext,
+    callback: DecompressionOutputCallback,
+}
+
+unsafe extern "C" fn vt_decompression_output_callback(
+    output_callback_ref_con: *mut std::ffi::c_void,
+    source_frame_ref_con: *mut std::ffi::c_void,
+    status: OSStatus,
+    info_flags: VTDecodeInfoFlags,
+    image_buffer: CVImageBufferRef,
+    pts_ns: i64,
+) {
+    if output_callback_ref_con.is_null() {
+        return;
+    }
+    let frame_id = source_frame_ref_con as usize as u64;
+    let box_ptr = output_callback_ref_con.cast::<DecompressionCallbackBox>();
+    let cb_box = unsafe { &*box_ptr };
+    (cb_box.callback)(VtError(status), info_flags, image_buffer, frame_id, pts_ns);
+}
+
+/// Safe RAII wrapper around `VTDecompressionSessionRef`.
+///
+/// Encapsulates hardware-accelerated H.265/H.264 video decoding using Apple's `VideoToolbox` framework.
+pub struct DecompressionSession {
+    session: VTDecompressionSessionRef,
+    _callback_box: Box<DecompressionCallbackBox>,
+}
+
+impl DecompressionSession {
+    /// Creates and initializes a new hardware decompression session.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if session creation or format description fails.
+    pub fn new<F>(
+        width: i32,
+        height: i32,
+        codec: VideoCodec,
+        callback: F,
+    ) -> Result<Self, VtError>
+    where
+        F: Fn(VtError, VTDecodeInfoFlags, CVImageBufferRef, u64, i64) + Send + Sync + 'static,
+    {
+        let mut cb_box = Box::new(DecompressionCallbackBox {
+            context: RenderD_VTDecompressionContext {
+                callback: vt_decompression_output_callback,
+                user_ctx: std::ptr::null_mut(),
+            },
+            callback: Arc::new(callback),
+        });
+
+        let raw_box_ptr = std::ptr::from_ref::<DecompressionCallbackBox>(cb_box.as_ref()).cast_mut();
+        cb_box.context.user_ctx = raw_box_ptr.cast::<std::ffi::c_void>();
+        let raw_ctx_ptr = std::ptr::addr_of_mut!(cb_box.context).cast::<std::ffi::c_void>();
+
+        let mut session: VTDecompressionSessionRef = std::ptr::null_mut();
+
+        // SAFETY: renderd_VTDecompressionSessionCreate initializes session handle.
+        let status = unsafe {
+            renderd_VTDecompressionSessionCreate(
+                width,
+                height,
+                codec.to_fourcc(),
+                vt_decompression_output_callback,
+                raw_ctx_ptr,
+                &mut session,
+            )
+        };
+
+        if status != 0 || session.is_null() {
+            return Err(VtError(status));
+        }
+
+        Ok(Self {
+            session,
+            _callback_box: cb_box,
+        })
+    }
+
+    /// Submits a compressed NAL unit bitstream packet for decoding.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if frame submission fails.
+    pub fn decode_frame(&self, data: &[u8], pts_ns: i64) -> Result<(), VtError> {
+        self.decode_frame_with_ctx(data, pts_ns, std::ptr::null_mut())
+    }
+
+    /// Submits a compressed NAL unit bitstream packet with a custom frame context pointer.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if frame submission fails.
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn decode_frame_with_ctx(
+        &self,
+        data: &[u8],
+        pts_ns: i64,
+        frame_ctx: *mut std::ffi::c_void,
+    ) -> Result<(), VtError> {
+        if self.session.is_null() || data.is_empty() {
+            return Err(VtError(VtError::PARAMETER));
+        }
+        // SAFETY: self.session is a valid non-null VTDecompressionSessionRef.
+        let status = unsafe {
+            renderd_VTDecompressionSessionDecodeFrame(
+                self.session,
+                data.as_ptr(),
+                data.len(),
+                pts_ns,
+                frame_ctx,
+            )
+        };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(VtError(status))
+        }
+    }
+
+    /// Synchronously waits for all in-flight asynchronous decompression frames to finish.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if wait fails.
+    pub fn wait_for_async_frames(&self) -> Result<(), VtError> {
+        if self.session.is_null() {
+            return Err(VtError(VtError::INVALID_SESSION));
+        }
+        // SAFETY: self.session is a valid non-null VTDecompressionSessionRef.
+        let status =
+            unsafe { renderd_VTDecompressionSessionWaitForAsynchronousFrames(self.session) };
+        if status == 0 {
+            Ok(())
+        } else {
+            Err(VtError(status))
+        }
+    }
+}
+
+impl Drop for DecompressionSession {
+    fn drop(&mut self) {
+        if !self.session.is_null() {
+            // SAFETY: self.session is a valid non-null VTDecompressionSessionRef handle.
+            unsafe {
+                renderd_VTDecompressionSessionInvalidate(self.session);
+            }
+            self.session = std::ptr::null_mut();
+        }
+    }
+}
+
+// SAFETY: DecompressionSession internal C session handle and callback context are safe to transfer across threads.
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for DecompressionSession {}
+
+// SAFETY: Method calls on DecompressionSession use thread-safe VideoToolbox C APIs.
+unsafe impl Sync for DecompressionSession {}
+
+/// Helper function to copy BGRA32 pixel data from a `CVPixelBuffer` handle into a byte slice.
+///
+/// # Errors
+/// Returns [`VtError`] if locking or buffer copy fails.
+///
+/// # Safety
+/// `image_buffer` must be a valid live `CVImageBufferRef`.
+pub unsafe fn copy_pixel_buffer_bgra(
+    image_buffer: CVImageBufferRef,
+    out_dest: &mut [u8],
+) -> Result<(u32, u32), VtError> {
+    if image_buffer.is_null() {
+        return Err(VtError(VtError::PARAMETER));
+    }
+    let mut width: i32 = 0;
+    let mut height: i32 = 0;
+    // SAFETY: image_buffer is a valid CVImageBufferRef and out_dest is a mutable byte slice.
+    let status = unsafe {
+        renderd_CVPixelBufferCopyBGRA(
+            image_buffer,
+            out_dest.as_mut_ptr(),
+            out_dest.len(),
+            &mut width,
+            &mut height,
+        )
+    };
+    if status == 0 {
+        let w = u32::try_from(width).unwrap_or_default();
+        let h = u32::try_from(height).unwrap_or_default();
+        Ok((w, h))
+    } else {
+        Err(VtError(status))
+    }
+}
+
+/// Helper function to retrieve pixel width and height of a `CVPixelBuffer` handle.
+///
+/// # Safety
+/// `image_buffer` must be a valid `CVImageBufferRef`.
+#[must_use]
+pub unsafe fn get_pixel_buffer_dimensions(image_buffer: CVImageBufferRef) -> (u32, u32) {
+    let mut width: i32 = 0;
+    let mut height: i32 = 0;
+    if !image_buffer.is_null() {
+        // SAFETY: image_buffer is a valid CVImageBufferRef.
+        unsafe {
+            renderd_CVPixelBufferGetDimensions(image_buffer, &mut width, &mut height);
+        }
+    }
+    let w = u32::try_from(width).unwrap_or_default();
+    let h = u32::try_from(height).unwrap_or_default();
+    (w, h)
+}
 
 #[cfg(test)]
 mod tests {

@@ -21,15 +21,6 @@ typedef void (*RenderD_VTOutputCallback)(
 );
 
 /// Creates a hardware-accelerated VTCompressionSession configured for low-latency streaming.
-///
-/// Parameters:
-/// - width: frame width in pixels
-/// - height: frame height in pixels
-/// - codec_type: kCMVideoCodecType_HEVC ('hvc1') or kCMVideoCodecType_H264 ('avc1')
-/// - initial_bitrate_kbps: target bitrate in kilobits per second
-/// - callback: function pointer to output callback
-/// - callback_ctx: user context pointer passed to output callback
-/// - session_out: receives the created VTCompressionSessionRef on success
 OSStatus renderd_VTCompressionSessionCreate(
     int32_t width,
     int32_t height,
@@ -47,13 +38,6 @@ OSStatus renderd_VTCompressionSessionSetBitrate(
 );
 
 /// Submits an image buffer to the compression session for encoding.
-///
-/// Parameters:
-/// - session: valid VTCompressionSessionRef handle
-/// - image_buffer: CVImageBufferRef (or IOSurface-backed pixel buffer)
-/// - pts_ns: presentation timestamp in nanoseconds
-/// - force_keyframe: if true, forces an IDR keyframe output
-/// - frame_ctx: optional per-frame context pointer passed to callback
 OSStatus renderd_VTCompressionSessionEncodeFrame(
     VTCompressionSessionRef session,
     CVImageBufferRef image_buffer,
@@ -65,6 +49,67 @@ OSStatus renderd_VTCompressionSessionEncodeFrame(
 /// Invalidates and releases a VTCompressionSessionRef handle.
 void renderd_VTCompressionSessionInvalidate(
     VTCompressionSessionRef session
+);
+
+/// Callback function invoked when VideoToolbox finishes decompressing a frame.
+typedef void (*RenderD_VTDecompressionOutputCallback)(
+    void *output_callback_ref_con,
+    void *source_frame_ref_con,
+    OSStatus status,
+    VTDecodeInfoFlags info_flags,
+    CVImageBufferRef image_buffer,
+    int64_t pts_ns
+);
+
+/// Context structure for decompression output callback bridging.
+typedef struct {
+    RenderD_VTDecompressionOutputCallback callback;
+    void *user_ctx;
+} RenderD_VTDecompressionContext;
+
+/// Creates a hardware-accelerated VTDecompressionSession configured for low-latency video decoding.
+OSStatus renderd_VTDecompressionSessionCreate(
+    int32_t width,
+    int32_t height,
+    CMVideoCodecType codec_type,
+    RenderD_VTDecompressionOutputCallback callback,
+    void *callback_ctx,
+    VTDecompressionSessionRef *session_out
+);
+
+/// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
+OSStatus renderd_VTDecompressionSessionDecodeFrame(
+    VTDecompressionSessionRef session,
+    const uint8_t *data,
+    size_t data_len,
+    int64_t pts_ns,
+    void *frame_ctx
+);
+
+/// Synchronously waits for all in-flight asynchronous decompression frames to complete.
+OSStatus renderd_VTDecompressionSessionWaitForAsynchronousFrames(
+    VTDecompressionSessionRef session
+);
+
+/// Invalidates and releases a VTDecompressionSessionRef handle.
+void renderd_VTDecompressionSessionInvalidate(
+    VTDecompressionSessionRef session
+);
+
+/// Retrieves pixel dimensions of a CVPixelBuffer handle.
+void renderd_CVPixelBufferGetDimensions(
+    CVImageBufferRef image_buffer,
+    int32_t *out_width,
+    int32_t *out_height
+);
+
+/// Locks a CVPixelBuffer handle and copies BGRA32 pixel data to out_dest.
+OSStatus renderd_CVPixelBufferCopyBGRA(
+    CVImageBufferRef image_buffer,
+    uint8_t *out_dest,
+    size_t dest_capacity,
+    int32_t *out_width,
+    int32_t *out_height
 );
 
 #ifdef __cplusplus

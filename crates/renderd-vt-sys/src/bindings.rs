@@ -38,6 +38,32 @@ pub type RenderD_VTOutputCallback = unsafe extern "C" fn(
     sample_buffer: CMSampleBufferRef,
 );
 
+/// Opaque pointer to `VideoToolbox` decompression session.
+pub type VTDecompressionSessionRef = *mut std::ffi::c_void;
+
+/// Bitfield flags passed to `VideoToolbox` decode output callback.
+pub type VTDecodeInfoFlags = u32;
+
+/// Raw C callback function signature invoked when `VideoToolbox` finishes decompressing a frame.
+#[allow(non_camel_case_types)]
+pub type RenderD_VTDecompressionOutputCallback = unsafe extern "C" fn(
+    output_callback_ref_con: *mut std::ffi::c_void,
+    source_frame_ref_con: *mut std::ffi::c_void,
+    status: OSStatus,
+    info_flags: VTDecodeInfoFlags,
+    image_buffer: CVImageBufferRef,
+    pts_ns: i64,
+);
+
+/// Context structure for bridging C decompression output callback.
+#[repr(C)]
+pub struct RenderD_VTDecompressionContext {
+    /// Function pointer to raw C callback.
+    pub callback: RenderD_VTDecompressionOutputCallback,
+    /// User context pointer.
+    pub user_ctx: *mut std::ffi::c_void,
+}
+
 extern "C" {
     /// Creates a hardware-accelerated `VTCompressionSession` configured for real-time low-latency streaming.
     pub fn renderd_VTCompressionSessionCreate(
@@ -67,4 +93,47 @@ extern "C" {
 
     /// Invalidates and releases a `VTCompressionSessionRef` handle.
     pub fn renderd_VTCompressionSessionInvalidate(session: VTCompressionSessionRef);
+
+    /// Creates a hardware-accelerated `VTDecompressionSession` configured for low-latency video decoding.
+    pub fn renderd_VTDecompressionSessionCreate(
+        width: i32,
+        height: i32,
+        codec_type: CMVideoCodecType,
+        callback: RenderD_VTDecompressionOutputCallback,
+        callback_ctx: *mut std::ffi::c_void,
+        session_out: *mut VTDecompressionSessionRef,
+    ) -> OSStatus;
+
+    /// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
+    pub fn renderd_VTDecompressionSessionDecodeFrame(
+        session: VTDecompressionSessionRef,
+        data: *const u8,
+        data_len: usize,
+        pts_ns: i64,
+        frame_ctx: *mut std::ffi::c_void,
+    ) -> OSStatus;
+
+    /// Synchronously waits for all in-flight asynchronous decompression frames to complete.
+    pub fn renderd_VTDecompressionSessionWaitForAsynchronousFrames(
+        session: VTDecompressionSessionRef,
+    ) -> OSStatus;
+
+    /// Invalidates and releases a `VTDecompressionSessionRef` handle.
+    pub fn renderd_VTDecompressionSessionInvalidate(session: VTDecompressionSessionRef);
+
+    /// Retrieves pixel dimensions of a `CVPixelBuffer` handle.
+    pub fn renderd_CVPixelBufferGetDimensions(
+        image_buffer: CVImageBufferRef,
+        out_width: *mut i32,
+        out_height: *mut i32,
+    );
+
+    /// Locks a `CVPixelBuffer` handle and copies BGRA32 pixel data to `out_dest`.
+    pub fn renderd_CVPixelBufferCopyBGRA(
+        image_buffer: CVImageBufferRef,
+        out_dest: *mut u8,
+        dest_capacity: usize,
+        out_width: *mut i32,
+        out_height: *mut i32,
+    ) -> OSStatus;
 }

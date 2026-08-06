@@ -47,7 +47,10 @@ pub mod surface;
 pub use error::VtError;
 
 #[cfg(target_os = "macos")]
-pub use session::{CompressionSession, VideoCodec};
+pub use session::{
+    copy_pixel_buffer_bgra, get_pixel_buffer_dimensions, CompressionSession, DecompressionSession,
+    VideoCodec,
+};
 
 #[cfg(target_os = "macos")]
 pub use surface::IoSurface;
