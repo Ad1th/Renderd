@@ -8,7 +8,9 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::WindowId;
 
 use crate::config::ViewerAppConfig;
-use crate::decoder::{Decoder, NullDecoder};
+use crate::decoder::Decoder;
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+use crate::decoder::NullDecoder;
 use crate::discovery::DiscoveryManager;
 use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
@@ -35,12 +37,19 @@ impl App {
     /// Creates a new [`App`] instance with the provided configuration and default null engines.
     #[must_use]
     pub fn new(config: ViewerAppConfig) -> Self {
+        #[cfg(target_os = "macos")]
+        let decoder: Box<dyn Decoder> = Box::new(crate::decode::VideoToolboxDecoder::new());
+        #[cfg(target_os = "windows")]
+        let decoder: Box<dyn Decoder> = Box::new(crate::decode::D3D12Decoder::new());
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        let decoder: Box<dyn Decoder> = Box::new(NullDecoder::new());
+
         Self {
             config,
             state: AppState::new(),
             window_system: None,
             renderer: Box::new(SoftRenderer::new()),
-            decoder: Box::new(NullDecoder::new()),
+            decoder,
             frame_queue: Arc::new(FrameQueue::new(4)),
             discovery: DiscoveryManager::new(),
             tray: SystemTrayManager::new(),
@@ -236,7 +245,13 @@ impl App {
                             });
 
                             let mut receiver = DatagramReceiver::new(4);
+                            #[cfg(target_os = "macos")]
+                            let mut decoder = crate::decode::VideoToolboxDecoder::new();
+                            #[cfg(target_os = "windows")]
+                            let mut decoder = crate::decode::D3D12Decoder::new();
+                            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
                             let mut decoder = NullDecoder::new();
+
                             if let Err(e) = decoder.initialize(&session_config.selected_codec, session_config.width, session_config.height) {
                                 tracing::warn!("Decoder initialization error: {e}");
                             }

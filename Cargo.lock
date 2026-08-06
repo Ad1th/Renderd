@@ -2469,6 +2469,7 @@ dependencies = [
  "renderd-keychain",
  "renderd-net",
  "renderd-proto",
+ "renderd-vt-sys",
  "softbuffer",
  "thiserror 2.0.19",
  "tokio",

@@ -31,6 +31,8 @@ pub use app::App;
 pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
 pub use decode::D3D12Decoder;
+#[cfg(target_os = "macos")]
+pub use decode::VideoToolboxDecoder;
 pub use decoder::{DecodedFrame, Decoder, NullDecoder, PixelFormat};
 pub use discovery::{DiscoveredHosts, DiscoveryManager};
 pub use error::ViewerError;

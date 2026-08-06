@@ -29,6 +29,9 @@ uuid               = { workspace = true }
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { workspace = true, features = ["Win32_UI_HiDpi"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+renderd-vt-sys = { workspace = true }
+
 [lints.rust]
 unsafe_code = "warn"
 
