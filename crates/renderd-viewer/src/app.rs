@@ -353,9 +353,9 @@ impl ApplicationHandler for App {
                     if let Err(e) = self.renderer.render_frame(&frame) {
                         tracing::error!("Error rendering frame: {e}");
                     }
-                }
-                if let Err(e) = self.renderer.present() {
-                    tracing::error!("Error presenting frame: {e}");
+                    if let Err(e) = self.renderer.present() {
+                        tracing::error!("Error presenting frame: {e}");
+                    }
                 }
             }
             _ => {}
