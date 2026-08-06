@@ -109,9 +109,8 @@ impl App {
                     tracing::warn!(
                         "mDNS browser unavailable ({e}); activating ManualBrowser fallback"
                     );
-                    let addr: SocketAddr = "127.0.0.1:4433"
-                        .parse()
-                        .expect("hardcoded addr is valid");
+                    let addr: SocketAddr =
+                        "127.0.0.1:4433".parse().expect("hardcoded addr is valid");
                     if let Err(e2) = discovery.add_manual(addr, "Manual Fallback") {
                         tracing::warn!("ManualBrowser fallback also failed: {e2}");
                     }
