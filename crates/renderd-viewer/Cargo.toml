@@ -12,6 +12,7 @@ tracing            = { workspace = true }
 tracing-subscriber = "0.3"
 tokio              = { workspace = true }
 winit              = { workspace = true }
+softbuffer         = { workspace = true }
 bytes              = { workspace = true }
 quinn              = { workspace = true }
 renderd-config     = { workspace = true }
