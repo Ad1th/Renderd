@@ -251,38 +251,7 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
         }
     }
 
-    if (format_desc == NULL && codec_type == kCMVideoCodecType_HEVC) {
-        static const uint8_t dummy_hvcC[] = {
-            0x01, 0x01, 0x60, 0x00, 0x00, 0x00, 0x90, 0x00,
-            0x00, 0x00, 0x00, 0x00, 0x90, 0xf0, 0x00, 0xfc,
-            0xfd, 0xf8, 0xf8, 0x00, 0x00, 0x0f, 0x00
-        };
-        CFDataRef hvcc_data = CFDataCreate(kCFAllocatorDefault, dummy_hvcC, sizeof(dummy_hvcC));
-        if (hvcc_data != NULL) {
-            CFMutableDictionaryRef atoms = CFDictionaryCreateMutable(
-                kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks
-            );
-            CFDictionarySetValue(atoms, CFSTR("hvcC"), hvcc_data);
-            CFMutableDictionaryRef extensions = CFDictionaryCreateMutable(
-                kCFAllocatorDefault, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks
-            );
-            CFDictionarySetValue(extensions, CFSTR("SampleDescriptionExtensionAtoms"), atoms);
-
-            CMVideoFormatDescriptionCreate(
-                kCFAllocatorDefault,
-                codec_type,
-                width > 0 ? width : 1920,
-                height > 0 ? height : 1080,
-                extensions,
-                &format_desc
-            );
-            CFRelease(extensions);
-            CFRelease(atoms);
-            CFRelease(hvcc_data);
-        }
-    }
-
-    if (format_desc == NULL) {
+    if (format_desc == NULL && (data == NULL || data_len == 0)) {
         CMVideoFormatDescriptionCreate(
             kCFAllocatorDefault,
             codec_type,
@@ -410,31 +379,45 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         return kVTParameterErr;
     }
 
-    uint8_t *temp_buf = NULL;
-    const uint8_t *data_ptr = data;
-    size_t block_len = data_len;
+    uint8_t *temp_buf = (uint8_t *)malloc(data_len + 64);
+    if (!temp_buf) return kVTAllocationFailedErr;
 
-    if (data_len >= 4 && data[0] == 0 && data[1] == 0 && data[2] == 0 && data[3] == 1) {
-        temp_buf = (uint8_t *)malloc(data_len);
-        if (!temp_buf) return kVTAllocationFailedErr;
-        memcpy(temp_buf, data, data_len);
-        uint32_t nal_len = (uint32_t)(data_len - 4);
-        temp_buf[0] = (uint8_t)((nal_len >> 24) & 0xFF);
-        temp_buf[1] = (uint8_t)((nal_len >> 16) & 0xFF);
-        temp_buf[2] = (uint8_t)((nal_len >> 8) & 0xFF);
-        temp_buf[3] = (uint8_t)(nal_len & 0xFF);
-        data_ptr = temp_buf;
-    } else if (data_len >= 3 && data[0] == 0 && data[1] == 0 && data[2] == 1) {
-        temp_buf = (uint8_t *)malloc(data_len + 1);
-        if (!temp_buf) return kVTAllocationFailedErr;
-        memcpy(temp_buf + 4, data + 3, data_len - 3);
-        uint32_t nal_len = (uint32_t)(data_len - 3);
-        temp_buf[0] = (uint8_t)((nal_len >> 24) & 0xFF);
-        temp_buf[1] = (uint8_t)((nal_len >> 16) & 0xFF);
-        temp_buf[2] = (uint8_t)((nal_len >> 8) & 0xFF);
-        temp_buf[3] = (uint8_t)(nal_len & 0xFF);
-        data_ptr = temp_buf;
-        block_len = data_len + 1;
+    const uint8_t *data_ptr = temp_buf;
+    size_t block_len = 0;
+
+    // Scan Annex-B bitstream and convert all 0x00000001 / 0x000001 startcodes to 4-byte big-endian NAL length prefixes
+    size_t i = 0;
+    while (i < data_len) {
+        size_t startcode_len = 0;
+        if (i + 4 <= data_len && data[i] == 0 && data[i+1] == 0 && data[i+2] == 0 && data[i+3] == 1) {
+            startcode_len = 4;
+        } else if (i + 3 <= data_len && data[i] == 0 && data[i+1] == 0 && data[i+2] == 1) {
+            startcode_len = 3;
+        }
+
+        if (startcode_len > 0) {
+            size_t nal_start = i + startcode_len;
+            size_t next_start = nal_start;
+            while (next_start < data_len) {
+                if (next_start + 4 <= data_len && data[next_start] == 0 && data[next_start+1] == 0 && data[next_start+2] == 0 && data[next_start+3] == 1) {
+                    break;
+                }
+                if (next_start + 3 <= data_len && data[next_start] == 0 && data[next_start+1] == 0 && data[next_start+2] == 1) {
+                    break;
+                }
+                next_start++;
+            }
+            uint32_t nal_size = (uint32_t)(next_start - nal_start);
+            temp_buf[block_len++] = (uint8_t)((nal_size >> 24) & 0xFF);
+            temp_buf[block_len++] = (uint8_t)((nal_size >> 16) & 0xFF);
+            temp_buf[block_len++] = (uint8_t)((nal_size >> 8) & 0xFF);
+            temp_buf[block_len++] = (uint8_t)(nal_size & 0xFF);
+            memcpy(temp_buf + block_len, data + nal_start, nal_size);
+            block_len += nal_size;
+            i = next_start;
+        } else {
+            i++;
+        }
     }
 
     CMBlockBufferRef block_buffer = NULL;
@@ -458,10 +441,22 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         return status;
     }
 
+    static CMVideoFormatDescriptionRef s_active_format_desc = NULL;
+
     CMSampleTimingInfo timing_info;
     timing_info.duration = kCMTimeInvalid;
     timing_info.presentationTimeStamp = CMTimeMake(pts_ns, 1000000000);
     timing_info.decodeTimeStamp = kCMTimeInvalid;
+
+    CMVideoFormatDescriptionRef format_desc = renderd_CreateFormatDescriptionFromNAL(kCMVideoCodecType_HEVC, 1920, 1080, data, data_len);
+    if (format_desc != NULL) {
+        if (s_active_format_desc != NULL) {
+            CFRelease(s_active_format_desc);
+        }
+        s_active_format_desc = (CMVideoFormatDescriptionRef)CFRetain(format_desc);
+    } else if (s_active_format_desc != NULL) {
+        format_desc = (CMVideoFormatDescriptionRef)CFRetain(s_active_format_desc);
+    }
 
     CMSampleBufferRef sample_buffer = NULL;
     size_t sample_size = block_len;
@@ -471,7 +466,7 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         true,
         NULL,
         NULL,
-        NULL,
+        format_desc,
         1,
         1,
         &timing_info,
@@ -479,6 +474,10 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         &sample_size,
         &sample_buffer
     );
+
+    if (format_desc != NULL) {
+        CFRelease(format_desc);
+    }
 
     fprintf(stderr, "[VT_SHIM TRACE 4c]: CMSampleBufferCreate: status=%d (0x%x), sample_buffer=%p\n",
             (int)status, (unsigned int)status, (void*)sample_buffer);
@@ -738,5 +737,7 @@ OSStatus renderd_CMSampleBufferExtractNALs(
     }
 
     *out_size = total_written;
+    fprintf(stderr, "[EXTRACT_NAL_TRACE]: CMSampleBuffer=%p, block_len=%zu, is_keyframe=%d, total_written=%zu\n",
+            (void*)sample_buffer, block_len, (int)*out_is_keyframe, total_written);
     return noErr;
 }

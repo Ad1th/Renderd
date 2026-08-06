@@ -161,11 +161,13 @@ impl DataSender {
                     match self.send_frame_burst(&connection, &frame) {
                         Ok(num_frags) => {
                             if count == 1 {
+                                let first_32 = &frame.data[..32.min(frame.data.len())];
                                 tracing::info!(
                                     count = count,
                                     frame_id = frame.frame_id,
                                     bytes = frame.data.len(),
                                     frags = num_frags,
+                                    first_32_bytes = ?first_32,
                                     "DataSender: transmitted first encoded frame QUIC datagram burst"
                                 );
                             } else if count % 100 == 0 {
