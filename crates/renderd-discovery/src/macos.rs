@@ -211,7 +211,7 @@ unsafe extern "C" fn browse_callback(
             host_id,
             name: name_str,
             addr: IpAddr::V4(Ipv4Addr::LOCALHOST),
-            port: 9000,
+            port: 4433,
             txt: HashMap::new(),
         };
         let _ = tx.try_send(DiscoveryEvent::Found(record));
