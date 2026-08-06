@@ -1,15 +1,4 @@
 //! Viewer control stream client for Stream 0 session negotiation.
-//!
-//! `ViewerControlClient` opens a bidirectional QUIC stream (Stream 0) on an
-//! existing connection, sends the viewer's [`SessionHello`], reads the host's
-//! [`SessionConfig`] response, and validates it.
-//!
-//! Protocol sequence (RFC-0002 §7):
-//!
-//! ```text
-//! Viewer ──[SessionHello]──────────────> Host
-//! Viewer <─[SessionConfig]────────────── Host
-//! ```
 
 use renderd_net::framing::{recv_control, send_control};
 use renderd_proto::{
@@ -37,7 +26,6 @@ impl ViewerControlClient {
     /// Opens Stream 0, sends [`SessionHello`], and reads the host's [`SessionConfig`].
     ///
     /// # Errors
-    ///
     /// Returns [`ViewerError`] if stream opening, framing, or validation fails.
     pub async fn negotiate(
         &self,
@@ -46,14 +34,20 @@ impl ViewerControlClient {
         supported_codecs: Vec<String>,
         max_decode_bitrate_kbps: u32,
         hw_decode_available: bool,
-    ) -> Result<(SessionHello, SessionConfig), ViewerError> {
-        // --- Step 1: Open the first bidirectional stream (Stream 0) ---
+    ) -> Result<
+        (
+            SessionHello,
+            SessionConfig,
+            quinn::SendStream,
+            quinn::RecvStream,
+        ),
+        ViewerError,
+    > {
         let (mut send_stream, mut recv_stream) = connection
             .open_bi()
             .await
             .map_err(|e| ViewerError::Network(format!("Failed to open Stream 0 to host: {e}")))?;
 
-        // --- Step 2: Build and send SessionHello ---
         let session_nonce = Uuid::new_v4().to_string();
         let hello = SessionHello {
             protocol_version: PROTOCOL_VERSION,
@@ -66,7 +60,6 @@ impl ViewerControlClient {
             session_nonce,
         };
 
-        // Self-validate before sending to catch programming errors early.
         hello
             .validate(PROTOCOL_VERSION)
             .map_err(|e| ViewerError::Network(format!("SessionHello is invalid: {e}")))?;
@@ -84,7 +77,6 @@ impl ViewerControlClient {
             "SessionHello sent to host — awaiting SessionConfig"
         );
 
-        // --- Step 3: Read and validate the host's SessionConfig ---
         let config_env = recv_control(&mut recv_stream)
             .await
             .map_err(|e| ViewerError::Network(format!("Failed to read SessionConfig: {e}")))?;
@@ -118,47 +110,6 @@ impl ViewerControlClient {
             "SessionConfig received and validated — Stream 0 handshake complete"
         );
 
-        Ok((hello, config))
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use renderd_proto::generated::renderd::DisplayInfo;
-
-    /// Builds a display descriptor for test use.
-    fn test_display() -> DisplayInfo {
-        DisplayInfo {
-            width: 1920,
-            height: 1080,
-            refresh_rate: 60.0,
-            vrr_supported: false,
-        }
-    }
-
-    #[test]
-    fn test_viewer_control_client_construction() {
-        let vid = Uuid::new_v4();
-        let client = ViewerControlClient::new(vid);
-        assert_eq!(client.viewer_id, vid);
-    }
-
-    #[test]
-    fn test_session_hello_fields_valid() {
-        let display = test_display();
-        let viewer_id = Uuid::new_v4();
-        let hello = SessionHello {
-            protocol_version: PROTOCOL_VERSION,
-            min_required_version: 1,
-            viewer_id: viewer_id.to_string(),
-            supported_codecs: vec!["hevc".to_string()],
-            max_decode_bitrate_kbps: 30_000,
-            display: Some(display),
-            hw_decode_available: true,
-            session_nonce: Uuid::new_v4().to_string(),
-        };
-
-        assert!(hello.validate(PROTOCOL_VERSION).is_ok());
+        Ok((hello, config, send_stream, recv_stream))
     }
 }

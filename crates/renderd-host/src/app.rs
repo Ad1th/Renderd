@@ -220,6 +220,7 @@ impl HostApp {
         let menu_bar = self.ui.menu_bar.clone();
         let capture = self.capture.clone();
         let encode = self.encode.clone();
+        let clock = self.clock.clone();
 
         let quic_server = Arc::new(quic_server);
         let quic_server_task = Arc::clone(&quic_server);
@@ -233,13 +234,15 @@ impl HostApp {
                 let dispatcher = dispatcher.clone();
                 let capture = capture.clone();
                 let encode = encode.clone();
+                let clock = clock.clone();
 
                 tokio::spawn(async move {
+                    let clock = clock.clone();
                     match dispatcher
                         .handle_connection(&conn, &host_cfg, &session)
                         .await
                     {
-                        Ok((_hello, cfg)) => {
+                        Ok((_hello, cfg, mut _send_stream, mut recv_stream)) => {
                             // Transition session state to STREAMING once connected
                             if let Err(e) = session.begin_streaming() {
                                 tracing::warn!(
@@ -278,6 +281,21 @@ impl HostApp {
                                     );
                                 }
                             }
+
+                            // Spawn Control stream reader to process VsyncReport & telemetry (#110)
+                            let capture_for_ctrl = capture.clone();
+                            tokio::spawn(async move {
+                                use renderd_net::framing::recv_control;
+                                use renderd_proto::generated::renderd::envelope::Payload;
+                                while let Ok(envelope) = recv_control(&mut recv_stream).await {
+                                    if let Some(Payload::VsyncReport(report)) = envelope.payload {
+                                        let capture_guard = capture_for_ctrl
+                                            .lock()
+                                            .expect("CapturePipeline mutex poisoned");
+                                        let _ = clock.on_vsync_report(&report, &capture_guard);
+                                    }
+                                }
+                            });
 
                             // Spawn DataSender task to transmit encoded ring buffer frames over QUIC datagrams (#107)
                             let data_sender = DataSender::new();

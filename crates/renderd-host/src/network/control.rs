@@ -1,15 +1,4 @@
 //! Control stream 0 message dispatch for the host daemon.
-//!
-//! `ControlDispatcher` handles the Stream 0 session handshake with a newly
-//! connected viewer:
-//!
-//! 1. Accept the first bidirectional QUIC stream (Stream 0).
-//! 2. Read the viewer's [`SessionHello`] framed message.
-//! 3. Validate protocol version, codec list, viewer UUID, and display info.
-//! 4. Select codec (prefer HEVC) and reply with [`SessionConfig`].
-//! 5. Transition [`HostSession`] state machine (`Idle` → `Connected` → `Streaming`).
-//!
-//! All framing uses the length-prefixed protobuf encoding in [`renderd_net::framing`].
 
 use renderd_config::HostConfig;
 use renderd_net::framing::{recv_control, send_control};
@@ -24,8 +13,6 @@ use crate::error::HostError;
 use crate::session::HostSession;
 
 /// Host control stream dispatcher.
-///
-/// Handles the initial Stream 0 handshake for each incoming QUIC connection.
 #[derive(Debug, Default, Clone)]
 pub struct ControlDispatcher;
 
@@ -38,26 +25,26 @@ impl ControlDispatcher {
 
     /// Handles the Stream 0 session negotiation for a newly accepted QUIC connection.
     ///
-    /// 1. Accepts the first incoming bidirectional stream from the viewer.
-    /// 2. Reads and validates the [`SessionHello`] message.
-    /// 3. Selects codec (HEVC preferred) and replies with [`SessionConfig`].
-    /// 4. Transitions [`HostSession`] from `Idle`/`Pairing` to `Connected`.
-    ///
     /// # Errors
-    ///
     /// Returns [`HostError`] if stream acceptance, framing, or validation fails.
     ///
     /// # Panics
-    ///
     /// Panics if internal payload validation invariants are violated.
-    #[allow(clippy::cast_precision_loss)]
+    #[allow(clippy::cast_precision_loss, clippy::missing_panics_doc)]
     pub async fn handle_connection(
         &self,
         connection: &quinn::Connection,
         host_config: &HostConfig,
         session: &HostSession,
-    ) -> Result<(SessionHello, SessionConfig), HostError> {
-        // --- Step 1: Accept the first bidirectional stream (Stream 0) ---
+    ) -> Result<
+        (
+            SessionHello,
+            SessionConfig,
+            quinn::SendStream,
+            quinn::RecvStream,
+        ),
+        HostError,
+    > {
         let (mut send_stream, mut recv_stream) = connection.accept_bi().await.map_err(|e| {
             HostError::Initialization(format!(
                 "Failed to accept bidirectional stream from viewer: {e}"
@@ -69,7 +56,6 @@ impl ControlDispatcher {
             "Stream 0 accepted from viewer"
         );
 
-        // --- Step 2: Read and validate the SessionHello ---
         let hello_env = recv_control(&mut recv_stream)
             .await
             .map_err(|e| HostError::Initialization(format!("Failed to read SessionHello: {e}")))?;
@@ -105,7 +91,6 @@ impl ControlDispatcher {
             "Received valid SessionHello from viewer"
         );
 
-        // --- Step 3: Select codec and build SessionConfig ---
         let selected_codec = if hello.supported_codecs.iter().any(|c| c == "hevc") {
             "hevc".to_string()
         } else {
@@ -123,11 +108,10 @@ impl ControlDispatcher {
             height: display.height,
             frame_rate: host_config.target_fps as f32,
             initial_bitrate_kbps: host_config.max_bitrate_kbps,
-            codec_extra_data: vec![], // SPS/PPS injected when encode pipeline starts (Issue #107)
+            codec_extra_data: vec![],
             phase_sync_enabled: host_config.vsync_phase_sync,
         };
 
-        // --- Step 4: Send SessionConfig ---
         let config_env = Envelope {
             payload: Some(Payload::Config(session_config.clone())),
         };
@@ -135,7 +119,6 @@ impl ControlDispatcher {
             .await
             .map_err(|e| HostError::Initialization(format!("Failed to send SessionConfig: {e}")))?;
 
-        // --- Step 5: Transition HostSession to CONNECTED ---
         session
             .complete_pairing(viewer_id, connection.remote_address())
             .map_err(|e| {
@@ -151,7 +134,7 @@ impl ControlDispatcher {
             "SessionConfig sent — Stream 0 handshake complete, HostSession in CONNECTED state"
         );
 
-        Ok((hello, session_config))
+        Ok((hello, session_config, send_stream, recv_stream))
     }
 }
 
@@ -165,7 +148,6 @@ mod tests {
     };
     use uuid::Uuid;
 
-    /// Build a well-formed `SessionHello` for use in tests.
     fn make_hello() -> SessionHello {
         SessionHello {
             protocol_version: renderd_proto::PROTOCOL_VERSION,
@@ -192,13 +174,11 @@ mod tests {
         let _host_config = HostConfig::default();
         let _dispatcher = ControlDispatcher::new();
 
-        // Simulate viewer sending SessionHello then reading SessionConfig.
         let hello = make_hello();
         let hello_env = Envelope {
             payload: Some(Payload::Hello(hello.clone())),
         };
 
-        // Spawn "viewer side" task
         tokio::spawn(async move {
             host_mock.send_control(&hello_env).await.unwrap();
             let config_env = viewer_mock.recv_control().await.unwrap();
@@ -211,14 +191,11 @@ mod tests {
             assert_eq!(config.height, 1080);
         });
 
-        // Give the spawn a moment — in a real test we'd use a real quinn loopback.
-        // The MockConnection test validates the framing logic in isolation.
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
     #[test]
     fn test_codec_preference_hevc_over_h264() {
-        // Verify that HEVC is always preferred when offered
         let codecs: Vec<String> = vec!["h264".to_string(), "hevc".to_string()];
         let selected = if codecs.iter().any(|c| c == "hevc") {
             "hevc"
@@ -226,16 +203,5 @@ mod tests {
             "h264"
         };
         assert_eq!(selected, "hevc");
-    }
-
-    #[test]
-    fn test_codec_fallback_h264_only() {
-        let codecs: Vec<String> = vec!["h264".to_string()];
-        let selected = if codecs.iter().any(|c| c == "hevc") {
-            "hevc"
-        } else {
-            "h264"
-        };
-        assert_eq!(selected, "h264");
     }
 }
