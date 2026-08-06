@@ -7,15 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-> All 8 milestones complete. Pre-release hardening and end-to-end integration in progress.
-> Note: `renderd-host` and `renderd-viewer` initialize their respective subsystems and run
-> loops successfully. End-to-end streaming between host and viewer is **not yet integrated**
-> — the components are implemented individually and tested in isolation. Full pipeline
-> integration is planned for v1.0.
+> Pre-release hardening, cross-platform Windows viewer integration, and input forwarding in progress.
 
 ---
 
-## [0.8.0-viewer] — 2026-08-06
+## [0.9.0-integration] — 2026-08-07
+
+> Milestone 9 complete: First End-to-End macOS Display Streaming Milestone.
+
+### Added / Milestone Achievements
+- **First End-to-End macOS Display Streaming**: Achieved fully operational live desktop streaming from host capture to viewer presentation.
+- **Hardware Decoder (`VideoToolboxDecoder`) Integration**: Implemented `renderd_VTDecompressionSessionCreateFromNAL` and `renderd_VTDecompressionSessionDecodeFrame` in `renderd-vt-sys`, replacing the placeholder decoder on macOS.
+- **Bitstream NAL & Format Description Handling**: Added automated VPS (NAL 32), SPS (NAL 33), and PPS (NAL 34) parameter set extraction for HEVC streams to generate valid `CMVideoFormatDescriptionRef` objects for VideoToolbox decompression sessions.
+- **Sample Buffer & Length Prefix Conversion**: Implemented Annex-B startcode conversion (`0x00000001` → 4-byte big-endian NAL length prefixes) matching VideoToolbox HVCC container expectations for hardware decompression.
+- **Live Desktop Presentation**: Verified zero-copy `ScreenCaptureKit` capture, `VideoToolbox` HEVC hardware encoding, QUIC datagram transmission, sliding-window reassembly, `VideoToolbox` hardware decoding, BGRA pixel buffer extraction, and continuous rendering via `SoftRenderer`.
+
+### Next Steps & Upcoming Roadmap
+- **Cross-Platform Support**: Integrate Windows D3D12/MediaFoundation hardware decoding & swapchain presentation with macOS host daemon.
+- **Input Forwarding**: Mouse, keyboard, and touch event injection from viewer to host.
+- **Audio & Clipboard**: CoreAudio / WASAPI audio streaming and bidirectional pasteboard sync.
+- **NAT Traversal**: STUN/TURN/ICE signaling fallbacks for WAN connections.
 
 > Milestone 8 complete: Viewer Application (`renderd-viewer`).
 
@@ -264,7 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/Ad1th/renderd/compare/v0.8.0-viewer...HEAD
+[Unreleased]: https://github.com/Ad1th/renderd/compare/v0.9.0-integration...HEAD
+[0.9.0-integration]: https://github.com/Ad1th/renderd/compare/v0.8.0-viewer...v0.9.0-integration
 [0.8.0-viewer]: https://github.com/Ad1th/renderd/compare/v0.7.0-host...v0.8.0-viewer
 [0.7.0-host]: https://github.com/Ad1th/renderd/compare/v0.6.0-algorithms...v0.7.0-host
 [0.6.0-algorithms]: https://github.com/Ad1th/renderd/compare/v0.5.0-services...v0.6.0-algorithms

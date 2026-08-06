@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` is currently in active pre-release development (**all 8 milestones complete**). The complete architecture is implemented and tested: protocol schemas, configuration engine, frame reassembly pipeline, presentation clock, ABR controller, crypto primitives, ScreenCaptureKit/VideoToolbox host capture FFI, QUIC transport, platform keychains, mDNS discovery, the `renderd-host` macOS daemon (with full subsystem initialization, session state machine, menu bar UI, and persistent SIGINT/SIGTERM run loop), and the `renderd-viewer` Windows application (winit event loop, D3D12 renderer, D3D12 video decoder, datagram reassembly, vsync reporter, dual-timescale ABR feedback, SPAKE2+ pairing UI, reconnect watchdog, status overlay, system tray icon, and CI release packaging). All 136 workspace tests pass.
+> `Renderd` has achieved its first **end-to-end macOS remote desktop stream**! The complete real-time host-to-viewer pipeline is verified working: zero-copy `ScreenCaptureKit` screen capture, `VideoToolbox` hardware HEVC encoding, QUIC datagram transport, mDNS service discovery, session handshake, sliding-window datagram reassembly, `VideoToolbox` hardware decoding, BGRA pixel buffer extraction, and `SoftRenderer` presentation with continuous live desktop updates. All 147 workspace unit & integration tests pass.
 
 ---
 
@@ -152,7 +152,18 @@ renderd/
 - [x] **Milestone 6: Algorithm Layer (ABR & Clock Sync)** (`v0.6.0-algorithms`)
 - [x] **Milestone 7: Host Application (`renderd-host`)** (`v0.7.0-host`)
 - [x] **Milestone 8: Viewer Application (`renderd-viewer`)** (`v0.8.0-viewer`)
-- [ ] **Milestone 9: End-to-End Integration & System Validation** (`v0.9.0-integration`)
+- [x] **Milestone 9: End-to-End macOS Integration & Validation** (`v0.9.0-integration`)
+
+### Project Feature Roadmap
+
+- [x] **End-to-end macOS streaming** (`ScreenCaptureKit` → `VideoToolbox` HW Encode → QUIC → `VideoToolbox` HW Decode → `SoftRenderer`)
+- [ ] **Cross-platform support** (macOS host ↔ Windows D3D12/MediaFoundation viewer integration)
+- [ ] **Input injection** (Low-latency mouse, keyboard, and touch input event forwarding)
+- [ ] **Audio streaming** (CoreAudio capture & WASAPI / DirectSound playback)
+- [ ] **Clipboard sync** (Bidirectional text and image pasteboard synchronization)
+- [ ] **File transfer** (Drag-and-drop peer-to-peer file transport)
+- [ ] **WAN / NAT traversal** (STUN/TURN/ICE signaling fallback for remote network connections)
+- [ ] **Performance optimization** (Zero-copy GPU texture sharing & sub-10ms latency tuning)
 
 ---
 
