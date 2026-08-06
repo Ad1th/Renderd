@@ -15,6 +15,7 @@ pub mod devices;
 pub mod pairing;
 
 use std::net::SocketAddr;
+use std::sync::{Arc, Mutex};
 
 use renderd_proto::types::ViewerId;
 
@@ -71,42 +72,72 @@ pub enum SessionError {
 /// Tracks the current session state and connected viewer details, enforcing
 /// valid state transitions for the `IDLE → PAIRING → CONNECTED → STREAMING`
 /// lifecycle defined in RFC-0002 §9.
-#[derive(Debug, Default)]
+///
+/// Holds inner state behind an `Arc<Mutex<SessionState>>` so it can be safely cloned
+/// and updated across tokio tasks, QUIC event loops, and UI components.
+#[derive(Debug, Clone)]
 pub struct HostSession {
-    state: SessionState,
+    state: Arc<Mutex<SessionState>>,
+}
+
+impl Default for HostSession {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl HostSession {
     /// Creates a new `HostSession` in the [`SessionState::Idle`] state.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new() -> Self {
         Self {
-            state: SessionState::Idle,
+            state: Arc::new(Mutex::new(SessionState::Idle)),
         }
     }
 
-    /// Returns a reference to the current session state.
+    /// Returns a snapshot of the current session state.
+    ///
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
     #[must_use]
-    pub const fn state(&self) -> &SessionState {
-        &self.state
+    pub fn state(&self) -> SessionState {
+        self.state
+            .lock()
+            .expect("HostSession mutex poisoned")
+            .clone()
     }
 
     /// Returns `true` if the session is in [`SessionState::Idle`].
+    ///
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
     #[must_use]
-    pub const fn is_idle(&self) -> bool {
-        matches!(self.state, SessionState::Idle)
+    pub fn is_idle(&self) -> bool {
+        matches!(
+            *self.state.lock().expect("HostSession mutex poisoned"),
+            SessionState::Idle
+        )
     }
 
     /// Returns `true` if the session is in [`SessionState::Streaming`].
+    ///
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
     #[must_use]
-    pub const fn is_streaming(&self) -> bool {
-        matches!(self.state, SessionState::Streaming { .. })
+    pub fn is_streaming(&self) -> bool {
+        matches!(
+            *self.state.lock().expect("HostSession mutex poisoned"),
+            SessionState::Streaming { .. }
+        )
     }
 
     /// Returns the connected viewer ID if the session is in `Connected` or `Streaming` state.
+    ///
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
     #[must_use]
-    pub const fn viewer_id(&self) -> Option<&ViewerId> {
-        match &self.state {
+    pub fn viewer_id(&self) -> Option<ViewerId> {
+        match *self.state.lock().expect("HostSession mutex poisoned") {
             SessionState::Connected { viewer_id, .. }
             | SessionState::Streaming { viewer_id, .. } => Some(viewer_id),
             _ => None,
@@ -116,77 +147,115 @@ impl HostSession {
     /// Transitions from [`SessionState::Idle`] to [`SessionState::Pairing`].
     ///
     /// # Errors
-    ///
     /// Returns [`SessionError::InvalidTransition`] if the session is not currently `Idle`.
-    pub fn begin_pairing(&mut self) -> Result<(), SessionError> {
-        if self.state != SessionState::Idle {
+    ///
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
+    pub fn begin_pairing(&self) -> Result<(), SessionError> {
+        let mut guard = self.state.lock().expect("HostSession mutex poisoned");
+        if *guard != SessionState::Idle {
             return Err(SessionError::InvalidTransition {
-                from: self.state.to_string(),
+                from: guard.to_string(),
                 to: "PAIRING".to_string(),
             });
         }
-        self.state = SessionState::Pairing;
+        let from = guard.to_string();
+        *guard = SessionState::Pairing;
+        drop(guard);
+
+        tracing::info!(from = %from, to = "PAIRING", "HostSession state transition: IDLE -> PAIRING");
         Ok(())
     }
 
-    /// Transitions from [`SessionState::Pairing`] to [`SessionState::Connected`].
+    /// Transitions from [`SessionState::Idle`] or [`SessionState::Pairing`] to [`SessionState::Connected`].
     ///
-    /// Called once SPAKE2+ pairing succeeds and the viewer identity is established.
+    /// Called once Stream 0 negotiation or SPAKE2+ pairing succeeds and viewer identity is established.
     ///
     /// # Errors
+    /// Returns [`SessionError::InvalidTransition`] if session is not in `Idle` or `Pairing`.
     ///
-    /// Returns [`SessionError::InvalidTransition`] if the session is not currently `Pairing`.
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
     pub fn complete_pairing(
-        &mut self,
+        &self,
         viewer_id: ViewerId,
         remote_addr: SocketAddr,
     ) -> Result<(), SessionError> {
-        if self.state != SessionState::Pairing {
+        let mut guard = self.state.lock().expect("HostSession mutex poisoned");
+        if *guard != SessionState::Idle && *guard != SessionState::Pairing {
             return Err(SessionError::InvalidTransition {
-                from: self.state.to_string(),
+                from: guard.to_string(),
                 to: "CONNECTED".to_string(),
             });
         }
-        self.state = SessionState::Connected {
+        let from = guard.to_string();
+        *guard = SessionState::Connected {
             viewer_id,
             remote_addr,
         };
+        let to = guard.to_string();
+        drop(guard);
+
+        tracing::info!(
+            from = %from,
+            to = %to,
+            %viewer_id,
+            %remote_addr,
+            "HostSession state transition to CONNECTED"
+        );
         Ok(())
     }
 
     /// Transitions from [`SessionState::Connected`] to [`SessionState::Streaming`].
     ///
-    /// Called when the viewer sends the first streaming request and the capture
-    /// pipeline has been successfully started.
+    /// Called when the viewer requests streaming and the capture pipeline is started.
     ///
     /// # Errors
+    /// Returns [`SessionError::InvalidTransition`] if session is not in `Connected`.
     ///
-    /// Returns [`SessionError::InvalidTransition`] if the session is not currently `Connected`.
-    pub fn begin_streaming(&mut self) -> Result<(), SessionError> {
-        let (viewer_id, remote_addr) = match &self.state {
-            SessionState::Connected {
-                viewer_id,
-                remote_addr,
-            } => (*viewer_id, *remote_addr),
-            _ => {
-                return Err(SessionError::InvalidTransition {
-                    from: self.state.to_string(),
-                    to: "STREAMING".to_string(),
-                });
-            }
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
+    pub fn begin_streaming(&self) -> Result<(), SessionError> {
+        let mut guard = self.state.lock().expect("HostSession mutex poisoned");
+        let SessionState::Connected {
+            viewer_id,
+            remote_addr,
+        } = *guard
+        else {
+            return Err(SessionError::InvalidTransition {
+                from: guard.to_string(),
+                to: "STREAMING".to_string(),
+            });
         };
-        self.state = SessionState::Streaming {
+        let from = guard.to_string();
+        *guard = SessionState::Streaming {
             viewer_id,
             remote_addr,
         };
+        let to = guard.to_string();
+        drop(guard);
+
+        tracing::info!(
+            from = %from,
+            to = %to,
+            %viewer_id,
+            %remote_addr,
+            "HostSession state transition to STREAMING"
+        );
         Ok(())
     }
 
     /// Resets the session to [`SessionState::Idle`], regardless of current state.
     ///
-    /// This is the universal error / disconnect handler. All state is cleared.
-    pub fn reset(&mut self) {
-        self.state = SessionState::Idle;
+    /// # Panics
+    /// Panics if the internal state mutex is poisoned.
+    pub fn reset(&self) {
+        let mut guard = self.state.lock().expect("HostSession mutex poisoned");
+        let from = guard.to_string();
+        *guard = SessionState::Idle;
+        drop(guard);
+
+        tracing::info!(from = %from, to = "IDLE", "HostSession state transition to IDLE");
     }
 }
 
@@ -206,38 +275,49 @@ mod tests {
     #[test]
     fn test_initial_state_is_idle() {
         let session = HostSession::new();
-        assert_eq!(*session.state(), SessionState::Idle);
+        assert_eq!(session.state(), SessionState::Idle);
         assert!(session.is_idle());
     }
 
     #[test]
     fn test_full_lifecycle_idle_to_streaming() {
-        let mut session = HostSession::new();
+        let session = HostSession::new();
         let viewer_id = test_viewer_id();
         let addr = test_addr();
 
         // IDLE → PAIRING
         session.begin_pairing().expect("begin_pairing from Idle");
-        assert_eq!(*session.state(), SessionState::Pairing);
+        assert_eq!(session.state(), SessionState::Pairing);
 
         // PAIRING → CONNECTED
         session
             .complete_pairing(viewer_id, addr)
             .expect("complete_pairing from Pairing");
         assert!(matches!(session.state(), SessionState::Connected { .. }));
-        assert_eq!(session.viewer_id(), Some(&viewer_id));
+        assert_eq!(session.viewer_id(), Some(viewer_id));
 
         // CONNECTED → STREAMING
         session
             .begin_streaming()
             .expect("begin_streaming from Connected");
         assert!(session.is_streaming());
-        assert_eq!(session.viewer_id(), Some(&viewer_id));
+        assert_eq!(session.viewer_id(), Some(viewer_id));
+    }
+
+    #[test]
+    fn test_direct_idle_to_connected_reconnect() {
+        let session = HostSession::new();
+        let viewer_id = test_viewer_id();
+        let addr = test_addr();
+
+        // IDLE → CONNECTED (Direct connection for paired viewer)
+        session.complete_pairing(viewer_id, addr).unwrap();
+        assert!(matches!(session.state(), SessionState::Connected { .. }));
     }
 
     #[test]
     fn test_reset_from_streaming_returns_to_idle() {
-        let mut session = HostSession::new();
+        let session = HostSession::new();
         let viewer_id = test_viewer_id();
         let addr = test_addr();
 
@@ -251,8 +331,8 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_transition_pairing_from_idle() {
-        let mut session = HostSession::new();
+    fn test_invalid_transition_pairing_from_pairing() {
+        let session = HostSession::new();
         session.begin_pairing().unwrap();
 
         // Cannot pair again while already in Pairing state
@@ -262,17 +342,8 @@ mod tests {
 
     #[test]
     fn test_invalid_transition_streaming_from_idle() {
-        let mut session = HostSession::new();
+        let session = HostSession::new();
         let err = session.begin_streaming().unwrap_err();
-        assert!(matches!(err, SessionError::InvalidTransition { .. }));
-    }
-
-    #[test]
-    fn test_invalid_transition_complete_pairing_from_idle() {
-        let mut session = HostSession::new();
-        let err = session
-            .complete_pairing(test_viewer_id(), test_addr())
-            .unwrap_err();
         assert!(matches!(err, SessionError::InvalidTransition { .. }));
     }
 

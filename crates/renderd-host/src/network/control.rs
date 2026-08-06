@@ -7,6 +7,7 @@
 //! 2. Read the viewer's [`SessionHello`] framed message.
 //! 3. Validate protocol version, codec list, viewer UUID, and display info.
 //! 4. Select codec (prefer HEVC) and reply with [`SessionConfig`].
+//! 5. Transition [`HostSession`] state machine (`Idle` → `Connected` → `Streaming`).
 //!
 //! All framing uses the length-prefixed protobuf encoding in [`renderd_net::framing`].
 
@@ -15,14 +16,17 @@ use renderd_net::framing::{recv_control, send_control};
 use renderd_proto::{
     envelope::ValidateHello,
     generated::renderd::{envelope::Payload, DisplayInfo, Envelope, SessionConfig, SessionHello},
+    types::ViewerId,
 };
+use uuid::Uuid;
 
 use crate::error::HostError;
+use crate::session::HostSession;
 
 /// Host control stream dispatcher.
 ///
 /// Handles the initial Stream 0 handshake for each incoming QUIC connection.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct ControlDispatcher;
 
 impl ControlDispatcher {
@@ -37,6 +41,7 @@ impl ControlDispatcher {
     /// 1. Accepts the first incoming bidirectional stream from the viewer.
     /// 2. Reads and validates the [`SessionHello`] message.
     /// 3. Selects codec (HEVC preferred) and replies with [`SessionConfig`].
+    /// 4. Transitions [`HostSession`] from `Idle`/`Pairing` to `Connected`.
     ///
     /// # Errors
     ///
@@ -50,6 +55,7 @@ impl ControlDispatcher {
         &self,
         connection: &quinn::Connection,
         host_config: &HostConfig,
+        session: &HostSession,
     ) -> Result<(SessionHello, SessionConfig), HostError> {
         // --- Step 1: Accept the first bidirectional stream (Stream 0) ---
         let (mut send_stream, mut recv_stream) = connection.accept_bi().await.map_err(|e| {
@@ -84,8 +90,16 @@ impl ControlDispatcher {
                 HostError::Initialization(format!("SessionHello validation failed: {e}"))
             })?;
 
+        let viewer_uuid = Uuid::parse_str(&hello.viewer_id).map_err(|e| {
+            HostError::Initialization(format!(
+                "Invalid viewer_id UUID '{:?}': {e}",
+                hello.viewer_id
+            ))
+        })?;
+        let viewer_id = ViewerId(viewer_uuid);
+
         tracing::info!(
-            viewer_id = %hello.viewer_id,
+            viewer_id = %viewer_id,
             codecs = ?hello.supported_codecs,
             protocol_version = hello.protocol_version,
             "Received valid SessionHello from viewer"
@@ -121,13 +135,20 @@ impl ControlDispatcher {
             .await
             .map_err(|e| HostError::Initialization(format!("Failed to send SessionConfig: {e}")))?;
 
+        // --- Step 5: Transition HostSession to CONNECTED ---
+        session
+            .complete_pairing(viewer_id, connection.remote_address())
+            .map_err(|e| {
+                HostError::Initialization(format!("Session transition to CONNECTED failed: {e}"))
+            })?;
+
         tracing::info!(
-            viewer_id = %hello.viewer_id,
+            viewer_id = %viewer_id,
             codec = %selected_codec,
             width = session_config.width,
             height = session_config.height,
             fps = session_config.frame_rate,
-            "SessionConfig sent — Stream 0 handshake complete"
+            "SessionConfig sent — Stream 0 handshake complete, HostSession in CONNECTED state"
         );
 
         Ok((hello, session_config))
