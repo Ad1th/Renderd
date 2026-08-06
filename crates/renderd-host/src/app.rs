@@ -174,11 +174,11 @@ impl HostApp {
                 ))
             })?;
 
-        let quic_server = rt.block_on(async {
-            QuicServer::bind(bind_addr, tls_config)
-        }).map_err(|e| {
-            HostError::Initialization(format!("Failed to bind QUIC server on {bind_addr}: {e}"))
-        })?;
+        let quic_server = rt
+            .block_on(async { QuicServer::bind(bind_addr, tls_config) })
+            .map_err(|e| {
+                HostError::Initialization(format!("Failed to bind QUIC server on {bind_addr}: {e}"))
+            })?;
 
         let actual_addr = quic_server.local_addr().map_err(|e| {
             HostError::Initialization(format!("Failed to query QUIC server address: {e}"))
