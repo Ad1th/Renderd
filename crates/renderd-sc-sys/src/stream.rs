@@ -161,6 +161,10 @@ pub struct ScreenStream {
     is_running: Arc<AtomicBool>,
 }
 
+#[allow(clippy::non_send_fields_in_send_ty)]
+unsafe impl Send for ScreenStream {}
+unsafe impl Sync for ScreenStream {}
+
 impl ScreenStream {
     /// Creates and configures a new `ScreenStream` targeting the specified display filter.
     ///
