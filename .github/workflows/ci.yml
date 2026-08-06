@@ -27,9 +27,11 @@ jobs:
         uses: taiki-e/install-action@nextest
       - name: Test (host crates)
         run: >
-          cargo nextest run --package renderd-proto --package renderd-config
-          --package renderd-frame --package renderd-crypto --package renderd-abr
-          --package renderd-clock --package renderd-net
+          cargo nextest run --package renderd-host --package renderd-proto
+          --package renderd-config --package renderd-frame --package renderd-crypto
+          --package renderd-abr --package renderd-clock --package renderd-net
+          --package renderd-keychain --package renderd-discovery --package renderd-sc-sys
+          --package renderd-vt-sys
           --profile ci
 
   build-and-test-viewer:
@@ -58,6 +60,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
       - name: Regenerate proto
         run: cargo run --manifest-path tools/proto-gen/Cargo.toml
       - name: Check no diff
