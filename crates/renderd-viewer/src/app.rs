@@ -12,6 +12,7 @@ use crate::decoder::{Decoder, NullDecoder};
 use crate::discovery::DiscoveryManager;
 use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
+use crate::network::{DatagramReceiver, ViewerControlClient};
 use crate::platform::init_platform;
 use crate::renderer::{NullRenderer, Renderer, ViewportSize};
 use crate::state::AppState;
@@ -79,15 +80,16 @@ impl App {
     ///
     /// # Panics
     /// Panics if the tokio runtime cannot be built (OS resource exhaustion).
+    #[allow(clippy::too_many_lines)]
     pub fn run(mut self) -> Result<(), ViewerError> {
         init_platform()?;
 
         // ----------------------------------------------------------------
-        // Issue #102: Start platform mDNS browser (or fall back to manual)
-        // and wire discovered hosts into the system tray UI.
+        // Issue #102 & #109: Start platform mDNS browser, wire discovered hosts,
+        // and connect QUIC Stream 0 + Datagram Receiver into FrameQueue & Renderer.
         // ----------------------------------------------------------------
         let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(1)
+            .worker_threads(2)
             .enable_all()
             .build()
             .map_err(|e| ViewerError::Window(format!("Failed to create tokio runtime: {e}")))?;
@@ -143,6 +145,83 @@ impl App {
             }
         });
 
+        // Spawn background task to connect to host and receive video datagrams into FrameQueue (#109)
+        let frame_queue = self.frame_queue.clone();
+        let discovery_conn = self.discovery.clone();
+        let viewer_id = uuid::Uuid::new_v4();
+
+        rt.spawn(async move {
+            let control_client = ViewerControlClient::new(viewer_id);
+            loop {
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                if let Some(target_addr) = discovery_conn.snapshot().primary_addr() {
+                    tracing::info!(host_addr = %target_addr, "Connecting to discovered host...");
+
+                    let tls_config = match renderd_net::ClientTlsConfig::with_insecure_skip_verify() {
+                        Ok(cfg) => cfg,
+                        Err(e) => {
+                            tracing::warn!("Failed to create ClientTlsConfig: {e}");
+                            continue;
+                        }
+                    };
+
+                    let client = match renderd_net::QuicClient::bind_ephemeral() {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::warn!("Failed to bind QuicClient: {e}");
+                            continue;
+                        }
+                    };
+
+                    let conn = match client.connect(target_addr, "renderd-host", tls_config).await {
+                        Ok(c) => c,
+                        Err(e) => {
+                            tracing::warn!("QUIC connection to {target_addr} failed: {e}");
+                            continue;
+                        }
+                    };
+
+                    tracing::info!(peer = %conn.remote_address(), "QUIC connection established with host");
+
+                    let display = renderd_proto::generated::renderd::DisplayInfo {
+                        width: 1920,
+                        height: 1080,
+                        refresh_rate: 60.0,
+                        vrr_supported: false,
+                    };
+
+                    match control_client
+                        .negotiate(&conn, display, vec!["hevc".to_string(), "h264".to_string()], 50_000, true)
+                        .await
+                    {
+                        Ok((_hello, session_config)) => {
+                            tracing::info!(
+                                codec = %session_config.selected_codec,
+                                width = session_config.width,
+                                height = session_config.height,
+                                fps = session_config.frame_rate,
+                                "Stream 0 handshake completed with host — starting datagram receiver"
+                            );
+
+                            let mut receiver = DatagramReceiver::new(4);
+                            let mut decoder = NullDecoder::new();
+                            if let Err(e) = decoder.initialize(&session_config.selected_codec, session_config.width, session_config.height) {
+                                tracing::warn!("Decoder initialization error: {e}");
+                            }
+
+                            if let Err(e) = receiver.run_receive_loop(&conn, &mut decoder, &frame_queue).await {
+                                tracing::warn!("Datagram receiver loop ended: {e}");
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Stream 0 negotiation failed: {e}");
+                        }
+                    }
+                    break;
+                }
+            }
+        });
+
         let event_loop = EventLoop::new()
             .map_err(|e| ViewerError::Window(format!("Failed to create event loop: {e}")))?;
 
@@ -186,6 +265,12 @@ impl ApplicationHandler for App {
                     event_loop.exit();
                 }
             }
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(ref ws) = self.window_system {
+            ws.window().request_redraw();
         }
     }
 

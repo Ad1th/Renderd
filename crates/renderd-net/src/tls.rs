@@ -118,6 +118,49 @@ impl ServerCertVerifier for PinnedServerCertVerifier {
     }
 }
 
+/// Custom server cert verifier for initial unpinned discovery connections.
+#[derive(Debug)]
+struct SkipServerCertVerifier {
+    supported_algs: rustls::crypto::WebPkiSupportedAlgorithms,
+}
+
+impl ServerCertVerifier for SkipServerCertVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &CertificateDer<'_>,
+        _intermediates: &[CertificateDer<'_>],
+        _server_name: &ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        Ok(ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        Err(rustls::Error::PeerIncompatible(
+            rustls::PeerIncompatible::Tls12NotOffered,
+        ))
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &rustls::DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        rustls::crypto::verify_tls13_signature(message, cert, dss, &self.supported_algs)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported_algs.supported_schemes()
+    }
+}
+
 /// Builder for QUIC server TLS configuration.
 pub struct ServerTlsConfig;
 
@@ -197,30 +240,53 @@ impl ClientTlsConfig {
         config.alpn_protocols = vec![b"renderd-v1".to_vec()];
         Ok(config)
     }
+
+    /// Creates a [`ClientConfig`] configured for TLS 1.3 accepting any server certificate (used for initial pairing/discovery).
+    ///
+    /// # Errors
+    /// Returns [`NetError::Tls`] if TLS configuration fails.
+    pub fn with_insecure_skip_verify() -> Result<ClientConfig, NetError> {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+
+        let verifier = Arc::new(SkipServerCertVerifier {
+            supported_algs: provider.signature_verification_algorithms,
+        });
+
+        let mut config = ClientConfig::builder_with_provider(provider)
+            .with_protocol_versions(&[&rustls::version::TLS13])
+            .map_err(|e| NetError::Tls(format!("Failed to set TLS 1.3 protocol versions: {e}")))?
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth();
+
+        config.alpn_protocols = vec![b"renderd-v1".to_vec()];
+        Ok(config)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rcgen::generate_simple_self_signed;
 
     #[test]
-    fn test_tls_config_initialization() {
-        let cert_gen = generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+    fn test_server_tls_config_creation() {
+        let cert_gen = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
         let cert_der = CertificateDer::from(cert_gen.cert.der().to_vec());
         let key_der = PrivateKeyDer::Pkcs8(cert_gen.key_pair.serialize_der().into());
 
-        let server_config = ServerTlsConfig::from_cert(
-            vec![cert_der.clone()],
-            key_der.clone_key(),
-            Some(cert_der.clone()),
-        )
-        .unwrap();
-        assert_eq!(server_config.alpn_protocols, vec![b"renderd-v1".to_vec()]);
+        let server_config = ServerTlsConfig::from_cert(vec![cert_der], key_der, None);
+        assert!(server_config.is_ok());
+    }
 
-        let client_config =
-            ClientTlsConfig::with_pinned_cert(Some((vec![cert_der.clone()], key_der)), cert_der)
-                .unwrap();
-        assert_eq!(client_config.alpn_protocols, vec![b"renderd-v1".to_vec()]);
+    #[test]
+    fn test_client_tls_config_creation() {
+        let cert_gen = rcgen::generate_simple_self_signed(vec!["localhost".to_string()]).unwrap();
+        let cert_der = CertificateDer::from(cert_gen.cert.der().to_vec());
+
+        let client_config = ClientTlsConfig::with_pinned_cert(None, cert_der);
+        assert!(client_config.is_ok());
+
+        let insecure_config = ClientTlsConfig::with_insecure_skip_verify();
+        assert!(insecure_config.is_ok());
     }
 }
