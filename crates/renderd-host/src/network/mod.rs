@@ -5,6 +5,7 @@ pub mod data;
 pub mod server;
 
 pub use control::ControlDispatcher;
+pub use data::DataSender;
 
 /// Host network manager scaffold.
 #[derive(Debug, Default)]
