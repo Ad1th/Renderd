@@ -203,11 +203,12 @@ impl App {
                                 "Stream 0 handshake completed with host — starting datagram receiver and vsync reporter"
                             );
 
-                            // Spawn VsyncReporter task to send VsyncReport over Stream 0 (#110)
+                            // Spawn VsyncReporter & FeedbackExporter task to send VsyncReport, ReactiveStats, and PeriodicStats over Stream 0 (#110, #111)
                             tokio::spawn(async move {
                                 use renderd_net::framing::send_control;
                                 use renderd_proto::generated::renderd::{envelope::Payload, Envelope};
                                 let mut vsync_reporter = crate::clock_sync::VsyncReporter::new();
+                                let mut feedback_exporter = crate::abr::FeedbackExporter::new();
                                 loop {
                                     tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
                                     let report = vsync_reporter.create_vsync_report();
@@ -216,6 +217,24 @@ impl App {
                                     };
                                     if send_control(&mut send_stream, &env).await.is_err() {
                                         break;
+                                    }
+
+                                    if let Some(reactive) = feedback_exporter.maybe_export_reactive() {
+                                        let env = Envelope {
+                                            payload: Some(Payload::ReactiveStats(reactive)),
+                                        };
+                                        if send_control(&mut send_stream, &env).await.is_err() {
+                                            break;
+                                        }
+                                    }
+
+                                    if let Some(periodic) = feedback_exporter.maybe_export_periodic() {
+                                        let env = Envelope {
+                                            payload: Some(Payload::PeriodicStats(periodic)),
+                                        };
+                                        if send_control(&mut send_stream, &env).await.is_err() {
+                                            break;
+                                        }
                                     }
                                 }
                             });

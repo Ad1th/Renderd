@@ -221,6 +221,7 @@ impl HostApp {
         let capture = self.capture.clone();
         let encode = self.encode.clone();
         let clock = self.clock.clone();
+        let abr = self.abr.clone();
 
         let quic_server = Arc::new(quic_server);
         let quic_server_task = Arc::clone(&quic_server);
@@ -235,6 +236,7 @@ impl HostApp {
                 let capture = capture.clone();
                 let encode = encode.clone();
                 let clock = clock.clone();
+                let abr = abr.clone();
 
                 tokio::spawn(async move {
                     let clock = clock.clone();
@@ -282,17 +284,33 @@ impl HostApp {
                                 }
                             }
 
-                            // Spawn Control stream reader to process VsyncReport & telemetry (#110)
+                            // Spawn Control stream reader to process VsyncReport & telemetry (#110, #111)
                             let capture_for_ctrl = capture.clone();
+                            let abr_for_ctrl = abr.clone();
+                            let encode_for_ctrl = encode.clone();
                             tokio::spawn(async move {
                                 use renderd_net::framing::recv_control;
                                 use renderd_proto::generated::renderd::envelope::Payload;
                                 while let Ok(envelope) = recv_control(&mut recv_stream).await {
-                                    if let Some(Payload::VsyncReport(report)) = envelope.payload {
-                                        let capture_guard = capture_for_ctrl
-                                            .lock()
-                                            .expect("CapturePipeline mutex poisoned");
-                                        let _ = clock.on_vsync_report(&report, &capture_guard);
+                                    match envelope.payload {
+                                        Some(Payload::VsyncReport(report)) => {
+                                            let capture_guard = capture_for_ctrl
+                                                .lock()
+                                                .expect("CapturePipeline mutex poisoned");
+                                            let _ = clock.on_vsync_report(&report, &capture_guard);
+                                        }
+                                        Some(Payload::ReactiveStats(stats)) => {
+                                            let _ = abr_for_ctrl
+                                                .on_reactive_stats(&stats, &encode_for_ctrl);
+                                        }
+                                        Some(Payload::PeriodicStats(stats)) => {
+                                            let _ = abr_for_ctrl
+                                                .on_periodic_stats(&stats, &encode_for_ctrl);
+                                        }
+                                        Some(Payload::KeyframeRequest(_)) => {
+                                            abr_for_ctrl.on_keyframe_request(&encode_for_ctrl);
+                                        }
+                                        _ => {}
                                     }
                                 }
                             });
