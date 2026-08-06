@@ -154,7 +154,16 @@ impl HostApp {
         let tls_config = ServerTlsConfig::from_cert(vec![cert_der], key_der, None)
             .map_err(|e| HostError::Initialization(format!("TLS configuration failed: {e}")))?;
 
-        // Bind QUIC server on the configured address and port.
+        // Build tokio runtime for connection accept loop, QUIC endpoint, and control stream processing
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                HostError::Initialization(format!("Failed to build tokio runtime: {e}"))
+            })?;
+
+        // Bind QUIC server on the configured address and port inside tokio runtime context.
         let listen_port = self.config.network.listen_port;
         let bind_addr: SocketAddr = format!("{}:{listen_port}", self.config.network.bind_address)
             .parse()
@@ -165,7 +174,9 @@ impl HostApp {
                 ))
             })?;
 
-        let quic_server = QuicServer::bind(bind_addr, tls_config).map_err(|e| {
+        let quic_server = rt.block_on(async {
+            QuicServer::bind(bind_addr, tls_config)
+        }).map_err(|e| {
             HostError::Initialization(format!("Failed to bind QUIC server on {bind_addr}: {e}"))
         })?;
 
@@ -205,15 +216,6 @@ impl HostApp {
             port = actual_addr.port(),
             "mDNS service _renderd._udp.local. registered"
         );
-
-        // Build tokio runtime for connection accept loop and control stream processing
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .map_err(|e| {
-                HostError::Initialization(format!("Failed to build tokio runtime: {e}"))
-            })?;
 
         let session = self.session.clone();
         let host_cfg = self.config.host.clone();
