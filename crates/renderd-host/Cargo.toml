@@ -18,6 +18,8 @@ bytes              = { workspace = true }
 crossbeam-channel  = { workspace = true }
 ctrlc              = { workspace = true }
 quinn              = { workspace = true }
+rcgen              = { workspace = true }
+rustls             = { workspace = true }
 renderd-config     = { workspace = true }
 renderd-proto      = { workspace = true }
 renderd-frame      = { workspace = true }
