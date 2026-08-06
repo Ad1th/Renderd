@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use rcgen::generate_simple_self_signed;
 use renderd_config::RenderdConfig;
@@ -39,7 +39,7 @@ use crate::ui::UiManager;
 #[derive(Debug)]
 pub struct HostApp {
     config: RenderdConfig,
-    capture: CapturePipeline,
+    capture: Arc<Mutex<CapturePipeline>>,
     encode: Arc<EncodePipeline>,
     clock: ClockController,
     abr: AbrManager,
@@ -55,7 +55,7 @@ impl HostApp {
     pub fn new(config: RenderdConfig) -> Self {
         Self {
             config,
-            capture: CapturePipeline::new(),
+            capture: Arc::new(Mutex::new(CapturePipeline::new())),
             encode: Arc::new(EncodePipeline::new()),
             clock: ClockController::new(),
             abr: AbrManager::new(),
@@ -81,7 +81,7 @@ impl HostApp {
     ///
     /// # Panics
     ///
-    /// Panics if the tokio runtime fails to initialize.
+    /// Panics if the tokio runtime fails to initialize or a mutex is poisoned.
     #[allow(clippy::too_many_lines)]
     pub fn run(&mut self) -> Result<(), HostError> {
         tracing::info!("renderd-host starting subsystem initialization");
@@ -95,8 +95,13 @@ impl HostApp {
         }
 
         // Log capture pipeline status (real start is deferred until a viewer connects)
+        let capture_is_running = self
+            .capture
+            .lock()
+            .expect("CapturePipeline mutex poisoned")
+            .is_running();
         tracing::info!(
-            capture_running = self.capture.is_running(),
+            capture_running = capture_is_running,
             "Capture pipeline ready (starts on first viewer connection)"
         );
 
@@ -134,7 +139,8 @@ impl HostApp {
         );
 
         // ----------------------------------------------------------------
-        // Issue #101 & #105: Spawn QUIC server, accept loop, and mDNS advert.
+        // Issue #101, #105, #106: Spawn QUIC server, accept loop, mDNS advert,
+        // and wire ScreenCaptureKit capture to VideoToolbox encoder.
         // ----------------------------------------------------------------
 
         // Generate a self-signed TLS certificate for this host's QUIC endpoint.
@@ -212,6 +218,9 @@ impl HostApp {
         let session = self.session.clone();
         let host_cfg = self.config.host.clone();
         let menu_bar = self.ui.menu_bar.clone();
+        let capture = self.capture.clone();
+        let encode = self.encode.clone();
+
         let quic_server = Arc::new(quic_server);
         let quic_server_task = Arc::clone(&quic_server);
 
@@ -222,17 +231,58 @@ impl HostApp {
                 let host_cfg = host_cfg.clone();
                 let menu_bar = menu_bar.clone();
                 let dispatcher = dispatcher.clone();
+                let capture = capture.clone();
+                let encode = encode.clone();
 
                 tokio::spawn(async move {
                     match dispatcher
                         .handle_connection(&conn, &host_cfg, &session)
                         .await
                     {
-                        Ok((_hello, _cfg)) => {
-                            menu_bar.update_status(&format!("Connected ({})", session.state()));
+                        Ok((_hello, cfg)) => {
+                            // Transition session state to STREAMING once connected
+                            if let Err(e) = session.begin_streaming() {
+                                tracing::warn!(
+                                    "Failed to transition session state to STREAMING: {e}"
+                                );
+                            }
+
+                            menu_bar.update_status(&format!("Streaming ({})", session.state()));
+
+                            // Activate VideoToolbox encoder & ScreenCaptureKit capture pipeline (#106)
+                            if let Err(e) =
+                                encode.init(cfg.width, cfg.height, cfg.initial_bitrate_kbps)
+                            {
+                                tracing::warn!("Encode pipeline init failed: {e}");
+                            }
+
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            let target_fps = cfg.frame_rate as u32;
+
+                            let mut capture_guard =
+                                capture.lock().expect("CapturePipeline mutex poisoned");
+                            if let Err(e) = capture_guard.start(
+                                cfg.width,
+                                cfg.height,
+                                target_fps,
+                                encode.clone(),
+                            ) {
+                                tracing::warn!("Capture pipeline start failed: {e}");
+                            } else {
+                                tracing::info!(
+                                    width = cfg.width,
+                                    height = cfg.height,
+                                    fps = target_fps,
+                                    "ScreenCaptureKit capture and VideoToolbox encoder active"
+                                );
+                            }
                         }
                         Err(e) => {
                             tracing::warn!("Stream 0 handshake failed: {e}");
+                            let _ = capture
+                                .lock()
+                                .expect("CapturePipeline mutex poisoned")
+                                .stop();
                             session.reset();
                             menu_bar.update_status("Idle — Listening");
                         }
@@ -252,12 +302,17 @@ impl HostApp {
         Self::wait_for_shutdown()?;
 
         // ----------------------------------------------------------------
-        // Graceful shutdown: unregister mDNS and close QUIC socket.
+        // Graceful shutdown: unregister mDNS, stop capture, close QUIC socket.
         // ----------------------------------------------------------------
         tracing::info!("Unregistering mDNS service advertisement");
         if let Err(e) = advertiser.unregister() {
             tracing::warn!("mDNS unregister error (non-fatal): {e}");
         }
+
+        if let Ok(mut guard) = self.capture.lock() {
+            let _ = guard.stop();
+        }
+        self.session.reset();
 
         tracing::info!(addr = %actual_addr, "Closing QUIC server endpoint");
         quic_server.close(0, b"host-shutdown");
