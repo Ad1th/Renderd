@@ -219,7 +219,8 @@ impl ScreenStream {
 
         // Create dedicated GCD dispatch queue labeled "dev.renderd.sc-capture"
         let queue_label = c"dev.renderd.sc-capture".as_ptr();
-        let queue = unsafe { dispatch_queue_create(queue_label, std::ptr::null()) };
+        let queue_ptr = unsafe { dispatch_queue_create(queue_label, std::ptr::null()) };
+        let queue: Option<&NSObject> = unsafe { (queue_ptr as *const NSObject).as_ref() };
 
         // Register output delegate for screen sample buffers via Objective-C selector
         let stream_output_obj = ProtocolObject::<dyn SCStreamOutput>::from_ref(&*delegate);
