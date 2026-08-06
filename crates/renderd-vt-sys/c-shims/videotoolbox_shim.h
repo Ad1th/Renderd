@@ -77,6 +77,18 @@ OSStatus renderd_VTDecompressionSessionCreate(
     VTDecompressionSessionRef *session_out
 );
 
+/// Creates a hardware-accelerated VTDecompressionSession using parameter sets from a keyframe NAL packet.
+OSStatus renderd_VTDecompressionSessionCreateFromNAL(
+    int32_t width,
+    int32_t height,
+    CMVideoCodecType codec_type,
+    const uint8_t *data,
+    size_t data_len,
+    RenderD_VTDecompressionOutputCallback callback,
+    void *callback_ctx,
+    VTDecompressionSessionRef *session_out
+);
+
 /// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
 OSStatus renderd_VTDecompressionSessionDecodeFrame(
     VTDecompressionSessionRef session,
@@ -110,6 +122,15 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     size_t dest_capacity,
     int32_t *out_width,
     int32_t *out_height
+);
+
+/// Extracts NAL units (including VPS/SPS/PPS parameter sets on keyframes) from a CMSampleBufferRef.
+OSStatus renderd_CMSampleBufferExtractNALs(
+    CMSampleBufferRef sample_buffer,
+    uint8_t *out_buf,
+    size_t max_capacity,
+    size_t *out_size,
+    bool *out_is_keyframe
 );
 
 #ifdef __cplusplus

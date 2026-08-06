@@ -2,7 +2,13 @@
 //!
 //! Hardware decodes incoming H.265 (HEVC) / H.264 video bitstream packets into BGRA8 image buffers using `VTDecompressionSession` (RFC-0002 §6.3).
 
-#![allow(clippy::cast_possible_wrap, clippy::cast_sign_loss, clippy::cast_possible_truncation, clippy::option_if_let_else)]
+#![allow(
+    clippy::cast_possible_wrap,
+    clippy::cast_sign_loss,
+    clippy::cast_possible_truncation,
+    clippy::option_if_let_else,
+    clippy::too_many_lines
+)]
 
 use crate::decoder::{DecodedFrame, Decoder, PixelFormat};
 use crate::error::ViewerError;
@@ -75,84 +81,6 @@ impl Decoder for VideoToolboxDecoder {
         self.width = width;
         self.height = height;
 
-        #[cfg(target_os = "macos")]
-        {
-            let vt_codec = match self.codec.as_str() {
-                "h264" | "avc" | "avc1" => renderd_vt_sys::VideoCodec::H264,
-                _ => renderd_vt_sys::VideoCodec::Hevc,
-            };
-
-            let queue = Arc::clone(&self.output_queue);
-            let first_frame_logged = Arc::new(std::sync::atomic::AtomicBool::new(false));
-            let count_atomic = Arc::new(std::sync::atomic::AtomicU64::new(0));
-
-            let session_res = renderd_vt_sys::DecompressionSession::new(
-                width as i32,
-                height as i32,
-                vt_codec,
-                move |err, _flags, image_buffer, frame_id, pts_ns| {
-                    if err.code() != 0 || image_buffer.is_null() {
-                        return;
-                    }
-
-                    let mut buffer = vec![0u8; (width * height * 4) as usize];
-                    // SAFETY: image_buffer is a valid CVImageBufferRef provided by VideoToolbox output callback.
-                    let copy_res = unsafe {
-                        renderd_vt_sys::copy_pixel_buffer_bgra(image_buffer, &mut buffer)
-                    };
-
-                    if let Ok((actual_w, actual_h)) = copy_res {
-                        let count = count_atomic.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                        let out_frame_id = if frame_id > 0 { frame_id } else { count };
-                        if count == 1 && !first_frame_logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
-                            let first_64 = &buffer[..64.min(buffer.len())];
-                            let min_val = buffer.iter().copied().min().unwrap_or(0);
-                            let max_val = buffer.iter().copied().max().unwrap_or(0);
-                            let mut unique_set = std::collections::HashSet::new();
-                            for &byte in &buffer {
-                                unique_set.insert(byte);
-                            }
-                            tracing::info!(
-                                count = count,
-                                frame_id = out_frame_id,
-                                width = actual_w,
-                                height = actual_h,
-                                format = ?PixelFormat::Bgra8,
-                                min_byte = min_val,
-                                max_byte = max_val,
-                                unique_bytes = unique_set.len(),
-                                first_64_bytes = ?first_64,
-                                "Decoder: decoded first frame bitstream into BGRA8 image buffer"
-                            );
-                        }
-
-                        let frame = DecodedFrame {
-                            frame_id: out_frame_id,
-                            pts_ns: if pts_ns >= 0 { pts_ns as u64 } else { 0 },
-                            width: actual_w,
-                            height: actual_h,
-                            format: PixelFormat::Bgra8,
-                            buffer,
-                            decode_duration: std::time::Duration::from_millis(1),
-                        };
-
-                        if let Ok(mut q) = queue.lock() {
-                            q.push_back(frame);
-                        }
-                    }
-                },
-            );
-
-            match session_res {
-                Ok(session) => {
-                    self.session = Some(session);
-                }
-                Err(e) => {
-                    tracing::debug!("VideoToolbox DecompressionSession init deferred until first frame bitstream: {e}");
-                }
-            }
-        }
-
         self.initialized = true;
 
         tracing::info!(
@@ -188,7 +116,7 @@ impl Decoder for VideoToolboxDecoder {
         #[cfg(target_os = "macos")]
         {
             if self.session.is_none() {
-                tracing::info!("VT_TRACE [2]: Attempting DecompressionSession::new...");
+                tracing::info!("VT_TRACE [2]: Attempting DecompressionSession::from_nal with incoming packet...");
                 let vt_codec = match self.codec.as_str() {
                     "h264" | "avc" | "avc1" => renderd_vt_sys::VideoCodec::H264,
                     _ => renderd_vt_sys::VideoCodec::Hevc,
@@ -200,10 +128,11 @@ impl Decoder for VideoToolboxDecoder {
                 let w = self.width;
                 let h = self.height;
 
-                let session_res = renderd_vt_sys::DecompressionSession::new(
+                let session_res = renderd_vt_sys::DecompressionSession::from_nal(
                     w as i32,
                     h as i32,
                     vt_codec,
+                    packet,
                     move |err, flags, image_buffer, cb_frame_id, cb_pts_ns| {
                         tracing::info!(
                             status_code = err.code(),
@@ -234,9 +163,13 @@ impl Decoder for VideoToolboxDecoder {
                         );
 
                         if let Ok((actual_w, actual_h)) = copy_res {
-                            let count = count_atomic.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                            let count =
+                                count_atomic.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
                             let out_frame_id = if cb_frame_id > 0 { cb_frame_id } else { count };
-                            if count == 1 && !first_frame_logged.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                            if count == 1
+                                && !first_frame_logged
+                                    .swap(true, std::sync::atomic::Ordering::Relaxed)
+                            {
                                 let first_64 = &buffer[..64.min(buffer.len())];
                                 let min_val = buffer.iter().copied().min().unwrap_or(0);
                                 let max_val = buffer.iter().copied().max().unwrap_or(0);
@@ -283,11 +216,13 @@ impl Decoder for VideoToolboxDecoder {
 
                 match session_res {
                     Ok(session) => {
-                        tracing::info!("VT_TRACE [3]: DecompressionSession::new succeeded");
+                        tracing::info!("VT_TRACE [3]: DecompressionSession::from_nal succeeded");
                         self.session = Some(session);
                     }
                     Err(e) => {
-                        tracing::error!("VT_TRACE [3-ERR]: DecompressionSession::new failed: {e}");
+                        tracing::error!(
+                            "VT_TRACE [3-ERR]: DecompressionSession::from_nal failed: {e}"
+                        );
                     }
                 }
             }
@@ -327,11 +262,15 @@ impl Decoder for VideoToolboxDecoder {
         if let Ok(mut q) = self.output_queue.lock() {
             let frame = q.pop_front();
             if frame.is_some() {
-                tracing::info!("VT_TRACE [9]: receive_frame popped a decoded frame from output_queue");
+                tracing::info!(
+                    "VT_TRACE [9]: receive_frame popped a decoded frame from output_queue"
+                );
             }
             Ok(frame)
         } else {
-            Err(ViewerError::Decoder("Output queue mutex poisoned".to_string()))
+            Err(ViewerError::Decoder(
+                "Output queue mutex poisoned".to_string(),
+            ))
         }
     }
 

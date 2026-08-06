@@ -104,6 +104,18 @@ extern "C" {
         session_out: *mut VTDecompressionSessionRef,
     ) -> OSStatus;
 
+    /// Creates a hardware-accelerated `VTDecompressionSession` using parameter sets from a keyframe NAL packet.
+    pub fn renderd_VTDecompressionSessionCreateFromNAL(
+        width: i32,
+        height: i32,
+        codec_type: CMVideoCodecType,
+        data: *const u8,
+        data_len: usize,
+        callback: RenderD_VTDecompressionOutputCallback,
+        callback_ctx: *mut std::ffi::c_void,
+        session_out: *mut VTDecompressionSessionRef,
+    ) -> OSStatus;
+
     /// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
     pub fn renderd_VTDecompressionSessionDecodeFrame(
         session: VTDecompressionSessionRef,
@@ -135,5 +147,14 @@ extern "C" {
         dest_capacity: usize,
         out_width: *mut i32,
         out_height: *mut i32,
+    ) -> OSStatus;
+
+    /// Extracts NAL units (including VPS/SPS/PPS parameter sets on keyframes) from a `CMSampleBufferRef`.
+    pub fn renderd_CMSampleBufferExtractNALs(
+        sample_buffer: CMSampleBufferRef,
+        out_buf: *mut u8,
+        max_capacity: usize,
+        out_size: *mut usize,
+        out_is_keyframe: *mut bool,
     ) -> OSStatus;
 }

@@ -178,12 +178,12 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
             (unsigned int)codec_type, width, height, data_len);
 
     if (data != NULL && data_len > 8) {
-        const uint8_t *ptrs[3] = {NULL, NULL, NULL};
-        size_t sizes[3] = {0, 0, 0};
-        size_t count = 0;
+        const uint8_t *vps_ptr = NULL; size_t vps_len = 0;
+        const uint8_t *sps_ptr = NULL; size_t sps_len = 0;
+        const uint8_t *pps_ptr = NULL; size_t pps_len = 0;
 
         size_t offset = 0;
-        while (offset + 4 < data_len && count < 3) {
+        while (offset + 4 < data_len) {
             size_t start_code_len = 0;
             if (data[offset] == 0 && data[offset+1] == 0 && data[offset+2] == 0 && data[offset+3] == 1) {
                 start_code_len = 4;
@@ -206,18 +206,13 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
                 size_t nal_size = next_start - nal_start;
                 if (codec_type == kCMVideoCodecType_HEVC && nal_size > 0) {
                     uint8_t nal_type = (data[nal_start] >> 1) & 0x3F;
-                    if (nal_type == 32 || nal_type == 33 || nal_type == 34) {
-                        ptrs[count] = &data[nal_start];
-                        sizes[count] = nal_size;
-                        count++;
-                    }
+                    if (nal_type == 32) { vps_ptr = &data[nal_start]; vps_len = nal_size; }
+                    else if (nal_type == 33) { sps_ptr = &data[nal_start]; sps_len = nal_size; }
+                    else if (nal_type == 34) { pps_ptr = &data[nal_start]; pps_len = nal_size; }
                 } else if (codec_type == kCMVideoCodecType_H264 && nal_size > 0) {
                     uint8_t nal_type = data[nal_start] & 0x1F;
-                    if (nal_type == 7 || nal_type == 8) {
-                        ptrs[count] = &data[nal_start];
-                        sizes[count] = nal_size;
-                        count++;
-                    }
+                    if (nal_type == 7) { sps_ptr = &data[nal_start]; sps_len = nal_size; }
+                    else if (nal_type == 8) { pps_ptr = &data[nal_start]; pps_len = nal_size; }
                 }
 
                 offset = next_start;
@@ -226,27 +221,33 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
             }
         }
 
-        if (count > 0) {
-            if (codec_type == kCMVideoCodecType_HEVC) {
-                CMVideoFormatDescriptionCreateFromHEVCParameterSets(
-                    kCFAllocatorDefault,
-                    count,
-                    ptrs,
-                    sizes,
-                    4,
-                    NULL,
-                    &format_desc
-                );
-            } else if (codec_type == kCMVideoCodecType_H264) {
-                CMVideoFormatDescriptionCreateFromH264ParameterSets(
-                    kCFAllocatorDefault,
-                    count,
-                    ptrs,
-                    sizes,
-                    4,
-                    &format_desc
-                );
-            }
+        if (codec_type == kCMVideoCodecType_HEVC && vps_ptr != NULL && sps_ptr != NULL && pps_ptr != NULL) {
+            const uint8_t *param_ptrs[3] = {vps_ptr, sps_ptr, pps_ptr};
+            size_t param_sizes[3] = {vps_len, sps_len, pps_len};
+            OSStatus status = CMVideoFormatDescriptionCreateFromHEVCParameterSets(
+                kCFAllocatorDefault,
+                3,
+                param_ptrs,
+                param_sizes,
+                4,
+                NULL,
+                &format_desc
+            );
+            fprintf(stderr, "[VT_SHIM TRACE 2a-HEVC]: CMVideoFormatDescriptionCreateFromHEVCParameterSets status=%d (0x%x), format_desc=%p\n",
+                    (int)status, (unsigned int)status, (void*)format_desc);
+        } else if (codec_type == kCMVideoCodecType_H264 && sps_ptr != NULL && pps_ptr != NULL) {
+            const uint8_t *param_ptrs[2] = {sps_ptr, pps_ptr};
+            size_t param_sizes[2] = {sps_len, pps_len};
+            OSStatus status = CMVideoFormatDescriptionCreateFromH264ParameterSets(
+                kCFAllocatorDefault,
+                2,
+                param_ptrs,
+                param_sizes,
+                4,
+                &format_desc
+            );
+            fprintf(stderr, "[VT_SHIM TRACE 2a-H264]: CMVideoFormatDescriptionCreateFromH264ParameterSets status=%d (0x%x), format_desc=%p\n",
+                    (int)status, (unsigned int)status, (void*)format_desc);
         }
     }
 
@@ -296,20 +297,22 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
     return format_desc;
 }
 
-OSStatus renderd_VTDecompressionSessionCreate(
+OSStatus renderd_VTDecompressionSessionCreateFromNAL(
     int32_t width,
     int32_t height,
     CMVideoCodecType codec_type,
+    const uint8_t *data,
+    size_t data_len,
     RenderD_VTDecompressionOutputCallback callback,
     void *callback_ctx,
     VTDecompressionSessionRef *session_out
 ) {
     if (session_out == NULL || callback == NULL || width <= 0 || height <= 0) {
-        fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: renderd_VTDecompressionSessionCreate parameter error!\n");
+        fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: renderd_VTDecompressionSessionCreateFromNAL parameter error!\n");
         return kVTParameterErr;
     }
 
-    CMVideoFormatDescriptionRef format_desc = renderd_CreateFormatDescriptionFromNAL(codec_type, width, height, NULL, 0);
+    CMVideoFormatDescriptionRef format_desc = renderd_CreateFormatDescriptionFromNAL(codec_type, width, height, data, data_len);
     if (format_desc == NULL) {
         fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: renderd_CreateFormatDescriptionFromNAL returned NULL!\n");
         return kVTAllocationFailedErr;
@@ -370,6 +373,26 @@ OSStatus renderd_VTDecompressionSessionCreate(
 
     *session_out = session;
     return noErr;
+}
+
+OSStatus renderd_VTDecompressionSessionCreate(
+    int32_t width,
+    int32_t height,
+    CMVideoCodecType codec_type,
+    RenderD_VTDecompressionOutputCallback callback,
+    void *callback_ctx,
+    VTDecompressionSessionRef *session_out
+) {
+    return renderd_VTDecompressionSessionCreateFromNAL(
+        width,
+        height,
+        codec_type,
+        NULL,
+        0,
+        callback,
+        callback_ctx,
+        session_out
+    );
 }
 
 OSStatus renderd_VTDecompressionSessionDecodeFrame(
@@ -560,5 +583,160 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     }
 
     CVPixelBufferUnlockBaseAddress(pixel_buffer, kCVPixelBufferLock_ReadOnly);
+    return noErr;
+}
+
+OSStatus renderd_CMSampleBufferExtractNALs(
+    CMSampleBufferRef sample_buffer,
+    uint8_t *out_buf,
+    size_t max_capacity,
+    size_t *out_size,
+    bool *out_is_keyframe
+) {
+    if (sample_buffer == NULL || out_buf == NULL || out_size == NULL || out_is_keyframe == NULL) {
+        return kVTParameterErr;
+    }
+
+    *out_size = 0;
+    *out_is_keyframe = false;
+
+    // 1. Determine keyframe status from sample attachments
+    CFArrayRef attachments = CMSampleBufferGetSampleAttachmentsArray(sample_buffer, false);
+    if (attachments != NULL && CFArrayGetCount(attachments) > 0) {
+        CFDictionaryRef dict = (CFDictionaryRef)CFArrayGetValueAtIndex(attachments, 0);
+        if (dict != NULL) {
+            CFBooleanRef not_sync = (CFBooleanRef)CFDictionaryGetValue(dict, kCMSampleAttachmentKey_NotSync);
+            if (not_sync == NULL || !CFBooleanGetValue(not_sync)) {
+                *out_is_keyframe = true;
+            }
+        }
+    } else {
+        *out_is_keyframe = true;
+    }
+
+    size_t total_written = 0;
+
+    // 2. On keyframes, extract VPS, SPS, PPS parameter sets from CMVideoFormatDescription
+    if (*out_is_keyframe) {
+        CMVideoFormatDescriptionRef format_desc = CMSampleBufferGetFormatDescription(sample_buffer);
+        if (format_desc != NULL) {
+            CMVideoCodecType codec_type = CMFormatDescriptionGetMediaSubType(format_desc);
+
+            if (codec_type == kCMVideoCodecType_HEVC) {
+                // HEVC parameter sets: VPS (0), SPS (1), PPS (2)
+                for (size_t i = 0; i < 3; i++) {
+                    const uint8_t *param_ptr = NULL;
+                    size_t param_size = 0;
+                    OSStatus status = CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(
+                        format_desc,
+                        i,
+                        &param_ptr,
+                        &param_size,
+                        NULL,
+                        NULL
+                    );
+                    if (status == noErr && param_ptr != NULL && param_size > 0) {
+                        if (total_written + 4 + param_size <= max_capacity) {
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 1;
+                            memcpy(out_buf + total_written, param_ptr, param_size);
+                            total_written += param_size;
+                        }
+                    }
+                }
+            } else if (codec_type == kCMVideoCodecType_H264) {
+                // H.264 parameter sets: SPS (0), PPS (1)
+                for (size_t i = 0; i < 2; i++) {
+                    const uint8_t *param_ptr = NULL;
+                    size_t param_size = 0;
+                    OSStatus status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                        format_desc,
+                        i,
+                        &param_ptr,
+                        &param_size,
+                        NULL,
+                        NULL
+                    );
+                    if (status == noErr && param_ptr != NULL && param_size > 0) {
+                        if (total_written + 4 + param_size <= max_capacity) {
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 0;
+                            out_buf[total_written++] = 1;
+                            memcpy(out_buf + total_written, param_ptr, param_size);
+                            total_written += param_size;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Extract sample data block buffer NAL units
+    CMBlockBufferRef block_buffer = CMSampleBufferGetDataBuffer(sample_buffer);
+    if (block_buffer == NULL) {
+        *out_size = total_written;
+        return noErr;
+    }
+
+    size_t block_len = CMBlockBufferGetDataLength(block_buffer);
+    if (block_len == 0) {
+        *out_size = total_written;
+        return noErr;
+    }
+
+    char *data_ptr = NULL;
+    OSStatus status = CMBlockBufferGetDataPointer(
+        block_buffer,
+        0,
+        NULL,
+        NULL,
+        &data_ptr
+    );
+
+    char *allocated_buf = NULL;
+    if (status != noErr || data_ptr == NULL) {
+        allocated_buf = (char *)malloc(block_len);
+        if (allocated_buf == NULL) return kVTAllocationFailedErr;
+        status = CMBlockBufferCopyDataBytes(block_buffer, 0, block_len, allocated_buf);
+        if (status != noErr) {
+            free(allocated_buf);
+            return status;
+        }
+        data_ptr = allocated_buf;
+    }
+
+    // Convert AVCC / HVCC 4-byte big-endian length prefixes to Annex B 0x00000001 start codes
+    size_t offset = 0;
+    while (offset + 4 <= block_len) {
+        uint32_t nal_len = (uint32_t)(((uint8_t)data_ptr[offset] << 24) |
+                                     ((uint8_t)data_ptr[offset + 1] << 16) |
+                                     ((uint8_t)data_ptr[offset + 2] << 8) |
+                                     ((uint8_t)data_ptr[offset + 3]));
+        offset += 4;
+
+        if (offset + nal_len > block_len) {
+            break;
+        }
+
+        if (total_written + 4 + nal_len <= max_capacity) {
+            out_buf[total_written++] = 0;
+            out_buf[total_written++] = 0;
+            out_buf[total_written++] = 0;
+            out_buf[total_written++] = 1;
+            memcpy(out_buf + total_written, data_ptr + offset, nal_len);
+            total_written += nal_len;
+        }
+
+        offset += nal_len;
+    }
+
+    if (allocated_buf != NULL) {
+        free(allocated_buf);
+    }
+
+    *out_size = total_written;
     return noErr;
 }

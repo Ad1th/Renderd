@@ -12,12 +12,12 @@ use crate::bindings::{
     renderd_CVPixelBufferCopyBGRA, renderd_CVPixelBufferGetDimensions,
     renderd_VTCompressionSessionCreate, renderd_VTCompressionSessionEncodeFrame,
     renderd_VTCompressionSessionInvalidate, renderd_VTCompressionSessionSetBitrate,
-    renderd_VTDecompressionSessionCreate, renderd_VTDecompressionSessionDecodeFrame,
-    renderd_VTDecompressionSessionInvalidate,
-    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef,
-    CMVideoCodecType, CVImageBufferRef, OSStatus, VTCompressionSessionRef,
+    renderd_VTDecompressionSessionCreate, renderd_VTDecompressionSessionCreateFromNAL,
+    renderd_VTDecompressionSessionDecodeFrame, renderd_VTDecompressionSessionInvalidate,
+    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef, CMVideoCodecType,
+    CVImageBufferRef, OSStatus, RenderD_VTDecompressionContext, VTCompressionSessionRef,
     VTDecodeInfoFlags, VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264,
-    CODEC_TYPE_HEVC, RenderD_VTDecompressionContext,
+    CODEC_TYPE_HEVC,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
@@ -301,10 +301,56 @@ impl DecompressionSession {
     ///
     /// # Errors
     /// Returns [`VtError`] if session creation or format description fails.
-    pub fn new<F>(
+    pub fn new<F>(width: i32, height: i32, codec: VideoCodec, callback: F) -> Result<Self, VtError>
+    where
+        F: Fn(VtError, VTDecodeInfoFlags, CVImageBufferRef, u64, i64) + Send + Sync + 'static,
+    {
+        let mut cb_box = Box::new(DecompressionCallbackBox {
+            context: RenderD_VTDecompressionContext {
+                callback: vt_decompression_output_callback,
+                user_ctx: std::ptr::null_mut(),
+            },
+            callback: Arc::new(callback),
+        });
+
+        let raw_box_ptr =
+            std::ptr::from_ref::<DecompressionCallbackBox>(cb_box.as_ref()).cast_mut();
+        cb_box.context.user_ctx = raw_box_ptr.cast::<std::ffi::c_void>();
+        let raw_ctx_ptr = std::ptr::addr_of_mut!(cb_box.context).cast::<std::ffi::c_void>();
+
+        let mut session: VTDecompressionSessionRef = std::ptr::null_mut();
+
+        // SAFETY: renderd_VTDecompressionSessionCreate initializes session handle.
+        let status = unsafe {
+            renderd_VTDecompressionSessionCreate(
+                width,
+                height,
+                codec.to_fourcc(),
+                vt_decompression_output_callback,
+                raw_ctx_ptr,
+                &mut session,
+            )
+        };
+
+        if status != 0 || session.is_null() {
+            return Err(VtError(status));
+        }
+
+        Ok(Self {
+            session,
+            _callback_box: cb_box,
+        })
+    }
+
+    /// Creates and initializes a new hardware decompression session using parameter sets from a keyframe NAL packet.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if session creation or format description fails.
+    pub fn from_nal<F>(
         width: i32,
         height: i32,
         codec: VideoCodec,
+        nal_data: &[u8],
         callback: F,
     ) -> Result<Self, VtError>
     where
@@ -318,18 +364,21 @@ impl DecompressionSession {
             callback: Arc::new(callback),
         });
 
-        let raw_box_ptr = std::ptr::from_ref::<DecompressionCallbackBox>(cb_box.as_ref()).cast_mut();
+        let raw_box_ptr =
+            std::ptr::from_ref::<DecompressionCallbackBox>(cb_box.as_ref()).cast_mut();
         cb_box.context.user_ctx = raw_box_ptr.cast::<std::ffi::c_void>();
         let raw_ctx_ptr = std::ptr::addr_of_mut!(cb_box.context).cast::<std::ffi::c_void>();
 
         let mut session: VTDecompressionSessionRef = std::ptr::null_mut();
 
-        // SAFETY: renderd_VTDecompressionSessionCreate initializes session handle.
+        // SAFETY: renderd_VTDecompressionSessionCreateFromNAL initializes session handle.
         let status = unsafe {
-            renderd_VTDecompressionSessionCreate(
+            renderd_VTDecompressionSessionCreateFromNAL(
                 width,
                 height,
                 codec.to_fourcc(),
+                nal_data.as_ptr(),
+                nal_data.len(),
                 vt_decompression_output_callback,
                 raw_ctx_ptr,
                 &mut session,
@@ -477,6 +526,43 @@ pub unsafe fn get_pixel_buffer_dimensions(image_buffer: CVImageBufferRef) -> (u3
     (w, h)
 }
 
+/// Extracts NAL units (including VPS/SPS/PPS parameter sets on keyframes) from a `CMSampleBufferRef`.
+///
+/// # Errors
+/// Returns [`VtError`] if extraction or locking fails.
+///
+/// # Safety
+/// `sample_buffer` must be a valid `CMSampleBufferRef`.
+pub unsafe fn sample_buffer_extract_nals(
+    sample_buffer: CMSampleBufferRef,
+) -> Result<(Vec<u8>, bool), VtError> {
+    if sample_buffer.is_null() {
+        return Err(VtError(VtError::PARAMETER));
+    }
+
+    let mut out_buf = vec![0u8; 4 * 1024 * 1024];
+    let mut out_size: usize = 0;
+    let mut is_keyframe: bool = false;
+
+    // SAFETY: sample_buffer is a valid CMSampleBufferRef and out_buf has 4MB capacity.
+    let status = unsafe {
+        crate::bindings::renderd_CMSampleBufferExtractNALs(
+            sample_buffer,
+            out_buf.as_mut_ptr(),
+            out_buf.len(),
+            &mut out_size,
+            &mut is_keyframe,
+        )
+    };
+
+    if status == 0 {
+        out_buf.truncate(out_size);
+        Ok((out_buf, is_keyframe))
+    } else {
+        Err(VtError(status))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -563,5 +649,36 @@ mod tests {
         assert_eq!(encode_res, Ok(()));
 
         // Session drops cleanly when leaving scope
+    }
+
+    #[test]
+    fn test_create_and_drop_decompression_session() {
+        for codec in [VideoCodec::H264, VideoCodec::Hevc] {
+            let decoded_count = Arc::new(AtomicUsize::new(0));
+            let dc = decoded_count.clone();
+
+            let session_res = DecompressionSession::new(
+                64,
+                64,
+                codec,
+                move |_err, _flags, _image_buf, _frame_id, _pts_ns| {
+                    dc.fetch_add(1, Ordering::SeqCst);
+                },
+            );
+
+            if codec == VideoCodec::Hevc && session_res.is_err() {
+                continue;
+            }
+
+            assert!(
+                session_res.is_ok(),
+                "DecompressionSession creation failed for {:?}: {:?}",
+                codec,
+                session_res.err()
+            );
+
+            let session = session_res.unwrap();
+            assert!(session.wait_for_async_frames().is_ok());
+        }
     }
 }
