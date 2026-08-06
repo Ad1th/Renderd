@@ -152,11 +152,32 @@ impl DataSender {
         rx: Receiver<EncodedFrame>,
         shutdown: Arc<AtomicBool>,
     ) {
+        static SENT_FRAME_COUNT: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         while !shutdown.load(Ordering::Relaxed) {
             match rx.try_recv() {
                 Ok(frame) => {
-                    if let Err(e) = self.send_frame_burst(&connection, &frame) {
-                        tracing::warn!("Failed to send datagram burst: {e}");
+                    let count = SENT_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                    match self.send_frame_burst(&connection, &frame) {
+                        Ok(num_frags) => {
+                            if count == 1 {
+                                tracing::info!(
+                                    count = count,
+                                    frame_id = frame.frame_id,
+                                    bytes = frame.data.len(),
+                                    frags = num_frags,
+                                    "DataSender: transmitted first encoded frame QUIC datagram burst"
+                                );
+                            } else if count % 100 == 0 {
+                                tracing::info!(
+                                    count = count,
+                                    "DataSender: datagram burst checkpoint"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to send datagram burst: {e}");
+                        }
                     }
                 }
                 Err(crossbeam_channel::TryRecvError::Empty) => {

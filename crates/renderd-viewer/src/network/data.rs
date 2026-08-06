@@ -93,10 +93,36 @@ impl DatagramReceiver {
         decoder: &mut D,
         frame_queue: &Arc<FrameQueue>,
     ) -> Result<(), ViewerError> {
+        static RECV_DG_COUNT: AtomicU64 = AtomicU64::new(0);
+        static REASM_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
         while let Ok(datagram) = connection.read_datagram().await {
+            let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            if dg_count == 1 {
+                tracing::info!(
+                    count = dg_count,
+                    bytes = datagram.len(),
+                    "DatagramReceiver: first QUIC datagram received from host"
+                );
+            }
             if let Ok(Some(frame_id)) = self.process_datagram(&datagram, decoder) {
-                tracing::debug!(frame_id, "Frame reassembled and delivered to decoder");
+                let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                if frame_count == 1 {
+                    tracing::info!(
+                        count = frame_count,
+                        frame_id = frame_id,
+                        "DatagramReceiver: first frame reassembled & delivered to decoder"
+                    );
+                }
                 if let Ok(Some(decoded)) = decoder.receive_frame() {
+                    if frame_count == 1 {
+                        tracing::info!(
+                            count = frame_count,
+                            frame_id = decoded.frame_id,
+                            width = decoded.width,
+                            height = decoded.height,
+                            "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                        );
+                    }
                     let _ = frame_queue.push(decoded);
                 }
             }

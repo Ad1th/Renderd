@@ -283,6 +283,12 @@ impl ApplicationHandler for App {
                     let viewport = ws.viewport_size();
                     if let Err(e) = self.renderer.initialize(viewport) {
                         tracing::error!("Failed to initialize renderer: {e}");
+                    } else {
+                        tracing::info!(
+                            width = viewport.width,
+                            height = viewport.height,
+                            "Renderer initialized successfully"
+                        );
                     }
                     if let Err(e) = self
                         .decoder
@@ -322,11 +328,25 @@ impl ApplicationHandler for App {
                     height: size.height,
                 };
                 if let Err(e) = self.renderer.resize(viewport) {
-                    tracing::error!("Failed to resize renderer: {e}");
+                    tracing::error!("Error resizing renderer: {e}");
                 }
             }
-            WindowEvent::RedrawRequested => {
+            WindowEvent::RedrawRequested if self.window_system.is_some() => {
+                static RENDER_COUNT: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
                 if let Some(frame) = self.frame_queue.pop() {
+                    let count = RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if count == 1 {
+                        tracing::info!(
+                            count = count,
+                            frame_id = frame.frame_id,
+                            width = frame.width,
+                            height = frame.height,
+                            "Renderer: popped first decoded frame from FrameQueue and presenting to swapchain"
+                        );
+                    } else if count % 100 == 0 {
+                        tracing::info!(count = count, "Renderer: frame presentation checkpoint");
+                    }
                     if let Err(e) = self.renderer.render_frame(&frame) {
                         tracing::error!("Error rendering frame: {e}");
                     }

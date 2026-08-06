@@ -86,9 +86,29 @@ impl CapturePipeline {
             let pipeline_ref = encode_pipeline;
 
             let stream = ScreenStream::new(&filter, target_fps, move |frame| {
+                static SC_CALLBACK_COUNT: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                let count =
+                    SC_CALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                if count == 1 {
+                    tracing::info!(
+                        count = count,
+                        pts_ns = frame.pts_ns,
+                        "CapturePipeline: forwarding first captured frame to VideoToolbox encoder"
+                    );
+                } else if count % 100 == 0 {
+                    tracing::info!(
+                        count = count,
+                        "CapturePipeline: captured frame callback checkpoint"
+                    );
+                }
                 let _ = pipeline_ref.encode_surface(&frame.surface, frame.pts_ns);
             })
             .map_err(|e| HostError::Initialization(format!("ScreenStream creation failed: {e}")))?;
+
+            stream.start().map_err(|e| {
+                HostError::Initialization(format!("ScreenStream start failed: {e}"))
+            })?;
 
             self.stream = Some(stream);
         }
