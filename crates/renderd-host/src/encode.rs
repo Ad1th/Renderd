@@ -85,21 +85,40 @@ impl EncodePipeline {
                 HostError::Initialization("Height exceeds i32 max bounds".to_string())
             })?;
 
+            let count_atomic = std::sync::Arc::new(AtomicU64::new(0));
+
             let session = CompressionSession::new(
                 width_i32,
                 height_i32,
                 VideoCodec::Hevc,
                 bitrate_kbps,
-                move |err, _flags, _sample_buf| {
-                    if err.code() == 0 {
-                        // On frame delivery from VT, emit into bounded SPSC ring buffer (cap 4)
-                        let frame = EncodedFrame {
-                            frame_id: 1,
-                            is_keyframe: true,
-                            data: Bytes::from_static(b"\x00\x00\x00\x01\x67\x42\x00\x0a"),
-                            pts_ns: 0,
-                        };
-                        let _ = tx.try_send(frame);
+                #[allow(unsafe_code)]
+                move |err, _flags, sample_buf| {
+                    if err.code() == 0 && !sample_buf.is_null() {
+                        // SAFETY: sample_buf is a valid CMSampleBufferRef delivered by VideoToolbox encoder.
+                        if let Ok((nal_bytes, is_kf)) = unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) } {
+                            if !nal_bytes.is_empty() {
+                                let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
+                                if frame_id <= 5 || is_kf {
+                                    let first_16 = &nal_bytes[..16.min(nal_bytes.len())];
+                                    tracing::info!(
+                                        frame_id = frame_id,
+                                        is_keyframe = is_kf,
+                                        data_len = nal_bytes.len(),
+                                        first_16_bytes = ?first_16,
+                                        "Host Encoder: extracted real VideoToolbox NAL units from CMSampleBufferRef"
+                                    );
+                                }
+
+                                let frame = EncodedFrame {
+                                    frame_id,
+                                    is_keyframe: is_kf,
+                                    data: Bytes::from(nal_bytes),
+                                    pts_ns: 0,
+                                };
+                                let _ = tx.try_send(frame);
+                            }
+                        }
                     }
                 },
             )
