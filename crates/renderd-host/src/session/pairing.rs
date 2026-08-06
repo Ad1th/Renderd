@@ -486,4 +486,57 @@ mod tests {
         assert!(!constant_time_eq(b"123456", b"123457"));
         assert!(!constant_time_eq(b"12345", b"123456"));
     }
+
+    #[test]
+    fn test_end_to_end_spake2_pairing_flow() {
+        use crate::ui::NotificationManager;
+
+        let host_keychain = Arc::new(MockKeychain::new());
+        let viewer_keychain = Arc::new(MockKeychain::new());
+
+        let host_handler =
+            PairingHandler::new(Arc::clone(&host_keychain) as Arc<dyn KeychainStore>);
+        let notif_mgr = NotificationManager::new();
+
+        let hid = host_id();
+        let vid = viewer_id();
+
+        // 1. Host generates PIN and displays/notifies
+        let pin = host_handler.generate_pin();
+        notif_mgr.notify_pairing_pin(&pin);
+
+        let notif_history = notif_mgr.history();
+        assert_eq!(notif_history.len(), 1);
+        assert!(notif_history[0].body.contains(&pin));
+
+        // 2. Viewer derives PairToken using PIN and host_id
+        let derived_token = renderd_crypto::derive_pair_token(pin.as_bytes(), hid.0, vid.0);
+
+        // Viewer saves entry
+        let viewer_entry = renderd_keychain::PairingEntry {
+            host_id: hid.0,
+            viewer_id: vid.0,
+            pair_token: derived_token.0.to_vec(),
+            paired_at: 100,
+            cert_expires_at: 9_999_999_999,
+        };
+        viewer_keychain.save_pairing(&viewer_entry).unwrap();
+
+        // 3. Host verifies PIN and saves derived PairToken
+        let res =
+            host_handler.verify_and_save(&pin, hid, vid, derived_token.0.to_vec(), 9_999_999_999);
+        assert!(res.is_ok());
+
+        // 4. Validate credentials stored on both endpoints match
+        let host_entries = host_keychain.list_pairings().unwrap();
+        let viewer_entries = viewer_keychain.list_pairings().unwrap();
+
+        assert_eq!(host_entries.len(), 1);
+        assert_eq!(viewer_entries.len(), 1);
+        assert_eq!(host_entries[0].pair_token, viewer_entries[0].pair_token);
+        assert_eq!(host_entries[0].pair_token, derived_token.0.to_vec());
+
+        // PIN cleared on host after successful verification
+        assert!(host_handler.active_pin().is_none());
+    }
 }
