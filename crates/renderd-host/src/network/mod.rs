@@ -4,6 +4,8 @@ pub mod control;
 pub mod data;
 pub mod server;
 
+pub use control::ControlDispatcher;
+
 /// Host network manager scaffold.
 #[derive(Debug, Default)]
 pub struct NetworkManager;

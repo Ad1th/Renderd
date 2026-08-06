@@ -29,8 +29,8 @@ use crate::capture::CapturePipeline;
 use crate::clock::ClockController;
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
-use crate::network::NetworkManager;
-use crate::session::{HostSession, SessionState};
+use crate::network::{ControlDispatcher, NetworkManager};
+use crate::session::HostSession;
 use crate::ui::UiManager;
 
 /// Main host application orchestrator.
@@ -78,11 +78,16 @@ impl HostApp {
     ///
     /// Returns a [`HostError`] if any subsystem fails to initialize or the session
     /// is in an unexpected state on entry.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the tokio runtime fails to initialize.
+    #[allow(clippy::too_many_lines)]
     pub fn run(&mut self) -> Result<(), HostError> {
         tracing::info!("renderd-host starting subsystem initialization");
 
         // Verify session starts in Idle — fail fast if state is corrupted.
-        if !matches!(self.session.state(), SessionState::Idle) {
+        if !self.session.is_idle() {
             return Err(HostError::Initialization(format!(
                 "HostSession expected Idle on startup, got {}",
                 self.session.state()
@@ -129,12 +134,10 @@ impl HostApp {
         );
 
         // ----------------------------------------------------------------
-        // Issue #101: Spawn QUIC server and register mDNS advertisement.
+        // Issue #101 & #105: Spawn QUIC server, accept loop, and mDNS advert.
         // ----------------------------------------------------------------
 
         // Generate a self-signed TLS certificate for this host's QUIC endpoint.
-        // The certificate is ephemeral (regenerated each launch). Paired viewers will
-        // pin the certificate DER bytes via the SPAKE2+ pairing ceremony (Issue #104).
         let cert_gen =
             generate_simple_self_signed(vec!["renderd-host".to_string()]).map_err(|e| {
                 HostError::Initialization(format!("Failed to generate self-signed cert: {e}"))
@@ -197,6 +200,47 @@ impl HostApp {
             "mDNS service _renderd._udp.local. registered"
         );
 
+        // Build tokio runtime for connection accept loop and control stream processing
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .enable_all()
+            .build()
+            .map_err(|e| {
+                HostError::Initialization(format!("Failed to build tokio runtime: {e}"))
+            })?;
+
+        let session = self.session.clone();
+        let host_cfg = self.config.host.clone();
+        let menu_bar = self.ui.menu_bar.clone();
+        let quic_server = Arc::new(quic_server);
+        let quic_server_task = Arc::clone(&quic_server);
+
+        rt.spawn(async move {
+            let dispatcher = ControlDispatcher::new();
+            while let Ok(conn) = quic_server_task.accept().await {
+                let session = session.clone();
+                let host_cfg = host_cfg.clone();
+                let menu_bar = menu_bar.clone();
+                let dispatcher = dispatcher.clone();
+
+                tokio::spawn(async move {
+                    match dispatcher
+                        .handle_connection(&conn, &host_cfg, &session)
+                        .await
+                    {
+                        Ok((_hello, _cfg)) => {
+                            menu_bar.update_status(&format!("Connected ({})", session.state()));
+                        }
+                        Err(e) => {
+                            tracing::warn!("Stream 0 handshake failed: {e}");
+                            session.reset();
+                            menu_bar.update_status("Idle — Listening");
+                        }
+                    }
+                });
+            }
+        });
+
         // Reflect listening state in the menu bar.
         self.ui.menu_bar.update_status("Idle — Listening");
 
@@ -205,8 +249,6 @@ impl HostApp {
         );
 
         // Block the current thread until SIGINT or SIGTERM is received.
-        // Accepted QUIC connections and actual streaming tasks will be wired
-        // on the tokio runtime in subsequent issues (#103, #106, #107).
         Self::wait_for_shutdown()?;
 
         // ----------------------------------------------------------------
@@ -219,6 +261,7 @@ impl HostApp {
 
         tracing::info!(addr = %actual_addr, "Closing QUIC server endpoint");
         quic_server.close(0, b"host-shutdown");
+        rt.shutdown_background();
 
         tracing::info!("renderd-host shutdown complete");
         Ok(())
@@ -253,6 +296,6 @@ mod tests {
     fn test_host_app_instantiation() {
         let config = RenderdConfig::default();
         let app = HostApp::new(config);
-        assert!(matches!(app.session.state(), SessionState::Idle));
+        assert!(app.session.is_idle());
     }
 }
