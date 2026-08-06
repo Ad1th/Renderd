@@ -2326,6 +2326,7 @@ name = "renderd-viewer"
 version = "0.1.0"
 dependencies = [
  "bytes",
+ "quinn",
  "renderd-abr",
  "renderd-clock",
  "renderd-config",
