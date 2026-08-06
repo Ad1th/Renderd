@@ -63,6 +63,16 @@ impl NotificationManager {
         self.post_notification(title, &body);
     }
 
+    /// Emits a system notification displaying the generated 6-digit pairing PIN code.
+    ///
+    /// # Panics
+    /// Panics if the internal `Mutex` is poisoned.
+    pub fn notify_pairing_pin(&self, pin: &str) {
+        let title = "Renderd Pairing PIN";
+        let body = format!("Enter PIN on Viewer to pair: {pin}");
+        self.post_notification(title, &body);
+    }
+
     /// Posts a user notification with title and body text.
     ///
     /// # Panics
@@ -165,5 +175,16 @@ mod tests {
         assert_eq!(history.len(), 1);
         assert_eq!(history[0].title, "Renderd Device Paired");
         assert_eq!(history[0].body, "New device paired: Studio Display Viewer");
+    }
+
+    #[test]
+    fn test_notify_pairing_pin() {
+        let manager = NotificationManager::new();
+        manager.notify_pairing_pin("123456");
+
+        let history = manager.history();
+        assert_eq!(history.len(), 1);
+        assert_eq!(history[0].title, "Renderd Pairing PIN");
+        assert_eq!(history[0].body, "Enter PIN on Viewer to pair: 123456");
     }
 }

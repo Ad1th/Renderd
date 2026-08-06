@@ -36,7 +36,7 @@ pub use discovery::{DiscoveredHosts, DiscoveryManager};
 pub use error::ViewerError;
 pub use frame_queue::FrameQueue;
 pub use network::{DatagramReceiver, ViewerControlClient};
-pub use pairing::{ViewerPairingClient, ViewerPairingError};
+pub use pairing::{PairingUi, PairingUiState, ViewerPairingClient, ViewerPairingError};
 pub use reconnect::{ReconnectWatchdog, WatchdogState};
 pub use render::D3D12Renderer;
 pub use renderer::{NullRenderer, Renderer, ViewportSize};
