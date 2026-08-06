@@ -73,6 +73,7 @@ pub struct NullDecoder {
     initialized: bool,
     width: u32,
     height: u32,
+    last_frame: Option<DecodedFrame>,
 }
 
 impl NullDecoder {
@@ -83,6 +84,7 @@ impl NullDecoder {
             initialized: false,
             width: 0,
             height: 0,
+            last_frame: None,
         }
     }
 
@@ -104,12 +106,21 @@ impl Decoder for NullDecoder {
     fn decode_packet(
         &mut self,
         _packet: &[u8],
-        _frame_id: u64,
-        _pts_ns: u64,
+        frame_id: u64,
+        pts_ns: u64,
     ) -> Result<(), ViewerError> {
         if !self.initialized {
             return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
         }
+        self.last_frame = Some(DecodedFrame {
+            frame_id,
+            pts_ns,
+            width: self.width,
+            height: self.height,
+            format: PixelFormat::Bgra8,
+            buffer: vec![255; (self.width * self.height * 4) as usize],
+            decode_duration: Duration::from_millis(1),
+        });
         Ok(())
     }
 
@@ -117,10 +128,11 @@ impl Decoder for NullDecoder {
         if !self.initialized {
             return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
         }
-        Ok(None)
+        Ok(self.last_frame.take())
     }
 
     fn reset(&mut self) -> Result<(), ViewerError> {
+        self.last_frame = None;
         Ok(())
     }
 }
@@ -138,7 +150,7 @@ mod tests {
         decoder.initialize("hevc", 1920, 1080).unwrap();
         assert!(decoder.is_initialized());
         assert!(decoder.decode_packet(&[1, 2, 3], 1, 100).is_ok());
-        assert!(decoder.receive_frame().unwrap().is_none());
+        assert!(decoder.receive_frame().unwrap().is_some());
         assert!(decoder.reset().is_ok());
     }
 }
