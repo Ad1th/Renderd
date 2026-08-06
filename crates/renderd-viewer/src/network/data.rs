@@ -3,11 +3,15 @@
 //! Receives UDP/QUIC datagrams, parses 16-byte fragment headers, feeds the sliding-window
 //! `ReassemblyBuffer`, and hands completed frame bitstreams to the video decoder (RFC-0002 §12.2).
 
-use crate::decoder::Decoder;
-use crate::error::ViewerError;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+
 use bytes::Bytes;
 use renderd_frame::{FragmentHeader, ReassemblyBuffer, HEADER_SIZE};
-use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::decoder::Decoder;
+use crate::error::ViewerError;
+use crate::frame_queue::FrameQueue;
 
 /// Datagram receiver and sliding-window frame reassembly manager.
 #[derive(Debug)]
@@ -76,6 +80,28 @@ impl DatagramReceiver {
                 Err(ViewerError::Network(format!("Reassembly error: {err:?}")))
             }
         }
+    }
+
+    /// Runs the datagram receiver event loop, reading datagrams from `connection`
+    /// and passing completed frames to `decoder` and `frame_queue`.
+    ///
+    /// # Errors
+    /// Returns [`ViewerError::Network`] if reading from QUIC connection fails.
+    pub async fn run_receive_loop<D: Decoder>(
+        &mut self,
+        connection: &quinn::Connection,
+        decoder: &mut D,
+        frame_queue: &Arc<FrameQueue>,
+    ) -> Result<(), ViewerError> {
+        while let Ok(datagram) = connection.read_datagram().await {
+            if let Ok(Some(frame_id)) = self.process_datagram(&datagram, decoder) {
+                tracing::debug!(frame_id, "Frame reassembled and delivered to decoder");
+                if let Ok(Some(decoded)) = decoder.receive_frame() {
+                    let _ = frame_queue.push(decoded);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Returns total count of received datagrams.
