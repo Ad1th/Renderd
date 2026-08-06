@@ -34,10 +34,10 @@ struct RawCMTime {
     epoch: i64,
 }
 
-// Implement objc2::Encode for RawCMTime struct matching CMTime memory layout
+// Implement objc2::Encode for RawCMTime struct matching CMTime memory layout ({?=qiIq})
 unsafe impl Encode for RawCMTime {
     const ENCODING: Encoding = Encoding::Struct(
-        "CMTime",
+        "?",
         &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
     );
 }
