@@ -39,7 +39,7 @@ pub use network::{DatagramReceiver, ViewerControlClient};
 pub use pairing::{PairingUi, PairingUiState, ViewerPairingClient, ViewerPairingError};
 pub use reconnect::{ReconnectWatchdog, WatchdogState};
 pub use render::D3D12Renderer;
-pub use renderer::{NullRenderer, Renderer, ViewportSize};
+pub use renderer::{NullRenderer, Renderer, SoftRenderer, ViewportSize};
 pub use state::{AppState, ConnectionState, ViewerMetrics};
 pub use tearing::check_tearing_support;
 pub use ui::{StatusOverlay, SystemTrayManager, TrayMenuAction, ViewerSettingsState};

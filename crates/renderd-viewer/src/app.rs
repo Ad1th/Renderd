@@ -14,7 +14,7 @@ use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
 use crate::network::{DatagramReceiver, ViewerControlClient};
 use crate::platform::init_platform;
-use crate::renderer::{NullRenderer, Renderer, ViewportSize};
+use crate::renderer::{Renderer, SoftRenderer, ViewportSize};
 use crate::state::AppState;
 use crate::ui::SystemTrayManager;
 use crate::window::WindowSystem;
@@ -39,7 +39,7 @@ impl App {
             config,
             state: AppState::new(),
             window_system: None,
-            renderer: Box::new(NullRenderer::new()),
+            renderer: Box::new(SoftRenderer::new()),
             decoder: Box::new(NullDecoder::new()),
             frame_queue: Arc::new(FrameQueue::new(4)),
             discovery: DiscoveryManager::new(),
@@ -281,6 +281,9 @@ impl ApplicationHandler for App {
             ) {
                 Ok(ws) => {
                     let viewport = ws.viewport_size();
+                    if let Err(e) = self.renderer.attach_window(ws.window().clone()) {
+                        tracing::error!("Failed to attach window to renderer: {e}");
+                    }
                     if let Err(e) = self.renderer.initialize(viewport) {
                         tracing::error!("Failed to initialize renderer: {e}");
                     } else {
