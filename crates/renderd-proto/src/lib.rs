@@ -45,3 +45,9 @@ pub use envelope::*;
 pub use error::*;
 pub use generated::renderd::*;
 pub use types::*;
+
+/// Current renderd control plane protocol version.
+///
+/// Sent in [`SessionHello::protocol_version`]. Viewers with a
+/// `min_required_version` higher than this value will be rejected.
+pub const PROTOCOL_VERSION: u32 = 1;
