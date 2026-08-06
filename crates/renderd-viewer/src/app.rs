@@ -194,14 +194,31 @@ impl App {
                         .negotiate(&conn, display, vec!["hevc".to_string(), "h264".to_string()], 50_000, true)
                         .await
                     {
-                        Ok((_hello, session_config)) => {
+                        Ok((_hello, session_config, mut send_stream, mut _recv_stream)) => {
                             tracing::info!(
                                 codec = %session_config.selected_codec,
                                 width = session_config.width,
                                 height = session_config.height,
                                 fps = session_config.frame_rate,
-                                "Stream 0 handshake completed with host — starting datagram receiver"
+                                "Stream 0 handshake completed with host — starting datagram receiver and vsync reporter"
                             );
+
+                            // Spawn VsyncReporter task to send VsyncReport over Stream 0 (#110)
+                            tokio::spawn(async move {
+                                use renderd_net::framing::send_control;
+                                use renderd_proto::generated::renderd::{envelope::Payload, Envelope};
+                                let mut vsync_reporter = crate::clock_sync::VsyncReporter::new();
+                                loop {
+                                    tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
+                                    let report = vsync_reporter.create_vsync_report();
+                                    let env = Envelope {
+                                        payload: Some(Payload::VsyncReport(report)),
+                                    };
+                                    if send_control(&mut send_stream, &env).await.is_err() {
+                                        break;
+                                    }
+                                }
+                            });
 
                             let mut receiver = DatagramReceiver::new(4);
                             let mut decoder = NullDecoder::new();
