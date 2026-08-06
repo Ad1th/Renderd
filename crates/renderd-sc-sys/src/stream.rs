@@ -106,6 +106,9 @@ declare_class!(
             sample_buffer: CFTypeRef,
             output_type: SCStreamOutputType,
         ) {
+            static SC_FRAME_COUNT: std::sync::atomic::AtomicU64 =
+                std::sync::atomic::AtomicU64::new(0);
+
             if output_type != SCStreamOutputType::Screen || sample_buffer.is_null() {
                 return;
             }
@@ -130,7 +133,10 @@ declare_class!(
             // SAFETY: Extract CMTime presentation timestamp.
             let pts = unsafe { CMSampleBufferGetPresentationTimeStamp(sample_buffer) };
             let pts_ns = if pts.timescale > 0 {
-                (pts.value * 1_000_000_000) / i64::from(pts.timescale)
+                i64::try_from(
+                    (i128::from(pts.value) * 1_000_000_000) / i128::from(pts.timescale),
+                )
+                .unwrap_or(0)
             } else {
                 0
             };
@@ -146,6 +152,17 @@ declare_class!(
                 capture_ns: now_ns,
             };
 
+            let count = SC_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if count == 1 {
+                tracing::info!(
+                    count = count,
+                    pts_ns = pts_ns,
+                    "ScreenCaptureKit: first frame sample buffer delivered from macOS display server"
+                );
+            } else if count % 100 == 0 {
+                tracing::info!(count = count, "ScreenCaptureKit: sample buffer checkpoint");
+            }
+
             let ivar = self.ivars();
             (ivar.callback)(frame);
         }
@@ -158,6 +175,7 @@ declare_class!(
 pub struct ScreenStream {
     stream: Retained<SCStream>,
     config: Retained<SCStreamConfiguration>,
+    _delegate: Retained<RenderdStreamOutput>,
     is_running: Arc<AtomicBool>,
 }
 
@@ -247,6 +265,7 @@ impl ScreenStream {
         Ok(Self {
             stream,
             config,
+            _delegate: delegate,
             is_running: Arc::new(AtomicBool::new(false)),
         })
     }
