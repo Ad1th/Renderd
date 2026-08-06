@@ -100,12 +100,12 @@ impl EncodePipeline {
                             if !nal_bytes.is_empty() {
                                 let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
                                 if frame_id <= 5 || is_kf {
-                                    let first_16 = &nal_bytes[..16.min(nal_bytes.len())];
+                                    let first_32 = &nal_bytes[..32.min(nal_bytes.len())];
                                     tracing::info!(
                                         frame_id = frame_id,
                                         is_keyframe = is_kf,
                                         data_len = nal_bytes.len(),
-                                        first_16_bytes = ?first_16,
+                                        first_32_bytes = ?first_32,
                                         "Host Encoder: extracted real VideoToolbox NAL units from CMSampleBufferRef"
                                     );
                                 }
