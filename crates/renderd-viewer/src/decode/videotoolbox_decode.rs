@@ -109,8 +109,13 @@ impl Decoder for VideoToolboxDecoder {
             pts_ns = pts_ns,
             packet_len = packet.len(),
             first_8_bytes = ?&packet[..8.min(packet.len())],
-            session_exists = self.session.is_some(),
             "VT_TRACE [1]: VideoToolboxDecoder::decode_packet called"
+        );
+
+        #[cfg(target_os = "macos")]
+        tracing::info!(
+            session_exists = self.session.is_some(),
+            "VT_TRACE [1a]: session state"
         );
 
         #[cfg(target_os = "macos")]
