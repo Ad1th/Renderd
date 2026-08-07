@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Pre-release hardening, cross-platform Windows viewer integration, and input forwarding in progress.
 
+### Changed
+- **Workspace version** bumped from `0.1.0` to `0.9.0-integration` to align `cargo metadata` with the
+  CHANGELOG milestone tracking and release tag convention.
+- **README.md** corrected: workspace member count (`16` → `15`), and the CI section now accurately
+  lists each job with its runner OS rather than claiming a generic "Linux/macOS/Windows" matrix.
+- **CI (`ci.yml`)**: Added JUnit XML artifact upload after nextest runs on both macOS and Windows
+  jobs (enables GitHub Actions test summary UI). Added a new `deny` job so `cargo deny check`
+  runs on every PR in addition to the weekly `security.yml` schedule.
+- **Security (`security.yml`)**: Added documentation comment explaining the relationship between
+  the per-PR `deny` job in `ci.yml` and the weekly advisory-db drift check in `security.yml`.
+
+### Documentation
+- **`docs/BENCHMARK-ROADMAP.md`**: Replaced stale Gantt chart (dates in the past) with an accurate
+  status table distinguishing implemented benchmarks from hardware-gated deferred benchmarks.
+  Added rationale for deferrals (live display session / GPU runner requirements).
+
+### Tests
+- **`renderd-crypto`**: Expanded unit tests from 1 to 9. New tests cover UUID cross-isolation
+  (viewer UUID, host UUID), adjacent PIN isolation, output length invariants, non-zero output
+  guarantee, and explicit `Zeroize::zeroize()` invocation for both `PairToken` and `SessionKey`.
+- **`renderd-keychain`**: Expanded `MockKeychain` tests from 1 to 7. New tests cover
+  `NotFound` error paths (load-missing, delete-missing, double-delete), overwrite semantics
+  (save-twice deduplicates), empty-store list, multi-entry isolation, and `Arc<MockKeychain>`
+  shared access pattern.
+
 ---
 
 ## [0.9.0-integration] — 2026-08-07

@@ -106,7 +106,7 @@ flowchart LR
 
 ```text
 renderd/
-├── Cargo.toml                  # Workspace root manifest (16 member crates)
+├── Cargo.toml                  # Workspace root manifest (15 members: 13 crates + 2 tools)
 ├── rust-toolchain.toml         # Rust toolchain pinning (MSRV 1.80+)
 ├── clippy.toml                 # Workspace Clippy lint rules
 ├── .rustfmt.toml               # Code formatting rules
@@ -178,13 +178,15 @@ renderd/
 
 ## Continuous Integration (CI)
 
-Our GitHub Actions CI pipeline validates every commit across **Linux** (`ubuntu-latest`), **macOS** (`macos-15`), and **Windows** (`windows-2025`) using:
+Our GitHub Actions CI pipeline validates every commit using the following jobs:
 
-- **Formatting Check:** `cargo fmt --check`
-- **Linting:** `cargo clippy --workspace --all-targets -- -D warnings`
-- **Test Suite:** `cargo nextest run --profile ci`
-- **Protocol Validation:** `proto-check` verifying `renderd.proto` codegen sync
-- **Spell Check:** `typos` checking codebase spelling integrity
+| Job | Runner | Checks |
+|---|---|---|
+| `build-and-test-host` | `macos-15` | `cargo fmt`, `cargo clippy`, `cargo nextest` (host + shared crates) |
+| `build-and-test-viewer` | `windows-2025` | `cargo fmt`, `cargo clippy`, `cargo nextest` (viewer + shared crates) |
+| `proto-check` | `ubuntu-latest` | Regenerates `renderd.proto` and verifies no diff in generated code |
+| `typos` | `ubuntu-latest` | Spell-checks the entire repository |
+| `deny` / `audit` | `ubuntu-latest` | Dependency license and security advisory checks (weekly + on Cargo changes) |
 
 ---
 
