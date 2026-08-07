@@ -64,45 +64,58 @@ Micro-benchmarks measure CPU-bound data plane operations in isolation.
 
 ---
 
-## 4. Benchmark Execution Roadmap by Milestone
+## 4. Benchmark Execution Status
+
+> **Updated after Milestone 9 (2026-08-07).**  
+> The micro-benchmarks in `renderd-frame`, `renderd-clock`, `renderd-abr`, and `renderd-net`
+> are implemented and tracked by the nightly `bench.yml` CI workflow.  
+> Hardware pipeline benchmarks (Milestones 4–6) were intentionally **deferred** in favour of
+> completing end-to-end macOS streaming integration. They are scheduled for the Windows
+> cross-platform validation phase.
 
 ```mermaid
 gantt
-    title Renderd Performance Benchmark Implementation Roadmap
+    title Renderd Performance Benchmark Implementation Status
     dateFormat  YYYY-MM-DD
-    section Milestone 3 (Completed)
+    section Milestone 3 (Done)
     Data Plane Micro-Benchmarks (frame/clock/abr) :done, m3, 2026-08-04, 2026-08-05
-    section Milestone 4
-    Host Capture & VideoToolbox Benchmark         :m4, 2026-08-06, 2026-08-10
-    section Milestone 5
-    QUIC Transport & Datagram Loopback Bench      :m5, 2026-08-11, 2026-08-15
-    section Milestone 6
-    Viewer D3D12 Decode & Render Benchmarks        :m6, 2026-08-16, 2026-08-20
-    section Milestone 8
-    End-to-End Glass-to-Glass Latency Suite        :m8, 2026-08-21, 2026-08-25
+    section renderd-net (Done)
+    QUIC Burst Sender Benchmark                   :done, mnet, 2026-08-05, 2026-08-06
+    section Deferred — Windows Phase
+    Host Capture & VideoToolbox Benchmark         :active, m4, 2026-08-09, 14d
+    Viewer D3D12 Decode & Render Benchmarks       :m6, after m4, 14d
+    End-to-End Glass-to-Glass Latency Suite       :m8, after m6, 7d
 ```
 
-### Planned Benchmark Implementations:
+### Implemented Benchmarks
 
-#### Milestone 4: Host Capture & Encoder Benchmark Suite
-- **Location:** `crates/renderd-host/benches/capture_encode_bench.rs`
+| File | Crate | Status |
+|---|---|---|
+| `crates/renderd-frame/benches/frame_bench.rs` | `renderd-frame` | ✅ Implemented |
+| `crates/renderd-clock/benches/clock_bench.rs` | `renderd-clock` | ✅ Implemented |
+| `crates/renderd-abr/benches/abr_bench.rs` | `renderd-abr` | ✅ Implemented |
+| `crates/renderd-net/benches/burst_bench.rs` | `renderd-net` | ✅ Implemented (sender path) |
+
+### Deferred Benchmarks (Windows Cross-Platform Phase)
+
+#### Host Capture & Encoder Benchmark Suite
+- **Location:** `crates/renderd-host/benches/capture_encode_bench.rs` _(not yet created)_
 - **Objective:** Measure `ScreenCaptureKit` frame dispatch rate and `VideoToolbox` H.265 hardware encoding latency under simulated 1080p60 and 1440p60 display loads.
-- **Metrics:** Capture latency, encode latency, GPU copy overhead.
+- **Blocked on:** Requires a live macOS display session; cannot run in CI without a physical display server.
 
-#### Milestone 5: QUIC Transport Loopback Benchmarks
-- **Location:** `crates/renderd-net/benches/transport_bench.rs`
-- **Objective:** Measure QUIC datagram burst throughput, packet loss simulation resistance, and socket loopback latency under 50 Mbps and 100 Mbps traffic.
-- **Metrics:** Network latency, throughput, packet loss handling, socket CPU usage.
+#### QUIC Transport Receiver Benchmark
+- **Location:** `crates/renderd-net/benches/burst_bench.rs` _(receiver path to be added)_
+- **Objective:** Measure `ReassemblyBuffer` throughput under out-of-order and packet-loss delivery patterns.
 
-#### Milestone 6: Viewer D3D12 Decode & Render Benchmarks
-- **Location:** `crates/renderd-viewer/benches/decode_render_bench.rs`
+#### Viewer D3D12 Decode & Render Benchmarks
+- **Location:** `crates/renderd-viewer/benches/decode_render_bench.rs` _(not yet created)_
 - **Objective:** Benchmark Direct3D 12 video decode queue latency and DXGI swapchain presentation timing on Windows.
-- **Metrics:** Hardware decode latency, render latency, GPU memory bandwidth.
+- **Blocked on:** Requires a Windows runner with a GPU capable of D3D12 video decode.
 
-#### Milestone 8: End-to-End Glass-to-Glass Latency Harness
-- **Location:** `tools/latency-bench` (CLI Macro Benchmark Extension)
+#### End-to-End Glass-to-Glass Latency Harness
+- **Location:** `tools/latency-bench` _(CLI scaffold exists; hardware loop integration pending)_
 - **Objective:** Orchestrate full end-to-end loopback streaming between local Host daemon and Viewer client, reporting 4-timestamp glass-to-glass latency distributions (p50, p95, p99).
-- **CI Integration:** Continuous latency regression tracking via `.github/workflows/latency_regression.yml`.
+- **CI Integration:** Will be tracked via `.github/workflows/bench.yml` once the hardware loop is validated.
 
 ---
 

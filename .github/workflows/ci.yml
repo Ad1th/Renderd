@@ -33,6 +33,13 @@ jobs:
           --package renderd-keychain --package renderd-discovery --package renderd-sc-sys
           --package renderd-vt-sys
           --profile ci
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-results-host
+          path: target/nextest/junit.xml
+          if-no-files-found: ignore
 
   build-and-test-viewer:
     runs-on: windows-2025
@@ -54,6 +61,13 @@ jobs:
           --package renderd-abr --package renderd-clock --package renderd-net
           --package renderd-keychain --package renderd-discovery
           --profile ci
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nextest-results-viewer
+          path: target/nextest/junit.xml
+          if-no-files-found: ignore
 
   proto-check:
     runs-on: ubuntu-latest
@@ -71,3 +85,11 @@ jobs:
             git diff crates/renderd-proto/src/generated/
             exit 1
           fi
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check

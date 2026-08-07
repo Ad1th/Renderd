@@ -9,6 +9,9 @@ on:
       - "**/Cargo.toml"
 
 jobs:
+  # cargo-deny license/ban check now also runs on every PR via ci.yml.
+  # This weekly job re-runs it to catch newly published advisory-db advisories
+  # that may affect deps added since the last PR.
   deny:
     runs-on: ubuntu-latest
     steps:
