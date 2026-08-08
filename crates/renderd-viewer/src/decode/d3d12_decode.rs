@@ -4,12 +4,11 @@
 //! `ID3D12VideoDecoder` (from `windows::Win32::Media::MediaFoundation`) (RFC-0002 §6.3).
 //!
 //! Architecture:
-//! - Reusable `upload_buffer` allocated on `D3D12Decoder` (aligned to 64KB, state `COMMON`)
-//!   to prevent GPU use-after-free crashes and resource state mismatches.
-//! - HEVC bitstream written to `upload_buffer`.
+//! - Reusable `upload_buffer` on `D3D12_HEAP_TYPE_UPLOAD` for CPU byte writing.
+//! - Reusable `bitstream_buffer` on `D3D12_HEAP_TYPE_DEFAULT` (GPU VRAM) for video decode engine reading.
+//! - `CopyBufferRegion` executed on `DIRECT` queue to copy bitstream from UPLOAD -> DEFAULT VRAM.
 //! - `ID3D12VideoDecodeCommandList` submitted to `VIDEO_DECODE` queue for `DecodeFrame`.
-//! - Video queue signals fence.
-//! - `DIRECT` command queue waits on fence.
+//! - Video queue signals fence; `DIRECT` command queue waits on fence.
 //! - `ID3D12GraphicsCommandList` submitted to `DIRECT` queue for `ResourceBarrier` and
 //!   `CopyTextureRegion` from NV12 texture to `READBACK` buffer.
 //! - Direct queue signals fence; CPU waits on fence event, maps readback memory, and extracts
@@ -40,7 +39,8 @@ use windows::{
         D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_FLAG_NONE,
         D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
+        D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_GENERIC_READ,
+        D3D12_RESOURCE_STATE_VIDEO_DECODE_READ, D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
         D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_TEXTURE_COPY_LOCATION,
         D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
         D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_UNKNOWN,
@@ -103,11 +103,17 @@ pub struct D3D12Decoder {
     #[cfg(target_os = "windows")]
     fence_value: u64,
 
-    // Reusable upload resource (persisted to prevent GPU use-after-free)
+    // CPU Upload Heap buffer (for Host write)
     #[cfg(target_os = "windows")]
     upload_buffer: Option<ID3D12Resource>,
     #[cfg(target_os = "windows")]
     upload_capacity: u64,
+
+    // GPU Default VRAM buffer (for Video Engine decode read)
+    #[cfg(target_os = "windows")]
+    bitstream_buffer: Option<ID3D12Resource>,
+    #[cfg(target_os = "windows")]
+    bitstream_capacity: u64,
 
     // Read-back layout: populated during init, used every decode call
     #[cfg(target_os = "windows")]
@@ -167,6 +173,10 @@ impl D3D12Decoder {
             upload_buffer: None,
             #[cfg(target_os = "windows")]
             upload_capacity: 0,
+            #[cfg(target_os = "windows")]
+            bitstream_buffer: None,
+            #[cfg(target_os = "windows")]
+            bitstream_capacity: 0,
             #[cfg(target_os = "windows")]
             y_footprint: D3D12_PLACED_SUBRESOURCE_FOOTPRINT {
                 Offset: 0,
@@ -388,7 +398,7 @@ impl D3D12Decoder {
             .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE)
             .map_err(|e| ViewerError::Decoder(format!("CreateCommandAllocator (video): {e}")))?;
 
-        // 6. DIRECT command queue & allocator (for ResourceBarrier & CopyTextureRegion) ─
+        // 6. DIRECT command queue & allocator (for CopyBufferRegion, ResourceBarrier & CopyTextureRegion) ─
         let direct_queue_desc = D3D12_COMMAND_QUEUE_DESC {
             Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
             Priority: D3D12_COMMAND_QUEUE_PRIORITY_NORMAL.0,
@@ -415,7 +425,7 @@ impl D3D12Decoder {
             .CreateVideoDecoder(&decoder_desc)
             .map_err(|e| ViewerError::Decoder(format!("CreateVideoDecoder: {e}")))?;
 
-        // 8. VideoDecoderHeap (MaxDecodePictureBufferCount set to 16 for HEVC DPB) ──
+        // 8. VideoDecoderHeap ─────────────────────────────────────────────────
         let heap_desc = D3D12_VIDEO_DECODER_HEAP_DESC {
             NodeMask: 0,
             Configuration: D3D12_VIDEO_DECODE_CONFIGURATION {
@@ -559,6 +569,8 @@ impl D3D12Decoder {
         self.fence_value = 0;
         self.upload_buffer = None;
         self.upload_capacity = 0;
+        self.bitstream_buffer = None;
+        self.bitstream_capacity = 0;
         self.y_footprint = footprints[0];
         self.uv_footprint = footprints[1];
         self.y_num_rows = num_rows[0];
@@ -634,10 +646,10 @@ impl D3D12Decoder {
             .ok_or_else(|| ViewerError::Decoder("fence not init".to_string()))?;
 
         let packet_len = packet.len() as u64;
+        let required_capacity = ((packet_len + 65535) & !65535).max(131_072);
 
-        // 1. Prepare / re-allocate persistent upload resource (aligned to 64KB, initial state COMMON) ─
+        // 1. CPU Upload Buffer (UPLOAD Heap) ──────────────────────────────────
         if self.upload_buffer.is_none() || self.upload_capacity < packet_len {
-            let new_capacity = ((packet_len + 65535) & !65535).max(131_072);
             let upload_heap = D3D12_HEAP_PROPERTIES {
                 Type: D3D12_HEAP_TYPE_UPLOAD,
                 ..Default::default()
@@ -645,7 +657,7 @@ impl D3D12Decoder {
             let upload_desc = D3D12_RESOURCE_DESC {
                 Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
                 Alignment: 0,
-                Width: new_capacity,
+                Width: required_capacity,
                 Height: 1,
                 DepthOrArraySize: 1,
                 MipLevels: 1,
@@ -663,7 +675,7 @@ impl D3D12Decoder {
                     &upload_heap,
                     D3D12_HEAP_FLAG_NONE,
                     &upload_desc,
-                    D3D12_RESOURCE_STATE_COMMON,
+                    D3D12_RESOURCE_STATE_GENERIC_READ,
                     None,
                     &mut upload_resource,
                 )
@@ -671,20 +683,63 @@ impl D3D12Decoder {
                     ViewerError::Decoder(format!("CreateCommittedResource (upload): {e}"))
                 })?;
             self.upload_buffer = upload_resource;
-            self.upload_capacity = new_capacity;
+            self.upload_capacity = required_capacity;
+        }
+
+        // 2. GPU Bitstream Buffer (DEFAULT VRAM Heap) ──────────────────────────
+        if self.bitstream_buffer.is_none() || self.bitstream_capacity < packet_len {
+            let default_heap = D3D12_HEAP_PROPERTIES {
+                Type: D3D12_HEAP_TYPE_DEFAULT,
+                ..Default::default()
+            };
+            let bitstream_desc = D3D12_RESOURCE_DESC {
+                Dimension: D3D12_RESOURCE_DIMENSION_BUFFER,
+                Alignment: 0,
+                Width: required_capacity,
+                Height: 1,
+                DepthOrArraySize: 1,
+                MipLevels: 1,
+                Format: windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_UNKNOWN,
+                SampleDesc: DXGI_SAMPLE_DESC {
+                    Count: 1,
+                    Quality: 0,
+                },
+                Layout: windows::Win32::Graphics::Direct3D12::D3D12_TEXTURE_LAYOUT_ROW_MAJOR,
+                Flags: D3D12_RESOURCE_FLAG_NONE,
+            };
+            let mut bitstream_resource: Option<ID3D12Resource> = None;
+            device
+                .CreateCommittedResource(
+                    &default_heap,
+                    D3D12_HEAP_FLAG_NONE,
+                    &bitstream_desc,
+                    D3D12_RESOURCE_STATE_COMMON,
+                    None,
+                    &mut bitstream_resource,
+                )
+                .map_err(|e| {
+                    ViewerError::Decoder(format!("CreateCommittedResource (bitstream): {e}"))
+                })?;
+            self.bitstream_buffer = bitstream_resource;
+            self.bitstream_capacity = required_capacity;
         }
 
         let upload_buffer = self
             .upload_buffer
             .as_ref()
             .ok_or_else(|| ViewerError::Decoder("upload_buffer is None".to_string()))?;
+        let bitstream_buffer = self
+            .bitstream_buffer
+            .as_ref()
+            .ok_or_else(|| ViewerError::Decoder("bitstream_buffer is None".to_string()))?;
 
         if is_diagnostic {
             tracing::info!(
                 frame_id,
                 packet_len,
                 upload_capacity = self.upload_capacity,
-                "DECODE [2/10]: upload buffer ready"
+                bitstream_capacity = self.bitstream_capacity,
+                "DECODE [2/10]: upload and GPU VRAM bitstream buffers ready"
             );
         }
 
@@ -697,15 +752,78 @@ impl D3D12Decoder {
         upload_buffer.Unmap(0, None);
 
         if is_diagnostic {
-            tracing::info!("DECODE [3/10]: packet bytes copied to upload buffer");
+            tracing::info!("DECODE [3/10]: packet bytes written to upload buffer");
         }
 
-        // 2. Video decode command list (VIDEO_DECODE queue) ────────────────────
+        // 3. Execute CopyBufferRegion on DIRECT queue to upload to GPU VRAM ───
+        direct_command_allocator
+            .Reset()
+            .map_err(|e| ViewerError::Decoder(format!("DirectCommandAllocator::Reset: {e}")))?;
+
+        let upload_cmd_list: ID3D12GraphicsCommandList = device
+            .CreateCommandList(
+                0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                direct_command_allocator,
+                None::<&windows::Win32::Graphics::Direct3D12::ID3D12PipelineState>,
+            )
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (upload): {e}")))?;
+
+        let barrier_to_copy_dst = D3D12_RESOURCE_BARRIER {
+            Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                Transition: std::mem::ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: std::mem::ManuallyDrop::new(Some(bitstream_buffer.clone())),
+                    Subresource: 0xffff_ffff,
+                    StateBefore: D3D12_RESOURCE_STATE_COMMON,
+                    StateAfter: D3D12_RESOURCE_STATE_COPY_DEST,
+                }),
+            },
+        };
+        upload_cmd_list.ResourceBarrier(&[barrier_to_copy_dst]);
+        upload_cmd_list.CopyBufferRegion(bitstream_buffer, 0, upload_buffer, 0, packet_len);
+
+        let barrier_to_common_upload = D3D12_RESOURCE_BARRIER {
+            Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                Transition: std::mem::ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: std::mem::ManuallyDrop::new(Some(bitstream_buffer.clone())),
+                    Subresource: 0xffff_ffff,
+                    StateBefore: D3D12_RESOURCE_STATE_COPY_DEST,
+                    StateAfter: D3D12_RESOURCE_STATE_COMMON,
+                }),
+            },
+        };
+        upload_cmd_list.ResourceBarrier(&[barrier_to_common_upload]);
+        upload_cmd_list
+            .Close()
+            .map_err(|e| ViewerError::Decoder(format!("UploadCommandList::Close: {e}")))?;
+
+        let upload_cmd_list_base: windows::Win32::Graphics::Direct3D12::ID3D12CommandList =
+            upload_cmd_list
+                .cast()
+                .map_err(|e| ViewerError::Decoder(format!("cast to ID3D12CommandList: {e}")))?;
+        direct_command_queue.ExecuteCommandLists(&[Some(upload_cmd_list_base)]);
+
+        self.fence_value += 1;
+        let upload_fence_val = self.fence_value;
+        direct_command_queue
+            .Signal(fence, upload_fence_val)
+            .map_err(|e| ViewerError::Decoder(format!("Signal (upload): {e}")))?;
+
+        // 4. Video decode command list (VIDEO_DECODE queue) ────────────────────
+        video_command_queue
+            .Wait(fence, upload_fence_val)
+            .map_err(|e| ViewerError::Decoder(format!("Wait (video upload): {e}")))?;
+
         video_command_allocator
             .Reset()
             .map_err(|e| ViewerError::Decoder(format!("VideoCommandAllocator::Reset: {e}")))?;
 
-        let video_cmd_list: ID3D12VideoDecodeCommandList = device
+        // Create base command list and query interface to ID3D12VideoDecodeCommandList
+        let raw_cmd_list: windows::Win32::Graphics::Direct3D12::ID3D12CommandList = device
             .CreateCommandList(
                 0,
                 D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
@@ -714,8 +832,12 @@ impl D3D12Decoder {
             )
             .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (video): {e}")))?;
 
+        let video_cmd_list: ID3D12VideoDecodeCommandList = raw_cmd_list
+            .cast()
+            .map_err(|e| ViewerError::Decoder(format!("QI ID3D12VideoDecodeCommandList: {e}")))?;
+
         // Transition output texture: COMMON → VIDEO_DECODE_WRITE
-        let barrier_to_decode = D3D12_RESOURCE_BARRIER {
+        let barrier_output = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
             Anonymous: D3D12_RESOURCE_BARRIER_0 {
@@ -727,15 +849,28 @@ impl D3D12Decoder {
                 }),
             },
         };
-        video_cmd_list.ResourceBarrier(&[barrier_to_decode]);
+        // Transition bitstream buffer: COMMON → VIDEO_DECODE_READ
+        let barrier_bitstream = D3D12_RESOURCE_BARRIER {
+            Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                Transition: std::mem::ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: std::mem::ManuallyDrop::new(Some(bitstream_buffer.clone())),
+                    Subresource: 0xffff_ffff,
+                    StateBefore: D3D12_RESOURCE_STATE_COMMON,
+                    StateAfter: D3D12_RESOURCE_STATE_VIDEO_DECODE_READ,
+                }),
+            },
+        };
+        video_cmd_list.ResourceBarrier(&[barrier_output, barrier_bitstream]);
 
         if is_diagnostic {
-            tracing::info!("DECODE [4/10]: video command list created & barrier recorded");
+            tracing::info!("DECODE [4/10]: video command list created & barriers recorded");
         }
 
-        // Build decode arguments
+        // Build decode arguments using bitstream_buffer (GPU VRAM)
         let compressed = D3D12_VIDEO_DECODE_COMPRESSED_BITSTREAM {
-            pBuffer: std::mem::ManuallyDrop::new(Some(upload_buffer.clone())),
+            pBuffer: std::mem::ManuallyDrop::new(Some(bitstream_buffer.clone())),
             Offset: 0,
             Size: packet.len() as u64,
         };
@@ -770,15 +905,15 @@ impl D3D12Decoder {
                 packet_len = packet.len(),
                 width = self.width,
                 height = self.height,
-                upload_capacity = self.upload_capacity,
+                bitstream_capacity = self.bitstream_capacity,
                 "DECODE [5/10]: calling DecodeFrame on ID3D12VideoDecodeCommandList"
             );
         }
 
         video_cmd_list.DecodeFrame(video_decoder, &output_args, &input_args);
 
-        // Transition output texture back to COMMON on video queue
-        let barrier_to_common_video = D3D12_RESOURCE_BARRIER {
+        // Transition resources back to COMMON on video queue
+        let barrier_output_back = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
             Anonymous: D3D12_RESOURCE_BARRIER_0 {
@@ -790,7 +925,19 @@ impl D3D12Decoder {
                 }),
             },
         };
-        video_cmd_list.ResourceBarrier(&[barrier_to_common_video]);
+        let barrier_bitstream_back = D3D12_RESOURCE_BARRIER {
+            Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                Transition: std::mem::ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: std::mem::ManuallyDrop::new(Some(bitstream_buffer.clone())),
+                    Subresource: 0xffff_ffff,
+                    StateBefore: D3D12_RESOURCE_STATE_VIDEO_DECODE_READ,
+                    StateAfter: D3D12_RESOURCE_STATE_COMMON,
+                }),
+            },
+        };
+        video_cmd_list.ResourceBarrier(&[barrier_output_back, barrier_bitstream_back]);
 
         video_cmd_list
             .Close()
@@ -812,7 +959,7 @@ impl D3D12Decoder {
             tracing::info!("DECODE [6/10]: video command list submitted to video queue");
         }
 
-        // 3. Direct command list (DIRECT queue) for CopyTextureRegion ──────────
+        // 5. Direct command list (DIRECT queue) for CopyTextureRegion ──────────
         direct_command_queue
             .Wait(fence, decode_fence_val)
             .map_err(|e| ViewerError::Decoder(format!("Wait (direct): {e}")))?;
@@ -918,7 +1065,7 @@ impl D3D12Decoder {
             tracing::info!("DECODE [8/10]: direct command list submitted to direct queue");
         }
 
-        // 4. CPU Wait for direct queue completion ─────────────────────────────
+        // 6. CPU Wait for direct queue completion ─────────────────────────────
         if fence.GetCompletedValue() < copy_fence_val {
             let event = CreateEventW(None, false, false, None)
                 .map_err(|e| ViewerError::Decoder(format!("CreateEventW: {e}")))?;
@@ -936,7 +1083,7 @@ impl D3D12Decoder {
             tracing::info!("DECODE [9/10]: CPU completed fence wait");
         }
 
-        // 5. Map readback buffer, extract NV12 planes row-by-row ─────────────
+        // 7. Map readback buffer, extract NV12 planes row-by-row ─────────────
         let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
         readback_buffer
             .Map(0, None, Some(&mut mapped))
