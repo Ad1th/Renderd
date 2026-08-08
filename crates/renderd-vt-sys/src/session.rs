@@ -583,6 +583,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Requires hardware VideoToolbox GPU acceleration (unavailable in virtualized CI)"]
     fn test_create_set_bitrate_and_drop_session() {
         let frame_count = Arc::new(AtomicUsize::new(0));
         let keyframe_received = Arc::new(AtomicBool::new(false));

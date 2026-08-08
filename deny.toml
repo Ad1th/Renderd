@@ -1,4 +1,15 @@
+# cargo-deny v2 configuration
+version = 2
+
+[graph]
+targets = [
+    { triple = "aarch64-apple-darwin" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "aarch64-pc-windows-msvc" },
+]
+
 [licenses]
+unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -8,18 +19,14 @@ allow = [
     "BSD-3-Clause",
     "Unicode-DFS-2016",
 ]
-deny = ["GPL-2.0", "GPL-3.0", "LGPL-2.0", "LGPL-3.0", "AGPL-3.0"]
+confidence-threshold = 0.8
 
 [bans]
 multiple-versions = "warn"
 wildcards         = "deny"
 
-# [advisories] — cargo-deny v2 removed the `vulnerability`, `unsound`, and
-# `unmaintained` severity fields; all are denied by default in v2.
-# `db-path` and `db-urls` remain valid for pointing to the advisory database.
 [advisories]
-db-urls       = ["https://github.com/rustsec/advisory-db"]
-ignore        = []
+db-urls = ["https://github.com/rustsec/advisory-db"]
 
 [sources]
 unknown-registry = "deny"
