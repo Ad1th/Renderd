@@ -3,10 +3,15 @@
 //! Hardware decodes incoming H.265 (HEVC) bitstream packets into NV12 CPU buffers using
 //! `ID3D12VideoDecoder` (from `windows::Win32::Media::MediaFoundation`) (RFC-0002 §6.3).
 //!
-//! Threading model: The decoder owns all D3D12/media COM objects. COM video interfaces defined
-//! in `windows 0.58` implement `Send + Sync`. `HANDLE` is a raw-pointer wrapper without those
-//! impls, so it is never stored as a persistent struct field. Event handles are created, used,
-//! and closed within individual calls on the current thread.
+//! Architecture:
+//! - HEVC bitstream uploaded to an UPLOAD resource.
+//! - `ID3D12VideoDecodeCommandList` submitted to `VIDEO_DECODE` queue for `DecodeFrame`.
+//! - Video queue signals fence.
+//! - `DIRECT` command queue waits on fence.
+//! - `ID3D12GraphicsCommandList` submitted to `DIRECT` queue for `ResourceBarrier` and
+//!   `CopyTextureRegion` from NV12 texture to `READBACK` buffer.
+//! - Direct queue signals fence; CPU waits on fence event, maps readback memory, and extracts
+//!   NV12 Y/UV planes row-by-row stripping row pitch padding.
 
 #[cfg(target_os = "windows")]
 use crate::decoder::PixelFormat;
@@ -19,23 +24,24 @@ use std::time::Instant;
 #[cfg(target_os = "windows")]
 use windows::{
     Win32::Foundation::{CloseHandle, FALSE},
+    Win32::Graphics::Direct3D::{D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0},
     Win32::Graphics::Direct3D12::{
         D3D12CreateDevice, ID3D12CommandAllocator, ID3D12CommandQueue, ID3D12Device, ID3D12Fence,
-        ID3D12GraphicsCommandList, ID3D12Resource, D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
-        D3D12_COMMAND_QUEUE_DESC, D3D12_COMMAND_QUEUE_FLAG_NONE,
-        D3D12_COMMAND_QUEUE_PRIORITY_NORMAL, D3D12_FENCE_FLAG_NONE, D3D12_HEAP_FLAG_NONE,
-        D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_READBACK,
-        D3D12_HEAP_TYPE_UPLOAD, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE,
-        D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_FLAG_NONE,
-        D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC,
-        D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        ID3D12GraphicsCommandList, ID3D12Resource, D3D12_COMMAND_LIST_TYPE_DIRECT,
+        D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE, D3D12_COMMAND_QUEUE_DESC,
+        D3D12_COMMAND_QUEUE_FLAG_NONE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL, D3D12_FENCE_FLAG_NONE,
+        D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
+        D3D12_HEAP_TYPE_READBACK, D3D12_HEAP_TYPE_UPLOAD, D3D12_PLACED_SUBRESOURCE_FOOTPRINT,
+        D3D12_RANGE, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
+        D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+        D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_FLAG_NONE,
         D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST,
         D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_GENERIC_READ,
         D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE, D3D12_RESOURCE_TRANSITION_BARRIER,
         D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
         D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        D3D12_TEXTURE_LAYOUT_UNKNOWN, D3D_FEATURE_LEVEL_11_0,
+        D3D12_TEXTURE_LAYOUT_UNKNOWN,
     },
     Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
     Win32::Graphics::Dxgi::{
@@ -77,9 +83,13 @@ pub struct D3D12Decoder {
     #[cfg(target_os = "windows")]
     video_device: Option<ID3D12VideoDevice>,
     #[cfg(target_os = "windows")]
-    command_queue: Option<ID3D12CommandQueue>,
+    video_command_queue: Option<ID3D12CommandQueue>,
     #[cfg(target_os = "windows")]
-    command_allocator: Option<ID3D12CommandAllocator>,
+    video_command_allocator: Option<ID3D12CommandAllocator>,
+    #[cfg(target_os = "windows")]
+    direct_command_queue: Option<ID3D12CommandQueue>,
+    #[cfg(target_os = "windows")]
+    direct_command_allocator: Option<ID3D12CommandAllocator>,
     #[cfg(target_os = "windows")]
     video_decoder: Option<ID3D12VideoDecoder>,
     #[cfg(target_os = "windows")]
@@ -128,9 +138,13 @@ impl D3D12Decoder {
             #[cfg(target_os = "windows")]
             video_device: None,
             #[cfg(target_os = "windows")]
-            command_queue: None,
+            video_command_queue: None,
             #[cfg(target_os = "windows")]
-            command_allocator: None,
+            video_command_allocator: None,
+            #[cfg(target_os = "windows")]
+            direct_command_queue: None,
+            #[cfg(target_os = "windows")]
+            direct_command_allocator: None,
             #[cfg(target_os = "windows")]
             video_decoder: None,
             #[cfg(target_os = "windows")]
@@ -331,21 +345,33 @@ impl D3D12Decoder {
         }
         tracing::info!("D3D12: HEVC Main NV12 decode supported");
 
-        // 5. VIDEO_DECODE command queue ────────────────────────────────────────
-        let queue_desc = D3D12_COMMAND_QUEUE_DESC {
+        // 5. VIDEO_DECODE command queue & allocator ───────────────────────────
+        let video_queue_desc = D3D12_COMMAND_QUEUE_DESC {
             Type: D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
             Priority: D3D12_COMMAND_QUEUE_PRIORITY_NORMAL.0,
             Flags: D3D12_COMMAND_QUEUE_FLAG_NONE,
             NodeMask: 0,
         };
-        let command_queue: ID3D12CommandQueue = device
-            .CreateCommandQueue(&queue_desc)
-            .map_err(|e| ViewerError::Decoder(format!("CreateCommandQueue: {e}")))?;
-
-        // 6. Command allocator ─────────────────────────────────────────────────
-        let command_allocator: ID3D12CommandAllocator = device
+        let video_command_queue: ID3D12CommandQueue = device
+            .CreateCommandQueue(&video_queue_desc)
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandQueue (video): {e}")))?;
+        let video_command_allocator: ID3D12CommandAllocator = device
             .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE)
-            .map_err(|e| ViewerError::Decoder(format!("CreateCommandAllocator: {e}")))?;
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandAllocator (video): {e}")))?;
+
+        // 6. DIRECT command queue & allocator (for ResourceBarrier & CopyTextureRegion) ─
+        let direct_queue_desc = D3D12_COMMAND_QUEUE_DESC {
+            Type: D3D12_COMMAND_LIST_TYPE_DIRECT,
+            Priority: D3D12_COMMAND_QUEUE_PRIORITY_NORMAL.0,
+            Flags: D3D12_COMMAND_QUEUE_FLAG_NONE,
+            NodeMask: 0,
+        };
+        let direct_command_queue: ID3D12CommandQueue = device
+            .CreateCommandQueue(&direct_queue_desc)
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandQueue (direct): {e}")))?;
+        let direct_command_allocator: ID3D12CommandAllocator = device
+            .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandAllocator (direct): {e}")))?;
 
         // 7. VideoDecoder ─────────────────────────────────────────────────────
         let decoder_desc = D3D12_VIDEO_DECODER_DESC {
@@ -492,8 +518,10 @@ impl D3D12Decoder {
         // Store everything
         self.device = Some(device);
         self.video_device = Some(video_device);
-        self.command_queue = Some(command_queue);
-        self.command_allocator = Some(command_allocator);
+        self.video_command_queue = Some(video_command_queue);
+        self.video_command_allocator = Some(video_command_allocator);
+        self.direct_command_queue = Some(direct_command_queue);
+        self.direct_command_allocator = Some(direct_command_allocator);
         self.video_decoder = Some(video_decoder);
         self.decoder_heap = Some(decoder_heap);
         self.output_texture = Some(output_texture);
@@ -539,14 +567,22 @@ impl D3D12Decoder {
             .video_device
             .as_ref()
             .ok_or_else(|| ViewerError::Decoder("video_device not init".to_string()))?;
-        let command_queue = self
-            .command_queue
+        let video_command_queue = self
+            .video_command_queue
             .as_ref()
-            .ok_or_else(|| ViewerError::Decoder("command_queue not init".to_string()))?;
-        let command_allocator = self
-            .command_allocator
+            .ok_or_else(|| ViewerError::Decoder("video_command_queue not init".to_string()))?;
+        let video_command_allocator = self
+            .video_command_allocator
             .as_ref()
-            .ok_or_else(|| ViewerError::Decoder("command_allocator not init".to_string()))?;
+            .ok_or_else(|| ViewerError::Decoder("video_command_allocator not init".to_string()))?;
+        let direct_command_queue = self
+            .direct_command_queue
+            .as_ref()
+            .ok_or_else(|| ViewerError::Decoder("direct_command_queue not init".to_string()))?;
+        let direct_command_allocator = self
+            .direct_command_allocator
+            .as_ref()
+            .ok_or_else(|| ViewerError::Decoder("direct_command_allocator not init".to_string()))?;
         let video_decoder = self
             .video_decoder
             .as_ref()
@@ -610,21 +646,21 @@ impl D3D12Decoder {
         std::ptr::copy_nonoverlapping(packet.as_ptr(), mapped_ptr.cast::<u8>(), packet.len());
         upload_resource.Unmap(0, None);
 
-        // 2. Reset command allocator and create a new video decode command list ──
-        command_allocator
+        // 2. Video decode command list (VIDEO_DECODE queue) ────────────────────
+        video_command_allocator
             .Reset()
-            .map_err(|e| ViewerError::Decoder(format!("CommandAllocator::Reset: {e}")))?;
+            .map_err(|e| ViewerError::Decoder(format!("VideoCommandAllocator::Reset: {e}")))?;
 
-        let cmd_list: ID3D12VideoDecodeCommandList = device
+        let video_cmd_list: ID3D12VideoDecodeCommandList = device
             .CreateCommandList(
                 0,
                 D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
-                command_allocator,
+                video_command_allocator,
                 None::<&windows::Win32::Graphics::Direct3D12::ID3D12PipelineState>,
             )
-            .map_err(|e| ViewerError::Decoder(format!("CreateCommandList: {e}")))?;
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (video): {e}")))?;
 
-        // 3. Transition output texture: COMMON → VIDEO_DECODE_WRITE ──────────
+        // Transition output texture to VIDEO_DECODE_WRITE
         let barrier_to_decode = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
@@ -637,9 +673,9 @@ impl D3D12Decoder {
                 }),
             },
         };
-        cmd_list.ResourceBarrier(&[barrier_to_decode]);
+        video_cmd_list.ResourceBarrier(&[barrier_to_decode]);
 
-        // 4. Build decode arguments ────────────────────────────────────────────
+        // Build decode arguments
         let compressed = D3D12_VIDEO_DECODE_COMPRESSED_BITSTREAM {
             pBuffer: std::mem::ManuallyDrop::new(Some(upload_resource.clone())),
             Offset: 0,
@@ -651,7 +687,7 @@ impl D3D12Decoder {
             ReferenceFrames: D3D12_VIDEO_DECODE_REFERENCE_FRAMES {
                 NumTexture2Ds: 0,
                 ppTexture2Ds: std::ptr::null_mut(),
-                pSubresources: std::ptr::null(),
+                pSubresources: std::ptr::null_mut(),
                 ppHeaps: std::ptr::null_mut(),
             },
             CompressedBitstream: compressed,
@@ -670,9 +706,43 @@ impl D3D12Decoder {
             ConversionArguments: conversion,
         };
 
-        cmd_list.DecodeFrame(video_decoder, &output_args, &input_args);
+        video_cmd_list.DecodeFrame(video_decoder, &output_args, &input_args);
 
-        // 5. Transition output texture: VIDEO_DECODE_WRITE → COPY_SOURCE ────
+        video_cmd_list
+            .Close()
+            .map_err(|e| ViewerError::Decoder(format!("VideoCommandList::Close: {e}")))?;
+
+        let video_cmd_list_base: windows::Win32::Graphics::Direct3D12::ID3D12CommandList =
+            video_cmd_list
+                .cast()
+                .map_err(|e| ViewerError::Decoder(format!("cast to ID3D12CommandList: {e}")))?;
+        video_command_queue.ExecuteCommandLists(&[Some(video_cmd_list_base)]);
+
+        self.fence_value += 1;
+        let decode_fence_val = self.fence_value;
+        video_command_queue
+            .Signal(fence, decode_fence_val)
+            .map_err(|e| ViewerError::Decoder(format!("Signal (video): {e}")))?;
+
+        // 3. Direct command list (DIRECT queue) for CopyTextureRegion ──────────
+        direct_command_queue
+            .Wait(fence, decode_fence_val)
+            .map_err(|e| ViewerError::Decoder(format!("Wait (direct): {e}")))?;
+
+        direct_command_allocator
+            .Reset()
+            .map_err(|e| ViewerError::Decoder(format!("DirectCommandAllocator::Reset: {e}")))?;
+
+        let direct_cmd_list: ID3D12GraphicsCommandList = device
+            .CreateCommandList(
+                0,
+                D3D12_COMMAND_LIST_TYPE_DIRECT,
+                direct_command_allocator,
+                None::<&windows::Win32::Graphics::Direct3D12::ID3D12PipelineState>,
+            )
+            .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (direct): {e}")))?;
+
+        // Transition output texture: VIDEO_DECODE_WRITE → COPY_SOURCE
         let barrier_to_copy_src = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
@@ -685,10 +755,9 @@ impl D3D12Decoder {
                 }),
             },
         };
-        cmd_list.ResourceBarrier(&[barrier_to_copy_src]);
+        direct_cmd_list.ResourceBarrier(&[barrier_to_copy_src]);
 
-        // 6. Copy both NV12 subresources to readback buffer ──────────────────
-        // Y plane (subresource 0)
+        // Copy Y plane (subresource 0)
         let dst_y = D3D12_TEXTURE_COPY_LOCATION {
             pResource: std::mem::ManuallyDrop::new(Some(readback_buffer.clone())),
             Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
@@ -703,9 +772,9 @@ impl D3D12Decoder {
                 SubresourceIndex: 0,
             },
         };
-        cmd_list.CopyTextureRegion(&dst_y, 0, 0, 0, &src_y, None);
+        direct_cmd_list.CopyTextureRegion(&dst_y, 0, 0, 0, &src_y, None);
 
-        // UV plane (subresource 1)
+        // Copy UV plane (subresource 1)
         let dst_uv = D3D12_TEXTURE_COPY_LOCATION {
             pResource: std::mem::ManuallyDrop::new(Some(readback_buffer.clone())),
             Type: D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
@@ -720,30 +789,45 @@ impl D3D12Decoder {
                 SubresourceIndex: 1,
             },
         };
-        cmd_list.CopyTextureRegion(&dst_uv, 0, 0, 0, &src_uv, None);
+        direct_cmd_list.CopyTextureRegion(&dst_uv, 0, 0, 0, &src_uv, None);
 
-        // 7. Close and execute ─────────────────────────────────────────────────
-        cmd_list
+        // Transition output texture back to COMMON for next decode
+        let barrier_to_common = D3D12_RESOURCE_BARRIER {
+            Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
+            Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
+            Anonymous: D3D12_RESOURCE_BARRIER_0 {
+                Transition: std::mem::ManuallyDrop::new(D3D12_RESOURCE_TRANSITION_BARRIER {
+                    pResource: std::mem::ManuallyDrop::new(Some(output_texture.clone())),
+                    Subresource: 0xffff_ffff,
+                    StateBefore: D3D12_RESOURCE_STATE_COPY_SOURCE,
+                    StateAfter: D3D12_RESOURCE_STATE_COMMON,
+                }),
+            },
+        };
+        direct_cmd_list.ResourceBarrier(&[barrier_to_common]);
+
+        direct_cmd_list
             .Close()
-            .map_err(|e| ViewerError::Decoder(format!("CommandList::Close: {e}")))?;
+            .map_err(|e| ViewerError::Decoder(format!("DirectCommandList::Close: {e}")))?;
 
-        let cmd_list_base: windows::Win32::Graphics::Direct3D12::ID3D12CommandList = cmd_list
-            .cast()
-            .map_err(|e| ViewerError::Decoder(format!("cast to ID3D12CommandList: {e}")))?;
-        command_queue.ExecuteCommandLists(&[Some(cmd_list_base)]);
+        let direct_cmd_list_base: windows::Win32::Graphics::Direct3D12::ID3D12CommandList =
+            direct_cmd_list
+                .cast()
+                .map_err(|e| ViewerError::Decoder(format!("cast to ID3D12CommandList: {e}")))?;
+        direct_command_queue.ExecuteCommandLists(&[Some(direct_cmd_list_base)]);
 
-        // 8. Fence signal + wait (event handle created and closed here) ────────
         self.fence_value += 1;
-        let signal_value = self.fence_value;
-        command_queue
-            .Signal(fence, signal_value)
-            .map_err(|e| ViewerError::Decoder(format!("Signal: {e}")))?;
+        let copy_fence_val = self.fence_value;
+        direct_command_queue
+            .Signal(fence, copy_fence_val)
+            .map_err(|e| ViewerError::Decoder(format!("Signal (direct): {e}")))?;
 
-        if fence.GetCompletedValue() < signal_value {
+        // 4. CPU Wait for direct queue completion ─────────────────────────────
+        if fence.GetCompletedValue() < copy_fence_val {
             let event = CreateEventW(None, false, false, None)
                 .map_err(|e| ViewerError::Decoder(format!("CreateEventW: {e}")))?;
             fence
-                .SetEventOnCompletion(signal_value, event)
+                .SetEventOnCompletion(copy_fence_val, event)
                 .map_err(|e| {
                     let _ = CloseHandle(event);
                     ViewerError::Decoder(format!("SetEventOnCompletion: {e}"))
@@ -752,7 +836,7 @@ impl D3D12Decoder {
             let _ = CloseHandle(event);
         }
 
-        // 9. Map readback buffer, extract NV12 planes row-by-row ─────────────
+        // 5. Map readback buffer, extract NV12 planes row-by-row ─────────────
         let mut mapped: *mut core::ffi::c_void = std::ptr::null_mut();
         readback_buffer
             .Map(0, None, Some(&mut mapped))
@@ -791,7 +875,7 @@ impl D3D12Decoder {
         };
         readback_buffer.Unmap(0, Some(&read_range));
 
-        // 10. Log diagnostics for first several frames ─────────────────────────
+        // Log diagnostics for first several frames
         if self.decoded_count < 8 {
             log_nv12_stats(&nv12, self.width, self.height, frame_id, packet.len());
         }
