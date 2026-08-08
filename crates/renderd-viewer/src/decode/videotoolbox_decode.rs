@@ -10,7 +10,7 @@
     clippy::too_many_lines
 )]
 
-use crate::decoder::{DecodedFrame, Decoder, PixelFormat};
+use crate::decoder::{DecodedFrame, Decoder};
 use crate::error::ViewerError;
 use std::collections::VecDeque;
 use std::fmt::Debug;
@@ -187,7 +187,7 @@ impl Decoder for VideoToolboxDecoder {
                                     frame_id = out_frame_id,
                                     width = actual_w,
                                     height = actual_h,
-                                    format = ?PixelFormat::Bgra8,
+                                    format = ?crate::decoder::PixelFormat::Bgra8,
                                     min_byte = min_val,
                                     max_byte = max_val,
                                     unique_bytes = unique_set.len(),
@@ -201,7 +201,7 @@ impl Decoder for VideoToolboxDecoder {
                                 pts_ns: if cb_pts_ns >= 0 { cb_pts_ns as u64 } else { 0 },
                                 width: actual_w,
                                 height: actual_h,
-                                format: PixelFormat::Bgra8,
+                                format: crate::decoder::PixelFormat::Bgra8,
                                 buffer,
                                 decode_duration: std::time::Duration::from_millis(1),
                             };
