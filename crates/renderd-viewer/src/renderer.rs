@@ -1,6 +1,6 @@
 //! Graphics renderer abstraction for swapchain management and frame presentation.
 
-use crate::decoder::DecodedFrame;
+use crate::decoder::{DecodedFrame, PixelFormat};
 use crate::error::ViewerError;
 use std::fmt::Debug;
 
@@ -56,6 +56,8 @@ pub trait Renderer: Send + Sync {
     /// Returns [`ViewerError::Renderer`] if shutdown fails.
     fn shutdown(&mut self) -> Result<(), ViewerError>;
 }
+
+static SOFT_RENDER_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Software surface renderer using `softbuffer` for cross-platform pixel presentation.
 pub struct SoftRenderer {
@@ -134,6 +136,11 @@ impl Renderer for SoftRenderer {
         Ok(())
     }
 
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::suboptimal_flops
+    )]
     fn render_frame(&mut self, frame: &DecodedFrame) -> Result<(), ViewerError> {
         if !self.initialized {
             return Err(ViewerError::Renderer(
@@ -154,15 +161,76 @@ impl Renderer for SoftRenderer {
                         let src = &frame.buffer;
                         let dest = &mut buffer;
                         let num_pixels = (width * height) as usize;
+                        let mut non_zero_pixels = 0u64;
 
-                        if src.len() >= num_pixels * 4 && dest.len() >= num_pixels {
-                            for i in 0..num_pixels {
-                                let b = u32::from(src[i * 4]);
-                                let g = u32::from(src[i * 4 + 1]);
-                                let r = u32::from(src[i * 4 + 2]);
-                                let a = u32::from(src[i * 4 + 3]);
-                                dest[i] = (a << 24) | (r << 16) | (g << 8) | b;
+                        match frame.format {
+                            PixelFormat::Bgra8 => {
+                                if src.len() >= num_pixels * 4 && dest.len() >= num_pixels {
+                                    for i in 0..num_pixels {
+                                        let b = u32::from(src[i * 4]);
+                                        let g = u32::from(src[i * 4 + 1]);
+                                        let r = u32::from(src[i * 4 + 2]);
+                                        let a = u32::from(src[i * 4 + 3]);
+                                        let pixel = (a << 24) | (r << 16) | (g << 8) | b;
+                                        if (pixel & 0x00FF_FFFF) != 0 {
+                                            non_zero_pixels += 1;
+                                        }
+                                        dest[i] = pixel;
+                                    }
+                                }
                             }
+                            PixelFormat::Nv12 | PixelFormat::P010 => {
+                                let nv12_min_len = num_pixels + num_pixels / 2;
+                                if src.len() >= nv12_min_len && dest.len() >= num_pixels {
+                                    let y_plane = &src[..num_pixels];
+                                    let uv_plane = &src[num_pixels..nv12_min_len];
+
+                                    for row in 0..height {
+                                        for col in 0..width {
+                                            let y_idx = (row * width + col) as usize;
+                                            let y_val = f32::from(y_plane[y_idx]);
+
+                                            let uv_row = row / 2;
+                                            let uv_col = col & !1;
+                                            let uv_offset = (uv_row * width + uv_col) as usize;
+
+                                            let u_val = f32::from(uv_plane[uv_offset]) - 128.0;
+                                            let v_val = f32::from(uv_plane[uv_offset + 1]) - 128.0;
+
+                                            let r =
+                                                (y_val + 1.402 * v_val).clamp(0.0, 255.0) as u32;
+                                            let g = (y_val - 0.344_136 * u_val - 0.714_136 * v_val)
+                                                .clamp(0.0, 255.0)
+                                                as u32;
+                                            let b =
+                                                (y_val + 1.772 * u_val).clamp(0.0, 255.0) as u32;
+                                            let a = 255u32;
+
+                                            let pixel = (a << 24) | (r << 16) | (g << 8) | b;
+                                            if (pixel & 0x00FF_FFFF) != 0 {
+                                                non_zero_pixels += 1;
+                                            }
+                                            dest[y_idx] = pixel;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        let count = SOFT_RENDER_LOG_COUNT
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                            + 1;
+                        if count <= 5 {
+                            tracing::info!(
+                                count = count,
+                                format = ?frame.format,
+                                width = width,
+                                height = height,
+                                src_len = src.len(),
+                                dest_pixels = dest.len(),
+                                non_zero_pixels = non_zero_pixels,
+                                "RENDER: SoftRenderer presented frame to softbuffer swapchain"
+                            );
                         }
 
                         let _ = buffer.present();
@@ -289,5 +357,22 @@ mod tests {
         assert!(renderer.present().is_ok());
         renderer.shutdown().unwrap();
         assert!(!renderer.is_initialized());
+    }
+
+    #[test]
+    fn test_soft_renderer_uninitialized_error() {
+        let mut renderer = SoftRenderer::new();
+        let frame = DecodedFrame {
+            frame_id: 1,
+            pts_ns: 0,
+            width: 100,
+            height: 100,
+            format: PixelFormat::Bgra8,
+            buffer: vec![255u8; 40000],
+            decode_duration: std::time::Duration::from_millis(1),
+        };
+
+        assert!(renderer.render_frame(&frame).is_err());
+        assert!(renderer.present().is_err());
     }
 }

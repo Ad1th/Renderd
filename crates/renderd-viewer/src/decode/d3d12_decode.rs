@@ -7,6 +7,8 @@ use crate::error::ViewerError;
 use std::collections::VecDeque;
 use std::time::Instant;
 
+static D3D12_DECODE_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
 /// Direct3D 12 hardware video decoder.
 #[derive(Debug)]
 pub struct D3D12Decoder {
@@ -107,6 +109,36 @@ impl Decoder for D3D12Decoder {
             buffer,
             decode_duration: start_time.elapsed(),
         };
+
+        let count = D3D12_DECODE_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+
+        if count <= 5 {
+            let buf = &frame.buffer;
+            let first_16 = &buf[..16.min(buf.len())];
+            let min_val = buf.iter().copied().min().unwrap_or(0);
+            let max_val = buf.iter().copied().max().unwrap_or(0);
+            let sum: u64 = buf.iter().map(|&b| u64::from(b)).sum();
+            #[allow(clippy::cast_possible_truncation)]
+            let avg_val = if buf.is_empty() {
+                0
+            } else {
+                (sum / buf.len() as u64) as u8
+            };
+            tracing::info!(
+                count = count,
+                frame_id = frame_id,
+                width = self.width,
+                height = self.height,
+                packet_len = packet.len(),
+                buffer_len = buf.len(),
+                format = ?PixelFormat::Nv12,
+                min_byte = min_val,
+                max_byte = max_val,
+                avg_byte = avg_val,
+                first_16_bytes = ?first_16,
+                "DECODE: D3D12Decoder frame decoded inspection"
+            );
+        }
 
         self.output_queue.push_back(frame);
         self.decoded_count += 1;
