@@ -15,7 +15,9 @@ pub use error::DiscoveryError;
 #[cfg(target_os = "macos")]
 pub use macos::{BonjourAdvertiser, BonjourBrowser};
 pub use manual::ManualBrowser;
-pub use record::{DiscoveryEvent, ServiceRecord};
+pub use record::{
+    address_score, is_link_local_v6, select_best_address, DiscoveryEvent, ServiceRecord,
+};
 pub use traits::{Advertiser, Browser};
 #[cfg(target_os = "windows")]
 pub use windows::{WinDnsAdvertiser, WinDnsBrowser};

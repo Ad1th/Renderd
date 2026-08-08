@@ -79,7 +79,7 @@ unsafe extern "system" fn browse_callback(
     let mut curr = pdnsrecord;
     let mut discovered_name: Option<String> = None;
     let mut discovered_port: Option<u16> = None;
-    let mut discovered_addr: Option<IpAddr> = None;
+    let mut discovered_addrs: Vec<IpAddr> = Vec::new();
 
     while !curr.is_null() {
         let rec = &*curr;
@@ -124,13 +124,13 @@ unsafe extern "system" fn browse_callback(
             1 => {
                 let a_data = rec.Data.A;
                 let ip_bytes = a_data.IpAddress.to_ne_bytes();
-                discovered_addr = Some(IpAddr::V4(Ipv4Addr::from(ip_bytes)));
+                discovered_addrs.push(IpAddr::V4(Ipv4Addr::from(ip_bytes)));
             }
             // AAAA record (28)
             28 => {
                 let aaaa_data = rec.Data.AAAA;
                 let ip6_bytes = aaaa_data.Ip6Address.IP6Byte;
-                discovered_addr = Some(IpAddr::V6(std::net::Ipv6Addr::from(ip6_bytes)));
+                discovered_addrs.push(IpAddr::V6(std::net::Ipv6Addr::from(ip6_bytes)));
             }
             _ => {}
         }
@@ -138,7 +138,7 @@ unsafe extern "system" fn browse_callback(
         curr = rec.pNext;
     }
 
-    if let Some(addr) = discovered_addr {
+    if let Some(addr) = crate::record::select_best_address(&discovered_addrs) {
         let name = discovered_name.unwrap_or_else(|| "renderd-host".to_string());
         let port = discovered_port.unwrap_or(4433);
         let host_id = Uuid::new_v5(&Uuid::NAMESPACE_DNS, name.as_bytes());
