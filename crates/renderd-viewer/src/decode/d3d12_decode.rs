@@ -8,9 +8,9 @@
 //! impls, so it is never stored as a persistent struct field. Event handles are created, used,
 //! and closed within individual calls on the current thread.
 
-use crate::decoder::{DecodedFrame, Decoder};
 #[cfg(target_os = "windows")]
 use crate::decoder::PixelFormat;
+use crate::decoder::{DecodedFrame, Decoder};
 use crate::error::ViewerError;
 use std::collections::VecDeque;
 use std::time::Instant;
