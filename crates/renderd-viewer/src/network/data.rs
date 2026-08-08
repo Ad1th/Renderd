@@ -68,8 +68,21 @@ impl DatagramReceiver {
 
         match self.window.insert(header, payload) {
             Ok(Some(frame)) => {
-                self.reassembled_frames.fetch_add(1, Ordering::Relaxed);
+                let frame_count = self.reassembled_frames.fetch_add(1, Ordering::Relaxed) + 1;
                 let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+
+                if frame_count <= 8 {
+                    let payload_len = frame.payload.len();
+                    let first32 = &frame.payload[..32.min(payload_len)];
+                    let last32 = &frame.payload[payload_len.saturating_sub(32)..];
+                    tracing::info!(
+                        frame_id = frame.frame_id,
+                        payload_len,
+                        first32 = ?first32,
+                        last32 = ?last32,
+                        "REASSEMBLY: complete frame delivered to decoder"
+                    );
+                }
 
                 decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)?;
                 Ok(Some(frame.frame_id))
