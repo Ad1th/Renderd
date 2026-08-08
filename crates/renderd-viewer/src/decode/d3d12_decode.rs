@@ -24,7 +24,7 @@ use std::time::Instant;
 #[cfg(target_os = "windows")]
 use windows::{
     Win32::Foundation::{CloseHandle, FALSE},
-    Win32::Graphics::Direct3D::{D3D_FEATURE_LEVEL, D3D_FEATURE_LEVEL_11_0},
+    Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0,
     Win32::Graphics::Direct3D12::{
         D3D12CreateDevice, ID3D12CommandAllocator, ID3D12CommandQueue, ID3D12Device, ID3D12Fence,
         ID3D12GraphicsCommandList, ID3D12Resource, D3D12_COMMAND_LIST_TYPE_DIRECT,
@@ -50,12 +50,12 @@ use windows::{
     Win32::Media::MediaFoundation::{
         ID3D12VideoDecodeCommandList, ID3D12VideoDecoder, ID3D12VideoDecoderHeap,
         ID3D12VideoDevice, D3D12_BITSTREAM_ENCRYPTION_TYPE_NONE,
-        D3D12_FEATURE_VIDEO_DECODE_SUPPORT, D3D12_VIDEO_DECODER_DESC,
-        D3D12_VIDEO_DECODER_HEAP_DESC, D3D12_VIDEO_DECODE_COMPRESSED_BITSTREAM,
-        D3D12_VIDEO_DECODE_CONFIGURATION, D3D12_VIDEO_DECODE_CONVERSION_ARGUMENTS,
-        D3D12_VIDEO_DECODE_INPUT_STREAM_ARGUMENTS, D3D12_VIDEO_DECODE_OUTPUT_STREAM_ARGUMENTS,
-        D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN, D3D12_VIDEO_DECODE_REFERENCE_FRAMES,
-        D3D12_VIDEO_DECODE_SUPPORT_DATA, D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED,
+        D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT, D3D12_FEATURE_VIDEO_DECODE_SUPPORT,
+        D3D12_VIDEO_DECODER_DESC, D3D12_VIDEO_DECODER_HEAP_DESC,
+        D3D12_VIDEO_DECODE_COMPRESSED_BITSTREAM, D3D12_VIDEO_DECODE_CONFIGURATION,
+        D3D12_VIDEO_DECODE_CONVERSION_ARGUMENTS, D3D12_VIDEO_DECODE_INPUT_STREAM_ARGUMENTS,
+        D3D12_VIDEO_DECODE_OUTPUT_STREAM_ARGUMENTS, D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN,
+        D3D12_VIDEO_DECODE_REFERENCE_FRAMES, D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED,
         D3D12_VIDEO_FRAME_CODED_INTERLACE_TYPE_NONE,
     },
     Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE},
@@ -315,7 +315,8 @@ impl D3D12Decoder {
             .map_err(|e| ViewerError::Decoder(format!("QI ID3D12VideoDevice: {e}")))?;
 
         // 4. Verify HEVC decode support ───────────────────────────────────────
-        let mut support = D3D12_VIDEO_DECODE_SUPPORT_DATA {
+        let mut support = D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT {
+            NodeIndex: 0,
             Configuration: D3D12_VIDEO_DECODE_CONFIGURATION {
                 DecodeProfile: D3D12_VIDEO_DECODE_PROFILE_HEVC_MAIN,
                 BitstreamEncryption: D3D12_BITSTREAM_ENCRYPTION_TYPE_NONE,
@@ -335,7 +336,7 @@ impl D3D12Decoder {
             .CheckFeatureSupport(
                 D3D12_FEATURE_VIDEO_DECODE_SUPPORT,
                 &raw mut support as *mut _,
-                std::mem::size_of::<D3D12_VIDEO_DECODE_SUPPORT_DATA>() as u32,
+                std::mem::size_of::<D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT>() as u32,
             )
             .map_err(|e| ViewerError::Decoder(format!("CheckFeatureSupport HEVC: {e}")))?;
         if support.SupportFlags != D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED {
@@ -563,10 +564,6 @@ impl D3D12Decoder {
             .device
             .as_ref()
             .ok_or_else(|| ViewerError::Decoder("device not init".to_string()))?;
-        let video_device = self
-            .video_device
-            .as_ref()
-            .ok_or_else(|| ViewerError::Decoder("video_device not init".to_string()))?;
         let video_command_queue = self
             .video_command_queue
             .as_ref()
