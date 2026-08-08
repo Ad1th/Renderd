@@ -23,13 +23,14 @@ pub struct DiscoveredHosts {
 }
 
 impl DiscoveredHosts {
-    /// Returns the socket address of the most recently discovered host, or `None`
-    /// if no hosts are known.
+    /// Returns the socket address of the best available discovered host (preferring IPv4),
+    /// or `None` if no usable hosts are known.
     #[must_use]
     pub fn primary_addr(&self) -> Option<SocketAddr> {
         self.hosts
             .values()
-            .next()
+            .filter(|r| renderd_discovery::address_score(&r.addr) > 1)
+            .max_by_key(|r| renderd_discovery::address_score(&r.addr))
             .map(|r| SocketAddr::new(r.addr, r.port))
     }
 }
@@ -122,7 +123,14 @@ impl DiscoveryManager {
     fn apply_event_to(hosts: &Arc<Mutex<DiscoveredHosts>>, event: DiscoveryEvent) {
         let mut guard = hosts.lock().expect("DiscoveryManager mutex poisoned");
         match event {
-            DiscoveryEvent::Found(record) => {
+            DiscoveryEvent::Found(mut record) => {
+                if let Some(existing) = guard.hosts.get(&record.host_id) {
+                    if let Some(best) =
+                        renderd_discovery::select_best_address(&[existing.addr, record.addr])
+                    {
+                        record.addr = best;
+                    }
+                }
                 tracing::info!(
                     host_id = %record.host_id,
                     addr = ?record.addr,
@@ -175,6 +183,7 @@ impl Default for DiscoveryManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::IpAddr;
 
     #[tokio::test]
     async fn test_discovery_manager_manual_add() {
@@ -195,5 +204,86 @@ mod tests {
     fn test_discovered_hosts_primary_addr_empty() {
         let hosts = DiscoveredHosts::default();
         assert!(hosts.primary_addr().is_none());
+    }
+
+    #[test]
+    fn test_discovered_hosts_primary_addr_prefers_ipv4() {
+        let mut hosts = DiscoveredHosts::default();
+        let host_id = Uuid::new_v4();
+
+        let rec_v6 = ServiceRecord {
+            host_id,
+            name: "Host V6".to_string(),
+            addr: "fe80::1cdb:c5ef:65b1:8ba1".parse().unwrap(),
+            port: 4433,
+            txt: HashMap::new(),
+        };
+        let rec_v4 = ServiceRecord {
+            host_id: Uuid::new_v4(),
+            name: "Host V4".to_string(),
+            addr: "10.243.73.235".parse().unwrap(),
+            port: 4433,
+            txt: HashMap::new(),
+        };
+
+        hosts.hosts.insert(rec_v6.host_id, rec_v6);
+        hosts.hosts.insert(rec_v4.host_id, rec_v4);
+
+        let primary = hosts.primary_addr().unwrap();
+        assert_eq!(primary, "10.243.73.235:4433".parse().unwrap());
+    }
+
+    #[test]
+    fn test_discovered_hosts_primary_addr_ignores_unscoped_link_local() {
+        let mut hosts = DiscoveredHosts::default();
+        let rec_v6 = ServiceRecord {
+            host_id: Uuid::new_v4(),
+            name: "Host V6 Link Local".to_string(),
+            addr: "fe80::1cdb:c5ef:65b1:8ba1".parse().unwrap(),
+            port: 4433,
+            txt: HashMap::new(),
+        };
+        hosts.hosts.insert(rec_v6.host_id, rec_v6);
+
+        assert!(hosts.primary_addr().is_none());
+    }
+
+    #[test]
+    fn test_discovery_manager_apply_event_prefers_ipv4_update() {
+        let mgr = DiscoveryManager::new();
+        let host_id = Uuid::new_v4();
+
+        let v6_addr: IpAddr = "fe80::1cdb:c5ef:65b1:8ba1".parse().unwrap();
+        let v4_addr: IpAddr = "10.243.73.235".parse().unwrap();
+
+        let event_v6 = DiscoveryEvent::Found(ServiceRecord {
+            host_id,
+            name: "Host".to_string(),
+            addr: v6_addr,
+            port: 4433,
+            txt: HashMap::new(),
+        });
+
+        let event_v4 = DiscoveryEvent::Found(ServiceRecord {
+            host_id,
+            name: "Host".to_string(),
+            addr: v4_addr,
+            port: 4433,
+            txt: HashMap::new(),
+        });
+
+        // Event order 1: V6 first, then V4
+        DiscoveryManager::apply_event_to(&mgr.hosts, event_v6.clone());
+        DiscoveryManager::apply_event_to(&mgr.hosts, event_v4.clone());
+
+        let snap = mgr.snapshot();
+        assert_eq!(snap.hosts.get(&host_id).unwrap().addr, v4_addr);
+
+        // Event order 2: V4 first, then V6 (V4 should be preserved)
+        DiscoveryManager::apply_event_to(&mgr.hosts, event_v4);
+        DiscoveryManager::apply_event_to(&mgr.hosts, event_v6);
+
+        let snap2 = mgr.snapshot();
+        assert_eq!(snap2.hosts.get(&host_id).unwrap().addr, v4_addr);
     }
 }
