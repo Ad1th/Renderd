@@ -4,7 +4,6 @@
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr};
-use std::ptr;
 use tokio::sync::mpsc::{channel, Receiver, Sender};
 use uuid::Uuid;
 use windows::core::PCWSTR;
