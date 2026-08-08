@@ -61,6 +61,78 @@ extern "C" {
         label: *const i8,
         attr: *const std::ffi::c_void,
     ) -> *mut std::ffi::c_void;
+    fn CVPixelBufferGetWidth(pixel_buffer: *const std::ffi::c_void) -> usize;
+    fn CVPixelBufferGetHeight(pixel_buffer: *const std::ffi::c_void) -> usize;
+    fn CVPixelBufferGetPixelFormatType(pixel_buffer: *const std::ffi::c_void) -> u32;
+    fn CVPixelBufferGetBytesPerRow(pixel_buffer: *const std::ffi::c_void) -> usize;
+    fn CVPixelBufferGetPlaneCount(pixel_buffer: *const std::ffi::c_void) -> usize;
+    fn CVPixelBufferLockBaseAddress(pixel_buffer: *const std::ffi::c_void, lock_flags: u64) -> i32;
+    fn CVPixelBufferGetBaseAddressOfPlane(
+        pixel_buffer: *const std::ffi::c_void,
+        plane_index: usize,
+    ) -> *const u8;
+    fn CVPixelBufferGetBaseAddress(pixel_buffer: *const std::ffi::c_void) -> *const u8;
+    fn CVPixelBufferUnlockBaseAddress(
+        pixel_buffer: *const std::ffi::c_void,
+        lock_flags: u64,
+    ) -> i32;
+}
+
+fn inspect_captured_image_buf(image_buf: *const std::ffi::c_void, count: u64) {
+    if count > 5 || image_buf.is_null() {
+        return;
+    }
+    // SAFETY: Calling CVPixelBuffer query functions on valid image_buf.
+    unsafe {
+        let w = CVPixelBufferGetWidth(image_buf);
+        let h = CVPixelBufferGetHeight(image_buf);
+        let fmt = CVPixelBufferGetPixelFormatType(image_buf);
+        let bpr = CVPixelBufferGetBytesPerRow(image_buf);
+        let planes = CVPixelBufferGetPlaneCount(image_buf);
+
+        let lock_res = CVPixelBufferLockBaseAddress(image_buf, 1);
+        let mut min_val = 0u8;
+        let mut max_val = 0u8;
+        let mut avg_val = 0u8;
+        let mut sample_16 = Vec::new();
+
+        if lock_res == 0 {
+            let base_ptr = if planes > 0 {
+                CVPixelBufferGetBaseAddressOfPlane(image_buf, 0)
+            } else {
+                CVPixelBufferGetBaseAddress(image_buf)
+            };
+
+            if !base_ptr.is_null() && w > 0 && h > 0 {
+                let sample_len = (w * h).min(4096);
+                let slice = std::slice::from_raw_parts(base_ptr, sample_len);
+                min_val = slice.iter().copied().min().unwrap_or(0);
+                max_val = slice.iter().copied().max().unwrap_or(0);
+                let sum: u64 = slice.iter().map(|&b| u64::from(b)).sum();
+                #[allow(clippy::cast_possible_truncation)]
+                let avg_calculation = sum / slice.len() as u64;
+                #[allow(clippy::cast_possible_truncation)]
+                let avg_byte_val = avg_calculation as u8;
+                avg_val = avg_byte_val;
+                sample_16 = slice[..16.min(slice.len())].to_vec();
+            }
+            let _ = CVPixelBufferUnlockBaseAddress(image_buf, 1);
+        }
+
+        tracing::info!(
+            count = count,
+            width = w,
+            height = h,
+            format_fourcc = format!("{:#x}", fmt),
+            plane_count = planes,
+            bytes_per_row = bpr,
+            min_byte = min_val,
+            max_byte = max_val,
+            avg_byte = avg_val,
+            sample_16_bytes = ?sample_16,
+            "CAPTURE: ScreenCaptureKit frame inspection"
+        );
+    }
 }
 
 /// Single captured GPU video frame delivered by `ScreenStream`.
@@ -119,6 +191,11 @@ declare_class!(
                 return;
             }
 
+            let count = SC_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if count <= 5 {
+                inspect_captured_image_buf(image_buf, count);
+            }
+
             // SAFETY: Extract IOSurfaceRef from CVImageBufferRef.
             let surface_ptr = unsafe { CVPixelBufferGetIOSurface(image_buf) };
             if surface_ptr.is_null() {
@@ -152,7 +229,6 @@ declare_class!(
                 capture_ns: now_ns,
             };
 
-            let count = SC_FRAME_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
             if count == 1 {
                 tracing::info!(
                     count = count,
