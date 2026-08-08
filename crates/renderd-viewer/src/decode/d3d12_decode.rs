@@ -7,6 +7,70 @@ use crate::error::ViewerError;
 use std::collections::VecDeque;
 use std::time::Instant;
 
+#[cfg(target_os = "windows")]
+use windows::core::Interface;
+#[cfg(target_os = "windows")]
+use windows::Win32::Foundation::{HANDLE, FALSE, WIN32_ERROR};
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Direct3D12::*;
+#[cfg(target_os = "windows")]
+use windows::Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC};
+#[cfg(target_os = "windows")]
+use windows::Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE};
+/// Log basic statistics for an NV12 buffer (Y and UV planes).
+fn log_nv12_planes(buf: &[u8], width: u32, height: u32, count: u64) {
+    // NV12 layout: Y plane = width*height bytes, UV plane = width*height/2 bytes
+    let y_len = (width as usize) * (height as usize);
+    let uv_len = y_len / 2;
+
+    if buf.len() < y_len + uv_len {
+        tracing::warn!("NV12 buffer too short for expected size");
+        return;
+    }
+
+    let y_plane = &buf[..y_len];
+    let uv_plane = &buf[y_len..y_len + uv_len];
+
+    // Basic statistics for each plane
+    let y_min = *y_plane.iter().min().unwrap_or(&0);
+    let y_max = *y_plane.iter().max().unwrap_or(&0);
+    let y_avg = y_plane.iter().map(|&b| b as u64).sum::<u64>() / y_plane.len() as u64;
+
+    let uv_min = *uv_plane.iter().min().unwrap_or(&0);
+    let uv_max = *uv_plane.iter().max().unwrap_or(&0);
+    let uv_avg = uv_plane.iter().map(|&b| b as u64).sum::<u64>() / uv_plane.len() as u64;
+
+    // Sample a few pixels (top-left, centre, bottom-right)
+    let sample_coords = [
+        (0, 0),
+        (height / 2, width / 2),
+        (height - 1, width - 1),
+    ];
+    let mut y_samples = Vec::new();
+    for (row, col) in sample_coords {
+        let idx = (row as usize) * (width as usize) + (col as usize);
+        y_samples.push(y_plane[idx]);
+    }
+    // UV is subsampled 2×2, each pair is [U, V]
+    let mut uv_samples = Vec::new();
+    for (row, col) in sample_coords {
+        let uv_row = row / 2;
+        let uv_col = (col & !1) as usize; // even column for interleaved UV
+        let uv_idx = (uv_row as usize) * (width as usize) + uv_col;
+        uv_samples.push((uv_plane[uv_idx], uv_plane[uv_idx + 1]));
+    }
+
+    tracing::info!(
+        count = count,
+        width = width,
+        height = height,
+        y_min, y_max, y_avg,
+        uv_min, uv_max, uv_avg,
+        y_samples = ?y_samples,
+        uv_samples = ?uv_samples,
+        "NV12 buffer diagnostics"
+    );
+}
 static D3D12_DECODE_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Direct3D 12 hardware video decoder.
@@ -18,6 +82,23 @@ pub struct D3D12Decoder {
     height: u32,
     output_queue: VecDeque<DecodedFrame>,
     decoded_count: u64,
+
+    #[cfg(target_os = "windows")]
+    device: Option<ID3D12Device>,
+    #[cfg(target_os = "windows")]
+    video_device: Option<ID3D12VideoDevice>,
+    #[cfg(target_os = "windows")]
+    command_queue: Option<ID3D12CommandQueue>,
+    #[cfg(target_os = "windows")]
+    video_decoder: Option<ID3D12VideoDecoder>,
+    #[cfg(target_os = "windows")]
+    output_texture: Option<ID3D12Resource>,
+    #[cfg(target_os = "windows")]
+    readback_buffer: Option<ID3D12Resource>,
+    #[cfg(target_os = "windows")]
+    fence: Option<ID3D12Fence>,
+    #[cfg(target_os = "windows")]
+    fence_event: Option<HANDLE>,
 }
 
 impl Default for D3D12Decoder {
@@ -99,6 +180,10 @@ impl Decoder for D3D12Decoder {
         if !packet.is_empty() {
             buffer[0] = packet[0];
         }
+        // Log NV12 plane statistics for the first few frames
+        let count = D3D12_DECODE_LOG_COUNT.load(std::sync::atomic::Ordering::Relaxed) + 1;
+        log_nv12_planes(&buffer, self.width, self.height, count);
+
 
         let frame = DecodedFrame {
             frame_id,
