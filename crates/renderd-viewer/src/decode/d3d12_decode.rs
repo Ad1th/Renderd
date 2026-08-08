@@ -4,8 +4,8 @@
 //! `ID3D12VideoDecoder` (from `windows::Win32::Media::MediaFoundation`) (RFC-0002 §6.3).
 //!
 //! Architecture:
-//! - Persistent `upload_buffer` allocated on `D3D12Decoder` (re-allocated as needed) to prevent
-//!   GPU use-after-free crashes.
+//! - Reusable `upload_buffer` allocated on `D3D12Decoder` (aligned to 64KB, state `COMMON`)
+//!   to prevent GPU use-after-free crashes and resource state mismatches.
 //! - HEVC bitstream written to `upload_buffer`.
 //! - `ID3D12VideoDecodeCommandList` submitted to `VIDEO_DECODE` queue for `DecodeFrame`.
 //! - Video queue signals fence.
@@ -28,22 +28,22 @@ use windows::{
     Win32::Foundation::{CloseHandle, FALSE},
     Win32::Graphics::Direct3D::D3D_FEATURE_LEVEL_11_0,
     Win32::Graphics::Direct3D12::{
-        D3D12CreateDevice, ID3D12CommandAllocator, ID3D12CommandQueue, ID3D12Device, ID3D12Fence,
-        ID3D12GraphicsCommandList, ID3D12Resource, D3D12_COMMAND_LIST_TYPE_DIRECT,
-        D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE, D3D12_COMMAND_QUEUE_DESC,
-        D3D12_COMMAND_QUEUE_FLAG_NONE, D3D12_COMMAND_QUEUE_PRIORITY_NORMAL, D3D12_FENCE_FLAG_NONE,
-        D3D12_HEAP_FLAG_NONE, D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT,
-        D3D12_HEAP_TYPE_READBACK, D3D12_HEAP_TYPE_UPLOAD, D3D12_PLACED_SUBRESOURCE_FOOTPRINT,
-        D3D12_RANGE, D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0,
-        D3D12_RESOURCE_BARRIER_FLAG_NONE, D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
-        D3D12_RESOURCE_DESC, D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
+        D3D12CreateDevice, D3D12GetDebugInterface, ID3D12CommandAllocator, ID3D12CommandQueue,
+        ID3D12Debug, ID3D12Device, ID3D12Fence, ID3D12GraphicsCommandList, ID3D12Resource,
+        D3D12_COMMAND_LIST_TYPE_DIRECT, D3D12_COMMAND_LIST_TYPE_VIDEO_DECODE,
+        D3D12_COMMAND_QUEUE_DESC, D3D12_COMMAND_QUEUE_FLAG_NONE,
+        D3D12_COMMAND_QUEUE_PRIORITY_NORMAL, D3D12_FENCE_FLAG_NONE, D3D12_HEAP_FLAG_NONE,
+        D3D12_HEAP_PROPERTIES, D3D12_HEAP_TYPE_DEFAULT, D3D12_HEAP_TYPE_READBACK,
+        D3D12_HEAP_TYPE_UPLOAD, D3D12_PLACED_SUBRESOURCE_FOOTPRINT, D3D12_RANGE,
+        D3D12_RESOURCE_BARRIER, D3D12_RESOURCE_BARRIER_0, D3D12_RESOURCE_BARRIER_FLAG_NONE,
+        D3D12_RESOURCE_BARRIER_TYPE_TRANSITION, D3D12_RESOURCE_DESC,
+        D3D12_RESOURCE_DIMENSION_BUFFER, D3D12_RESOURCE_DIMENSION_TEXTURE2D,
         D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS, D3D12_RESOURCE_FLAG_NONE,
         D3D12_RESOURCE_STATE_COMMON, D3D12_RESOURCE_STATE_COPY_DEST,
-        D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_GENERIC_READ,
-        D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE, D3D12_RESOURCE_TRANSITION_BARRIER,
-        D3D12_TEXTURE_COPY_LOCATION, D3D12_TEXTURE_COPY_LOCATION_0,
-        D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-        D3D12_TEXTURE_LAYOUT_UNKNOWN,
+        D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_VIDEO_DECODE_WRITE,
+        D3D12_RESOURCE_TRANSITION_BARRIER, D3D12_TEXTURE_COPY_LOCATION,
+        D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
+        D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_UNKNOWN,
     },
     Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
     Win32::Graphics::Dxgi::{
@@ -302,6 +302,15 @@ impl D3D12Decoder {
     unsafe fn init_d3d12_inner(&mut self) -> Result<(), ViewerError> {
         use windows::core::Interface;
 
+        // 0. Enable D3D12 Debug Layer if available in debug builds ───────────────
+        let mut debug: Option<ID3D12Debug> = None;
+        if D3D12GetDebugInterface(&mut debug).is_ok() {
+            if let Some(d) = debug {
+                d.EnableDebugLayer();
+                tracing::info!("D3D12: Debug Layer enabled");
+            }
+        }
+
         // 1. DXGI factory ─────────────────────────────────────────────────────
         let factory: IDXGIFactory1 = CreateDXGIFactory1()
             .map_err(|e| ViewerError::Decoder(format!("CreateDXGIFactory1: {e}")))?;
@@ -406,7 +415,7 @@ impl D3D12Decoder {
             .CreateVideoDecoder(&decoder_desc)
             .map_err(|e| ViewerError::Decoder(format!("CreateVideoDecoder: {e}")))?;
 
-        // 8. VideoDecoderHeap ─────────────────────────────────────────────────
+        // 8. VideoDecoderHeap (MaxDecodePictureBufferCount set to 16 for HEVC DPB) ──
         let heap_desc = D3D12_VIDEO_DECODER_HEAP_DESC {
             NodeMask: 0,
             Configuration: D3D12_VIDEO_DECODE_CONFIGURATION {
@@ -422,7 +431,7 @@ impl D3D12Decoder {
                 Denominator: 1,
             },
             BitRate: 0,
-            MaxDecodePictureBufferCount: 1,
+            MaxDecodePictureBufferCount: 16,
         };
         let decoder_heap: ID3D12VideoDecoderHeap = video_device
             .CreateVideoDecoderHeap(&heap_desc)
@@ -626,9 +635,9 @@ impl D3D12Decoder {
 
         let packet_len = packet.len() as u64;
 
-        // 1. Prepare / re-allocate persistent upload resource ─────────────────
+        // 1. Prepare / re-allocate persistent upload resource (aligned to 64KB, initial state COMMON) ─
         if self.upload_buffer.is_none() || self.upload_capacity < packet_len {
-            let new_capacity = packet_len.max(131_072);
+            let new_capacity = ((packet_len + 65535) & !65535).max(131_072);
             let upload_heap = D3D12_HEAP_PROPERTIES {
                 Type: D3D12_HEAP_TYPE_UPLOAD,
                 ..Default::default()
@@ -654,7 +663,7 @@ impl D3D12Decoder {
                     &upload_heap,
                     D3D12_HEAP_FLAG_NONE,
                     &upload_desc,
-                    D3D12_RESOURCE_STATE_GENERIC_READ,
+                    D3D12_RESOURCE_STATE_COMMON,
                     None,
                     &mut upload_resource,
                 )
@@ -705,7 +714,7 @@ impl D3D12Decoder {
             )
             .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (video): {e}")))?;
 
-        // Transition output texture to VIDEO_DECODE_WRITE
+        // Transition output texture: COMMON → VIDEO_DECODE_WRITE
         let barrier_to_decode = D3D12_RESOURCE_BARRIER {
             Type: D3D12_RESOURCE_BARRIER_TYPE_TRANSITION,
             Flags: D3D12_RESOURCE_BARRIER_FLAG_NONE,
@@ -756,7 +765,14 @@ impl D3D12Decoder {
         };
 
         if is_diagnostic {
-            tracing::info!("DECODE [5/10]: calling DecodeFrame on ID3D12VideoDecodeCommandList");
+            tracing::info!(
+                frame_id,
+                packet_len = packet.len(),
+                width = self.width,
+                height = self.height,
+                upload_capacity = self.upload_capacity,
+                "DECODE [5/10]: calling DecodeFrame on ID3D12VideoDecodeCommandList"
+            );
         }
 
         video_cmd_list.DecodeFrame(video_decoder, &output_args, &input_args);
