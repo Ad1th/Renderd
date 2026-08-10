@@ -16,7 +16,7 @@ jobs:
   package-viewer-win:
     runs-on: windows-2025
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -32,7 +32,7 @@ jobs:
         run: .\tools\package-viewer\package.ps1 -Profile release
 
       - name: Upload Release Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: renderd-viewer-windows-zip
           path: |
