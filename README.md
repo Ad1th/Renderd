@@ -233,13 +233,71 @@ cargo test --workspace
 
 ### Running the Applications
 
-```bash
-# Run the macOS host daemon (blocks and runs event loop until Ctrl+C)
-cargo run -p renderd-host
+**On the macOS host**, start the daemon. It grants itself no permissions — macOS will
+prompt for Screen Recording access on first run, and the daemon must be restarted after
+you grant it.
 
-# Run the Windows viewer application (launches window and renderer)
+```bash
+cargo run -p renderd-host
+```
+
+On startup it prints the exact command to run on the viewer machine, for example:
+
+```
+INFO renderd_host::app: QUIC server endpoint listening for incoming viewer connections listen_addr=0.0.0.0:4433
+INFO renderd_host::app: Connect the viewer with:  renderd-viewer --host 10.219.217.235:4433
+```
+
+**On the Windows viewer**, either let mDNS find the host:
+
+```bash
 cargo run -p renderd-viewer
 ```
+
+…or, if the two machines cannot see each other's multicast traffic — different subnets, a
+VPN, or a firewall that blocks mDNS — pass the address the host printed:
+
+```bash
+cargo run -p renderd-viewer -- --host 10.219.217.235:4433
+```
+
+`--host` is the path that always works; discovery is a convenience on top of it.
+
+#### Viewer options
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--host <ADDR>` | — | Connect straight to this address, skipping discovery. A bare IP uses port 4433. |
+| `--codec <auto\|h264\|hevc>` | `auto` | `auto` offers H.264 first on Windows, HEVC first elsewhere. Pin one if the other misbehaves. |
+| `--decoder <mf\|d3d12>` | `mf` | `mf` uses a Media Foundation decoder MFT. `d3d12` is a development path that does not yet supply DXVA picture parameters. |
+| `--fullscreen` | off | Start borderless fullscreen. |
+| `--width`, `--height` | 1920×1080 | Initial window size. |
+| `--log-level <LEVEL>` | `info` | `trace`, `debug`, `info`, `warn`, `error`. |
+
+#### Host options
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--port <PORT>` | 4433 | UDP port to listen on. |
+| `--display-id <ID>` | 0 | Which display to capture. |
+| `--config <PATH>` | — | TOML config file. |
+| `--log-level <LEVEL>` | `info` | Logging verbosity. |
+
+#### If nothing appears
+
+1. **Check the two agree on a codec.** The host logs `Encoder configured codec=…`; the
+   viewer logs `handshake completed with host … codec=…`. A stock Windows install has no
+   HEVC decoder unless the *HEVC Video Extensions* are installed from the Microsoft
+   Store, which is why the viewer asks for H.264 there by default.
+2. **Confirm frames are leaving the host.** It logs `DataSender: datagram burst
+   checkpoint` every 100 frames. If that is silent, capture never started — check the
+   Screen Recording permission.
+3. **Confirm frames are arriving.** The viewer logs `DatagramReceiver: first QUIC
+   datagram received from host`, then `first frame reassembled`. If datagrams arrive but
+   no frame reassembles, packets are being lost or reordered beyond the window.
+4. **Turn on the VideoToolbox traces** on macOS with `RENDERD_VT_TRACE=1`, which reports
+   every CoreMedia call in the encode and decode paths. They are off by default because
+   they write to unbuffered stderr on every frame.
 
 ---
 
