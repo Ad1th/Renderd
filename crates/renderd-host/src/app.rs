@@ -189,6 +189,22 @@ impl HostApp {
             "QUIC server endpoint listening for incoming viewer connections"
         );
 
+        // 0.0.0.0 tells nobody where to point the viewer. Print the address a viewer on
+        // another machine should actually use, since `--host` is the connection path
+        // that still works when mDNS cannot cross the network.
+        if let Some(ip) = Self::primary_local_ip() {
+            tracing::info!(
+                "Connect the viewer with:  renderd-viewer --host {ip}:{}",
+                actual_addr.port()
+            );
+        } else {
+            tracing::warn!(
+                "Could not determine this machine's LAN address; run `ipconfig getifaddr en0` \
+                 and start the viewer with --host <that address>:{}",
+                actual_addr.port()
+            );
+        }
+
         // Register mDNS _renderd._udp.local. service advertisement via BonjourAdvertiser.
         let host_id = Uuid::new_v4();
         let mut txt = HashMap::new();
@@ -397,6 +413,18 @@ impl HostApp {
         Ok(())
     }
 
+    /// Returns this machine's primary outbound IPv4 address, or `None` if it has no route.
+    ///
+    /// Asks the OS routing table which local interface would be used to reach the wider
+    /// network. A connected UDP socket sends no packets — `connect` on a datagram socket
+    /// only fixes the peer address and resolves the route — so nothing leaves the machine.
+    fn primary_local_ip() -> Option<IpAddr> {
+        let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+        socket.connect("192.0.2.1:80").ok()?;
+        let ip = socket.local_addr().ok()?.ip();
+        (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+    }
+
     /// Stops capture, returns the session to `IDLE`, and reflects that in the menu bar.
     ///
     /// Safe to call from either the disconnect path or the handshake-failure path.
@@ -440,6 +468,16 @@ impl HostApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The advertised address must be something a viewer on another machine can dial:
+    /// never loopback, never 0.0.0.0.
+    #[test]
+    fn test_primary_local_ip_is_routable_or_absent() {
+        if let Some(ip) = HostApp::primary_local_ip() {
+            assert!(!ip.is_loopback(), "must not advertise loopback: {ip}");
+            assert!(!ip.is_unspecified(), "must not advertise 0.0.0.0: {ip}");
+        }
+    }
 
     #[test]
     fn test_host_app_instantiation() {
