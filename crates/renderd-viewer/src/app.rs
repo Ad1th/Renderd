@@ -109,9 +109,20 @@ impl App {
 
         let discovery = self.discovery.clone();
 
-        // Start the platform mDNS browser; on failure fall back to the
-        // configured manual host address from the viewer config.
+        // An explicit --host wins outright: it is the path that works when the two
+        // machines cannot see each other's multicast traffic. Otherwise browse mDNS,
+        // and fall back to loopback only so a single-machine smoke test still works.
+        let manual_host = self.config.manual_host;
         rt.block_on(async {
+            if let Some(addr) = manual_host {
+                if let Err(e) = discovery.add_manual(addr, "Command-line host") {
+                    tracing::error!("Failed to register --host {addr}: {e}");
+                } else {
+                    tracing::info!(host_addr = %addr, "Using host address from --host");
+                }
+                return;
+            }
+
             match discovery.start_platform_browse() {
                 Ok(()) => {
                     tracing::info!(
@@ -120,12 +131,13 @@ impl App {
                 }
                 Err(e) => {
                     tracing::warn!(
-                        "mDNS browser unavailable ({e}); activating ManualBrowser fallback"
+                        "mDNS browser unavailable ({e}); falling back to loopback. \
+                         Pass --host <address> to reach a host on another machine."
                     );
                     let addr: SocketAddr =
                         "127.0.0.1:4433".parse().expect("hardcoded addr is valid");
-                    if let Err(e2) = discovery.add_manual(addr, "Manual Fallback") {
-                        tracing::warn!("ManualBrowser fallback also failed: {e2}");
+                    if let Err(e2) = discovery.add_manual(addr, "Loopback fallback") {
+                        tracing::warn!("Loopback fallback also failed: {e2}");
                     }
                 }
             }
@@ -206,7 +218,7 @@ impl App {
                     };
 
                     match control_client
-                        .negotiate(&conn, display, vec!["hevc".to_string(), "h264".to_string()], 50_000, true)
+                        .negotiate(&conn, display, crate::decode::preferred_codecs(), 50_000, true)
                         .await
                     {
                         Ok((_hello, session_config, mut send_stream, mut _recv_stream)) => {

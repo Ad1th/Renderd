@@ -16,6 +16,12 @@ pub struct ViewerAppConfig {
     pub window_height: u32,
     /// Whether to start in borderless fullscreen mode.
     pub fullscreen: bool,
+    /// Explicit host address supplied on the command line.
+    ///
+    /// When set, discovery is skipped and the viewer connects straight to this
+    /// address — the reliable path when mDNS cannot cross the network between
+    /// the two machines.
+    pub manual_host: Option<std::net::SocketAddr>,
 }
 
 impl Default for ViewerAppConfig {
@@ -26,6 +32,7 @@ impl Default for ViewerAppConfig {
             window_width: 1920,
             window_height: 1080,
             fullscreen: false,
+            manual_host: None,
         }
     }
 }
@@ -45,6 +52,7 @@ impl ViewerAppConfig {
             window_width: config.viewer.window_width,
             window_height: config.viewer.window_height,
             fullscreen: config.viewer.fullscreen,
+            manual_host: None,
             config,
         })
     }
@@ -60,5 +68,6 @@ mod tests {
         assert_eq!(cfg.window_width, 1920);
         assert_eq!(cfg.window_height, 1080);
         assert!(!cfg.fullscreen);
+        assert!(cfg.manual_host.is_none());
     }
 }

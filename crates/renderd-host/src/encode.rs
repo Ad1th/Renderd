@@ -69,15 +69,42 @@ impl EncodePipeline {
         }
     }
 
-    /// Initializes the hardware compression session on macOS for the given resolution and bitrate.
+    /// Initializes the hardware compression session on macOS for the given resolution,
+    /// bitrate, and negotiated codec.
+    ///
+    /// `codec` is the string agreed during the Stream 0 handshake — `"h264"` or `"hevc"`.
+    /// Anything else is rejected rather than silently encoding a stream the viewer said
+    /// it cannot decode.
     ///
     /// # Errors
     ///
-    /// Returns [`HostError::Initialization`] if hardware encoder allocation fails.
-    pub fn init(&self, width: u32, height: u32, bitrate_kbps: u32) -> Result<(), HostError> {
+    /// Returns [`HostError::Initialization`] if the codec is unsupported or hardware
+    /// encoder allocation fails.
+    pub fn init(
+        &self,
+        width: u32,
+        height: u32,
+        bitrate_kbps: u32,
+        codec: &str,
+    ) -> Result<(), HostError> {
+        let codec_lower = codec.to_ascii_lowercase();
+        if codec_lower != "h264" && codec_lower != "hevc" {
+            return Err(HostError::Initialization(format!(
+                "Unsupported codec '{codec}'; expected 'h264' or 'hevc'"
+            )));
+        }
+
         #[cfg(target_os = "macos")]
         {
             use renderd_vt_sys::{CompressionSession, VideoCodec};
+
+            // Encode what the viewer actually negotiated. Hardcoding HEVC here meant a
+            // viewer that could only decode H.264 was sent a stream it could never show.
+            let vt_codec = if codec_lower == "h264" {
+                VideoCodec::H264
+            } else {
+                VideoCodec::Hevc
+            };
 
             let tx = self.tx.clone();
 
@@ -93,7 +120,7 @@ impl EncodePipeline {
             let session = CompressionSession::new(
                 width_i32,
                 height_i32,
-                VideoCodec::Hevc,
+                vt_codec,
                 bitrate_kbps,
                 #[allow(unsafe_code)]
                 move |err, _flags, sample_buf| {
@@ -151,6 +178,7 @@ impl EncodePipeline {
             let _ = (width, height, bitrate_kbps);
         }
 
+        tracing::info!(codec = %codec_lower, width, height, bitrate_kbps, "Encoder configured");
         Ok(())
     }
 
@@ -301,6 +329,31 @@ mod tests {
 
         // Ring buffer is now empty
         assert!(receiver.try_recv().is_err());
+    }
+
+    #[test]
+    fn test_init_rejects_unknown_codec() {
+        let pipeline = EncodePipeline::new();
+        let err = pipeline.init(1920, 1080, 20_000, "vp9").unwrap_err();
+        assert!(
+            format!("{err}").contains("vp9"),
+            "error should name the codec: {err}"
+        );
+    }
+
+    #[test]
+    fn test_init_accepts_both_negotiable_codecs() {
+        // On a machine without a usable hardware encoder these may still fail at the
+        // VideoToolbox call; what must not happen is a rejection at the codec check.
+        for codec in ["h264", "hevc", "HEVC", "H264"] {
+            let pipeline = EncodePipeline::new();
+            if let Err(e) = pipeline.init(640, 480, 4_000, codec) {
+                assert!(
+                    !format!("{e}").contains("Unsupported codec"),
+                    "{codec} must be accepted as a negotiable codec"
+                );
+            }
+        }
     }
 
     #[test]

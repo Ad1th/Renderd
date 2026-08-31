@@ -2462,6 +2462,7 @@ name = "renderd-viewer"
 version = "0.9.0-integration"
 dependencies = [
  "bytes",
+ "clap",
  "quinn",
  "renderd-abr",
  "renderd-clock",
