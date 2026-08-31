@@ -33,6 +33,24 @@ pub struct ViewerCli {
     /// Initial window height in physical pixels.
     #[arg(long)]
     pub height: Option<u32>,
+
+    /// Video decoder backend to use on Windows.
+    ///
+    /// `mf` (default) uses a Media Foundation decoder MFT, which parses the bitstream
+    /// itself. `d3d12` uses the `ID3D12VideoDecoder` path, which needs DXVA picture
+    /// parameters this build does not yet supply — it is kept only for development.
+    #[arg(long, value_name = "BACKEND", default_value = "mf")]
+    pub decoder: DecoderBackend,
+}
+
+/// Selectable video decoder implementation.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DecoderBackend {
+    /// Media Foundation decoder MFT (default on Windows).
+    #[default]
+    Mf,
+    /// Direct3D 12 video decoder.
+    D3d12,
 }
 
 /// Parses a `--host` value into a socket address, defaulting the port when absent.
@@ -91,6 +109,18 @@ mod tests {
             "message names the input: {err}"
         );
         assert!(parse_host_arg("   ").is_err());
+    }
+
+    #[test]
+    fn test_decoder_backend_defaults_to_media_foundation() {
+        let cli = ViewerCli::parse_from(["renderd-viewer"]);
+        assert_eq!(cli.decoder, DecoderBackend::Mf);
+    }
+
+    #[test]
+    fn test_decoder_backend_can_be_overridden() {
+        let cli = ViewerCli::parse_from(["renderd-viewer", "--decoder", "d3d12"]);
+        assert_eq!(cli.decoder, DecoderBackend::D3d12);
     }
 
     #[test]
