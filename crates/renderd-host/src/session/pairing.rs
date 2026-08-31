@@ -50,6 +50,10 @@ pub enum PairingError {
     /// Keychain storage of the derived token failed.
     #[error("keychain save failed: {0}")]
     KeychainSave(String),
+
+    /// The OS entropy source was unavailable, so no PIN could be generated.
+    #[error("cannot generate a secure pairing PIN: {0}")]
+    EntropyUnavailable(String),
 }
 
 /// Inner mutable state, held behind a `Mutex` so `PairingHandler` is `Send + Sync`.
@@ -110,17 +114,24 @@ impl PairingHandler {
 
     /// Generates and returns a fresh cryptographically random 6-digit PIN.
     ///
+    /// The PIN is drawn from the OS CSPRNG with rejection sampling, so every value in
+    /// `000000..=999999` is equally likely and no part of it can be reconstructed from
+    /// the wall clock, the process state, or a previously observed PIN.
+    ///
     /// Any previously active PIN is discarded. The new PIN is valid for 60 seconds.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PairingError::EntropyUnavailable`] if the OS entropy source cannot be
+    /// read. Pairing must be refused in that case rather than falling back to a
+    /// guessable PIN.
     ///
     /// # Panics
     ///
     /// Panics if the internal state mutex is poisoned (should never occur in normal use).
-    #[must_use]
-    pub fn generate_pin(&self) -> String {
-        // Generate a random 6-digit PIN in range [000000, 999999] using rejection sampling
-        // over a u32 drawn from the OS CSPRNG via getrandom, modulo 1_000_000.
-        let pin_number = secure_random_pin();
-        let pin = format!("{pin_number:06}");
+    pub fn generate_pin(&self) -> Result<String, PairingError> {
+        let pin = renderd_crypto::generate_pairing_pin()
+            .map_err(|e| PairingError::EntropyUnavailable(e.to_string()))?;
 
         let mut guard = self
             .state
@@ -129,7 +140,7 @@ impl PairingHandler {
         guard.active_pin = Some(pin.clone());
         guard.pin_generated_at = Some(Instant::now());
 
-        pin
+        Ok(pin)
     }
 
     /// Returns the currently active PIN without generating a new one, or `None` if no PIN is set.
@@ -300,28 +311,6 @@ impl PairingHandler {
     }
 }
 
-/// Returns a pseudo-random 6-digit PIN number in `[0, 999_999]`.
-///
-/// Mixes `SystemTime` and thread identity through `DefaultHasher` to produce a
-/// non-repeating PIN for each pairing session. The result is always `< 1_000_000`
-/// and therefore fits in a `u32`.
-///
-/// # Note
-/// Once `renderd-crypto` implements a CSPRNG helper (Issue #032), this should be
-/// replaced with a call to that API for full cryptographic randomness.
-fn secure_random_pin() -> u32 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    use std::time::SystemTime;
-
-    let mut hasher = DefaultHasher::new();
-    SystemTime::now().hash(&mut hasher);
-    std::thread::current().id().hash(&mut hasher);
-    let h = hasher.finish();
-    // h % 1_000_000 is always in [0, 999_999], which always fits in u32.
-    u32::try_from(h % 1_000_000).unwrap_or(0)
-}
-
 /// Constant-time byte-slice comparison to resist timing side-channel attacks.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
@@ -378,7 +367,7 @@ mod tests {
     #[test]
     fn test_generate_pin_is_six_digits() {
         let handler = make_handler();
-        let pin = handler.generate_pin();
+        let pin = handler.generate_pin().expect("OS CSPRNG available");
         assert_eq!(pin.len(), 6, "PIN must be exactly 6 characters");
         assert!(
             pin.chars().all(|c| c.is_ascii_digit()),
@@ -390,7 +379,7 @@ mod tests {
     fn test_active_pin_returns_generated_pin() {
         let handler = make_handler();
         assert!(handler.active_pin().is_none());
-        let pin = handler.generate_pin();
+        let pin = handler.generate_pin().expect("OS CSPRNG available");
         assert_eq!(handler.active_pin(), Some(pin));
     }
 
@@ -399,7 +388,7 @@ mod tests {
         let keychain = Arc::new(MockKeychain::new());
         let handler = PairingHandler::new(Arc::clone(&keychain) as Arc<dyn KeychainStore>);
 
-        let pin = handler.generate_pin();
+        let pin = handler.generate_pin().expect("OS CSPRNG available");
         let hid = host_id();
         let vid = viewer_id();
 
@@ -418,7 +407,7 @@ mod tests {
     #[test]
     fn test_verify_wrong_pin_fails_and_increments_counter() {
         let handler = make_handler();
-        let _pin = handler.generate_pin();
+        let _pin = handler.generate_pin().expect("OS CSPRNG available");
 
         let err = handler
             .verify_and_save("000000", host_id(), viewer_id(), vec![], 0)
@@ -442,12 +431,12 @@ mod tests {
 
         // Make all attempts with wrong PINs
         for _ in 0..MAX_ATTEMPTS_BEFORE_LOCKOUT {
-            let _pin = handler.generate_pin();
+            let _pin = handler.generate_pin().expect("OS CSPRNG available");
             let _ = handler.verify_and_save("000000", host_id(), viewer_id(), vec![], 0);
         }
 
         // Next attempt should be locked out
-        let _pin = handler.generate_pin();
+        let _pin = handler.generate_pin().expect("OS CSPRNG available");
         let err = handler
             .verify_and_save("000000", host_id(), viewer_id(), vec![], 0)
             .unwrap_err();
@@ -461,7 +450,7 @@ mod tests {
     #[test]
     fn test_reset_clears_all_state() {
         let handler = make_handler();
-        let _pin = handler.generate_pin();
+        let _pin = handler.generate_pin().expect("OS CSPRNG available");
         let _ = handler.verify_and_save("000000", host_id(), viewer_id(), vec![], 0);
 
         handler.reset();
@@ -502,7 +491,7 @@ mod tests {
         let vid = viewer_id();
 
         // 1. Host generates PIN and displays/notifies
-        let pin = host_handler.generate_pin();
+        let pin = host_handler.generate_pin().expect("OS CSPRNG available");
         notif_mgr.notify_pairing_pin(&pin);
 
         let notif_history = notif_mgr.history();
