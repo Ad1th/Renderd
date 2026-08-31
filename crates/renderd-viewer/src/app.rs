@@ -44,7 +44,12 @@ impl App {
         #[cfg(target_os = "macos")]
         let decoder: Box<dyn Decoder> = Box::new(crate::decode::VideoToolboxDecoder::new());
         #[cfg(target_os = "windows")]
-        let decoder: Box<dyn Decoder> = Box::new(crate::decode::D3D12Decoder::new());
+        let decoder: Box<dyn Decoder> = match config.decoder_backend {
+            crate::cli::DecoderBackend::Mf => {
+                Box::new(crate::decode::MediaFoundationDecoder::new())
+            }
+            crate::cli::DecoderBackend::D3d12 => Box::new(crate::decode::D3D12Decoder::new()),
+        };
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let decoder: Box<dyn Decoder> = Box::new(NullDecoder::new());
 

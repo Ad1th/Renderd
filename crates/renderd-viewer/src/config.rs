@@ -22,6 +22,8 @@ pub struct ViewerAppConfig {
     /// address — the reliable path when mDNS cannot cross the network between
     /// the two machines.
     pub manual_host: Option<std::net::SocketAddr>,
+    /// Which decoder implementation to construct.
+    pub decoder_backend: crate::cli::DecoderBackend,
 }
 
 impl Default for ViewerAppConfig {
@@ -33,6 +35,7 @@ impl Default for ViewerAppConfig {
             window_height: 1080,
             fullscreen: false,
             manual_host: None,
+            decoder_backend: crate::cli::DecoderBackend::Mf,
         }
     }
 }
@@ -53,6 +56,7 @@ impl ViewerAppConfig {
             window_height: config.viewer.window_height,
             fullscreen: config.viewer.fullscreen,
             manual_host: None,
+            decoder_backend: crate::cli::DecoderBackend::Mf,
             config,
         })
     }

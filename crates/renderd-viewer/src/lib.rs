@@ -29,12 +29,12 @@ pub mod window;
 
 pub use abr::FeedbackExporter;
 pub use app::App;
-pub use cli::{parse_host_arg, ViewerCli, DEFAULT_HOST_PORT};
+pub use cli::{parse_host_arg, DecoderBackend, ViewerCli, DEFAULT_HOST_PORT};
 pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
-pub use decode::D3D12Decoder;
 #[cfg(target_os = "macos")]
 pub use decode::VideoToolboxDecoder;
+pub use decode::{D3D12Decoder, MediaFoundationDecoder};
 pub use decoder::{DecodedFrame, Decoder, NullDecoder, PixelFormat};
 pub use discovery::{DiscoveredHosts, DiscoveryManager};
 pub use error::ViewerError;

@@ -22,6 +22,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.manual_host = Some(addr);
     }
 
+    config.decoder_backend = cli.decoder;
+
     if cli.fullscreen {
         config.fullscreen = true;
     }

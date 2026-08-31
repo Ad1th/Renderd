@@ -1,9 +1,11 @@
 //! Direct3D 12 video decoding subsystem module (`renderd-viewer/src/decode/`).
 
 pub mod d3d12_decode;
+pub mod mf_decode;
 pub mod videotoolbox_decode;
 
 pub use d3d12_decode::D3D12Decoder;
+pub use mf_decode::MediaFoundationDecoder;
 pub use videotoolbox_decode::VideoToolboxDecoder;
 
 /// Codecs this build can decode, most preferred first.
