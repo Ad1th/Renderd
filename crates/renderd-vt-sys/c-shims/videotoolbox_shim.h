@@ -133,6 +133,12 @@ OSStatus renderd_CMSampleBufferExtractNALs(
     bool *out_is_keyframe
 );
 
+/// Reads the presentation timestamp of a CMSampleBufferRef, rescaled to nanoseconds.
+OSStatus renderd_CMSampleBufferGetPresentationTimeNanos(
+    CMSampleBufferRef sample_buffer,
+    int64_t *out_pts_ns
+);
+
 #ifdef __cplusplus
 }
 #endif

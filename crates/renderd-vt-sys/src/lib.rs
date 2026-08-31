@@ -49,7 +49,7 @@ pub use error::VtError;
 #[cfg(target_os = "macos")]
 pub use session::{
     copy_pixel_buffer_bgra, get_pixel_buffer_dimensions, sample_buffer_extract_nals,
-    CompressionSession, DecompressionSession, VideoCodec,
+    sample_buffer_presentation_time_ns, CompressionSession, DecompressionSession, VideoCodec,
 };
 
 #[cfg(target_os = "macos")]

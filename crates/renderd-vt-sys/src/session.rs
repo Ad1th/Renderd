@@ -563,6 +563,33 @@ pub unsafe fn sample_buffer_extract_nals(
     }
 }
 
+/// Reads the presentation timestamp of an encoded `CMSampleBufferRef`, in nanoseconds.
+///
+/// # Errors
+/// Returns [`VtError`] if the sample buffer is null or carries no valid timestamp.
+///
+/// # Safety
+/// `sample_buffer` must be a valid `CMSampleBufferRef`.
+pub unsafe fn sample_buffer_presentation_time_ns(
+    sample_buffer: CMSampleBufferRef,
+) -> Result<i64, VtError> {
+    if sample_buffer.is_null() {
+        return Err(VtError(VtError::PARAMETER));
+    }
+
+    let mut pts_ns: i64 = 0;
+    // SAFETY: sample_buffer is a valid CMSampleBufferRef and pts_ns is a valid out-pointer.
+    let status = unsafe {
+        crate::bindings::renderd_CMSampleBufferGetPresentationTimeNanos(sample_buffer, &mut pts_ns)
+    };
+
+    if status == 0 {
+        Ok(pts_ns)
+    } else {
+        Err(VtError(status))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
