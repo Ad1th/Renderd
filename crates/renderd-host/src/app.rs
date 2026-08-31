@@ -270,9 +270,12 @@ impl HostApp {
                             menu_bar.update_status(&format!("Streaming ({})", session.state()));
 
                             // Activate VideoToolbox encoder & ScreenCaptureKit capture pipeline (#106)
-                            if let Err(e) =
-                                encode.init(cfg.width, cfg.height, cfg.initial_bitrate_kbps)
-                            {
+                            if let Err(e) = encode.init(
+                                cfg.width,
+                                cfg.height,
+                                cfg.initial_bitrate_kbps,
+                                &cfg.selected_codec,
+                            ) {
                                 tracing::warn!("Encode pipeline init failed: {e}");
                             }
 

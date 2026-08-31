@@ -12,6 +12,10 @@ use uuid::Uuid;
 use crate::error::HostError;
 use crate::session::HostSession;
 
+/// Codecs this host's hardware encoder can produce, used to intersect with the
+/// viewer's advertised preference list.
+const HOST_SUPPORTED_CODECS: [&str; 2] = ["hevc", "h264"];
+
 /// Host control stream dispatcher.
 #[derive(Debug, Default, Clone)]
 pub struct ControlDispatcher;
@@ -91,11 +95,21 @@ impl ControlDispatcher {
             "Received valid SessionHello from viewer"
         );
 
-        let selected_codec = if hello.supported_codecs.iter().any(|c| c == "hevc") {
-            "hevc".to_string()
-        } else {
-            "h264".to_string()
-        };
+        // Honour the viewer's preference order rather than always forcing HEVC. The
+        // viewer is the side with the hard constraint — a Windows box without the HEVC
+        // Video Extensions can only decode H.264 — so it lists what it wants first and
+        // the host takes the first entry it can actually encode.
+        let selected_codec = hello
+            .supported_codecs
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .find(|c| HOST_SUPPORTED_CODECS.contains(&c.as_str()))
+            .ok_or_else(|| {
+                HostError::Initialization(format!(
+                    "Viewer offered no codec this host can encode: {:?}",
+                    hello.supported_codecs
+                ))
+            })?;
 
         let display: &DisplayInfo = hello
             .display
@@ -194,14 +208,25 @@ mod tests {
         tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
     }
 
+    fn negotiate(offered: &[&str]) -> Option<String> {
+        offered
+            .iter()
+            .map(|c| c.to_ascii_lowercase())
+            .find(|c| HOST_SUPPORTED_CODECS.contains(&c.as_str()))
+    }
+
+    /// The viewer's order decides, so a viewer that can only really decode H.264 is not
+    /// handed an HEVC stream it will never display.
     #[test]
-    fn test_codec_preference_hevc_over_h264() {
-        let codecs: Vec<String> = vec!["h264".to_string(), "hevc".to_string()];
-        let selected = if codecs.iter().any(|c| c == "hevc") {
-            "hevc"
-        } else {
-            "h264"
-        };
-        assert_eq!(selected, "hevc");
+    fn test_codec_negotiation_follows_viewer_preference() {
+        assert_eq!(negotiate(&["h264", "hevc"]).as_deref(), Some("h264"));
+        assert_eq!(negotiate(&["hevc", "h264"]).as_deref(), Some("hevc"));
+    }
+
+    #[test]
+    fn test_codec_negotiation_skips_unknown_and_is_case_insensitive() {
+        assert_eq!(negotiate(&["vp9", "av1", "HEVC"]).as_deref(), Some("hevc"));
+        assert_eq!(negotiate(&["vp9"]), None);
+        assert_eq!(negotiate(&[]), None);
     }
 }

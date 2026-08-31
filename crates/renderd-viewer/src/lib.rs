@@ -8,6 +8,7 @@
 
 pub mod abr;
 pub mod app;
+pub mod cli;
 pub mod clock_sync;
 pub mod config;
 pub mod decode;
@@ -28,6 +29,7 @@ pub mod window;
 
 pub use abr::FeedbackExporter;
 pub use app::App;
+pub use cli::{parse_host_arg, ViewerCli, DEFAULT_HOST_PORT};
 pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
 pub use decode::D3D12Decoder;
