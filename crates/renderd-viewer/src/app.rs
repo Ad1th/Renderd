@@ -162,10 +162,7 @@ impl App {
         // Hand the app's decoder to the receive task rather than constructing a second
         // one there. Two decoders meant a whole extra hardware decode device was created
         // and initialized but never fed, and `with_decoder` had no effect on the pipeline.
-        let mut decoder = std::mem::replace(
-            &mut self.decoder,
-            Box::new(NullDecoder::new()),
-        );
+        let mut decoder = std::mem::replace(&mut self.decoder, Box::new(NullDecoder::new()));
 
         rt.spawn(async move {
             let control_client = ViewerControlClient::new(viewer_id);

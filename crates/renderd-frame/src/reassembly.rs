@@ -366,16 +366,25 @@ mod tests {
         h0.flags |= FLAG_KEYFRAME;
 
         // Non-keyframe-flagged last fragment arrives first.
-        buffer.insert(header(3, 1, 2), Bytes::from_static(b"b")).unwrap();
-        let frame = buffer.insert(h0, Bytes::from_static(b"a")).unwrap().unwrap();
+        buffer
+            .insert(header(3, 1, 2), Bytes::from_static(b"b"))
+            .unwrap();
+        let frame = buffer
+            .insert(h0, Bytes::from_static(b"a"))
+            .unwrap()
+            .unwrap();
         assert!(frame.is_keyframe);
     }
 
     #[test]
     fn test_drop_older_than_retires_frames() {
         let mut buffer = ReassemblyBuffer::new(8);
-        buffer.insert(header(1, 0, 2), Bytes::from_static(b"a")).unwrap();
-        buffer.insert(header(2, 0, 2), Bytes::from_static(b"b")).unwrap();
+        buffer
+            .insert(header(1, 0, 2), Bytes::from_static(b"a"))
+            .unwrap();
+        buffer
+            .insert(header(2, 0, 2), Bytes::from_static(b"b"))
+            .unwrap();
         buffer.drop_older_than(2);
         assert_eq!(buffer.pending_len(), 1);
         // Frame 1 is retired: its straggler must not be re-admitted.

@@ -195,7 +195,10 @@ impl DataSender {
                             "DataSender: transmitted first encoded frame QUIC datagram burst"
                         );
                     } else if sent_frames % 100 == 0 {
-                        tracing::info!(count = sent_frames, "DataSender: datagram burst checkpoint");
+                        tracing::info!(
+                            count = sent_frames,
+                            "DataSender: datagram burst checkpoint"
+                        );
                     }
                 }
                 Err(e) => {
