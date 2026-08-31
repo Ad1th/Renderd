@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     config.decoder_backend = cli.decoder;
+    config.codec_choice = cli.codec;
 
     if cli.fullscreen {
         config.fullscreen = true;

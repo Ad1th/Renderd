@@ -117,8 +117,16 @@ extern "C" {
     ) -> OSStatus;
 
     /// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
+    ///
+    /// `inout_format_desc` is a caller-owned cache of the most recent
+    /// `CMVideoFormatDescriptionRef`: parameter sets only arrive on keyframes, so
+    /// non-keyframe packets reuse whatever the last keyframe produced.
     pub fn renderd_VTDecompressionSessionDecodeFrame(
         session: VTDecompressionSessionRef,
+        codec_type: CMVideoCodecType,
+        width: i32,
+        height: i32,
+        inout_format_desc: *mut *mut std::ffi::c_void,
         data: *const u8,
         data_len: usize,
         pts_ns: i64,
@@ -157,6 +165,9 @@ extern "C" {
         out_size: *mut usize,
         out_is_keyframe: *mut bool,
     ) -> OSStatus;
+
+    /// Releases a CoreFoundation object retained by the shim.
+    pub fn renderd_CFRelease(obj: *mut std::ffi::c_void);
 
     /// Reads the presentation timestamp of a `CMSampleBufferRef`, rescaled to nanoseconds.
     pub fn renderd_CMSampleBufferGetPresentationTimeNanos(

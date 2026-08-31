@@ -293,6 +293,15 @@ unsafe extern "C" fn vt_decompression_output_callback(
 /// Encapsulates hardware-accelerated H.265/H.264 video decoding using Apple's `VideoToolbox` framework.
 pub struct DecompressionSession {
     session: VTDecompressionSessionRef,
+    codec: VideoCodec,
+    width: i32,
+    height: i32,
+    /// Most recent `CMVideoFormatDescriptionRef` seen on this session.
+    ///
+    /// Parameter sets ride along with keyframes only, so every other packet has to be
+    /// described by whatever the last keyframe produced. Held per session — a shared
+    /// static would leak one stream's parameter sets into another's.
+    format_desc: std::sync::atomic::AtomicPtr<std::ffi::c_void>,
     _callback_box: Box<DecompressionCallbackBox>,
 }
 
@@ -338,6 +347,10 @@ impl DecompressionSession {
 
         Ok(Self {
             session,
+            codec,
+            width,
+            height,
+            format_desc: std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()),
             _callback_box: cb_box,
         })
     }
@@ -391,6 +404,10 @@ impl DecompressionSession {
 
         Ok(Self {
             session,
+            codec,
+            width,
+            height,
+            format_desc: std::sync::atomic::AtomicPtr::new(std::ptr::null_mut()),
             _callback_box: cb_box,
         })
     }
@@ -417,10 +434,15 @@ impl DecompressionSession {
         if self.session.is_null() || data.is_empty() {
             return Err(VtError(VtError::PARAMETER));
         }
-        // SAFETY: self.session is a valid non-null VTDecompressionSessionRef.
+        // SAFETY: self.session is a valid non-null VTDecompressionSessionRef, and
+        // format_desc is a stable per-session slot the shim retains and releases.
         let status = unsafe {
             renderd_VTDecompressionSessionDecodeFrame(
                 self.session,
+                self.codec.to_fourcc(),
+                self.width,
+                self.height,
+                self.format_desc.as_ptr(),
                 data.as_ptr(),
                 data.len(),
                 pts_ns,
@@ -461,6 +483,17 @@ impl Drop for DecompressionSession {
                 renderd_VTDecompressionSessionInvalidate(self.session);
             }
             self.session = std::ptr::null_mut();
+        }
+
+        // Release the cached format description the shim retained for this session.
+        let cached = self
+            .format_desc
+            .swap(std::ptr::null_mut(), std::sync::atomic::Ordering::AcqRel);
+        if !cached.is_null() {
+            // SAFETY: `cached` was produced by CFRetain inside the shim and is owned here.
+            unsafe {
+                crate::bindings::renderd_CFRelease(cached);
+            }
         }
     }
 }

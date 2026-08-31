@@ -1,5 +1,29 @@
 #include <stdio.h>
+#include <stdlib.h>
 #include "videotoolbox_shim.h"
+
+/// Per-frame shim tracing, off unless RENDERD_VT_TRACE is set to a non-empty,
+/// non-"0" value.
+///
+/// These traces run in the encode and decode hot paths and write to unbuffered
+/// stderr, which costs more per frame than the work being traced. They are kept
+/// because they are the only visibility into the CoreMedia calls when a stream
+/// fails, but they must not be on by default.
+static int renderd_vt_trace_enabled(void) {
+    static int cached = -1;
+    if (cached < 0) {
+        const char *value = getenv("RENDERD_VT_TRACE");
+        cached = (value != NULL && value[0] != '\0' && value[0] != '0') ? 1 : 0;
+    }
+    return cached;
+}
+
+#define VT_TRACE(...)                                   \
+    do {                                                \
+        if (renderd_vt_trace_enabled()) {               \
+            fprintf(stderr, __VA_ARGS__);               \
+        }                                               \
+    } while (0)
 
 OSStatus renderd_VTCompressionSessionCreate(
     int32_t width,
@@ -154,7 +178,7 @@ static void internal_decompression_wrapper(
 ) {
     (void)infoFlags;
     (void)presentationDuration;
-    fprintf(stderr, "[VT_SHIM TRACE 5]: internal_decompression_wrapper callback fired! refCon=%p, sourceFrame=%p, status=%d (0x%x), infoFlags=0x%x, imageBuffer=%p, pts_sec=%.3f\n",
+    VT_TRACE("[VT_SHIM TRACE 5]: internal_decompression_wrapper callback fired! refCon=%p, sourceFrame=%p, status=%d (0x%x), infoFlags=0x%x, imageBuffer=%p, pts_sec=%.3f\n",
             decompressionOutputRefCon, sourceFrameRefCon, (int)status, (unsigned int)status, (unsigned int)infoFlags, (void*)imageBuffer,
             presentationTimeStamp.timescale > 0 ? (double)presentationTimeStamp.value / presentationTimeStamp.timescale : 0.0);
 
@@ -174,7 +198,7 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
     size_t data_len
 ) {
     CMVideoFormatDescriptionRef format_desc = NULL;
-    fprintf(stderr, "[VT_SHIM TRACE 2a]: renderd_CreateFormatDescriptionFromNAL: codec_type=0x%x, width=%d, height=%d, data_len=%zu\n",
+    VT_TRACE("[VT_SHIM TRACE 2a]: renderd_CreateFormatDescriptionFromNAL: codec_type=0x%x, width=%d, height=%d, data_len=%zu\n",
             (unsigned int)codec_type, width, height, data_len);
 
     if (data != NULL && data_len > 8) {
@@ -233,7 +257,7 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
                 NULL,
                 &format_desc
             );
-            fprintf(stderr, "[VT_SHIM TRACE 2a-HEVC]: CMVideoFormatDescriptionCreateFromHEVCParameterSets status=%d (0x%x), format_desc=%p\n",
+            VT_TRACE("[VT_SHIM TRACE 2a-HEVC]: CMVideoFormatDescriptionCreateFromHEVCParameterSets status=%d (0x%x), format_desc=%p\n",
                     (int)status, (unsigned int)status, (void*)format_desc);
         } else if (codec_type == kCMVideoCodecType_H264 && sps_ptr != NULL && pps_ptr != NULL) {
             const uint8_t *param_ptrs[2] = {sps_ptr, pps_ptr};
@@ -246,7 +270,7 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
                 4,
                 &format_desc
             );
-            fprintf(stderr, "[VT_SHIM TRACE 2a-H264]: CMVideoFormatDescriptionCreateFromH264ParameterSets status=%d (0x%x), format_desc=%p\n",
+            VT_TRACE("[VT_SHIM TRACE 2a-H264]: CMVideoFormatDescriptionCreateFromH264ParameterSets status=%d (0x%x), format_desc=%p\n",
                     (int)status, (unsigned int)status, (void*)format_desc);
         }
     }
@@ -262,7 +286,7 @@ static CMVideoFormatDescriptionRef renderd_CreateFormatDescriptionFromNAL(
         );
     }
 
-    fprintf(stderr, "[VT_SHIM TRACE 2b]: renderd_CreateFormatDescriptionFromNAL result: format_desc=%p\n", (void*)format_desc);
+    VT_TRACE("[VT_SHIM TRACE 2b]: renderd_CreateFormatDescriptionFromNAL result: format_desc=%p\n", (void*)format_desc);
     return format_desc;
 }
 
@@ -277,13 +301,13 @@ OSStatus renderd_VTDecompressionSessionCreateFromNAL(
     VTDecompressionSessionRef *session_out
 ) {
     if (session_out == NULL || callback == NULL || width <= 0 || height <= 0) {
-        fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: renderd_VTDecompressionSessionCreateFromNAL parameter error!\n");
+        VT_TRACE("[VT_SHIM TRACE 2c-ERR]: renderd_VTDecompressionSessionCreateFromNAL parameter error!\n");
         return kVTParameterErr;
     }
 
     CMVideoFormatDescriptionRef format_desc = renderd_CreateFormatDescriptionFromNAL(codec_type, width, height, data, data_len);
     if (format_desc == NULL) {
-        fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: renderd_CreateFormatDescriptionFromNAL returned NULL!\n");
+        VT_TRACE("[VT_SHIM TRACE 2c-ERR]: renderd_CreateFormatDescriptionFromNAL returned NULL!\n");
         return kVTAllocationFailedErr;
     }
 
@@ -309,7 +333,7 @@ OSStatus renderd_VTDecompressionSessionCreateFromNAL(
     if (ctx == NULL) {
         CFRelease(destination_attrs);
         CFRelease(format_desc);
-        fprintf(stderr, "[VT_SHIM TRACE 2c-ERR]: malloc(RenderD_VTDecompressionContext) failed!\n");
+        VT_TRACE("[VT_SHIM TRACE 2c-ERR]: malloc(RenderD_VTDecompressionContext) failed!\n");
         return kVTAllocationFailedErr;
     }
     ctx->callback = callback;
@@ -332,7 +356,7 @@ OSStatus renderd_VTDecompressionSessionCreateFromNAL(
     CFRelease(destination_attrs);
     CFRelease(format_desc);
 
-    fprintf(stderr, "[VT_SHIM TRACE 2c]: VTDecompressionSessionCreate result: status=%d (0x%x), session=%p\n",
+    VT_TRACE("[VT_SHIM TRACE 2c]: VTDecompressionSessionCreate result: status=%d (0x%x), session=%p\n",
             (int)status, (unsigned int)status, (void*)session);
 
     if (status != noErr || session == NULL) {
@@ -366,16 +390,20 @@ OSStatus renderd_VTDecompressionSessionCreate(
 
 OSStatus renderd_VTDecompressionSessionDecodeFrame(
     VTDecompressionSessionRef session,
+    CMVideoCodecType codec_type,
+    int32_t width,
+    int32_t height,
+    CMVideoFormatDescriptionRef *inout_format_desc,
     const uint8_t *data,
     size_t data_len,
     int64_t pts_ns,
     void *frame_ctx
 ) {
-    fprintf(stderr, "[VT_SHIM TRACE 4a]: renderd_VTDecompressionSessionDecodeFrame: session=%p, data_len=%zu, pts_ns=%lld, frame_ctx=%p\n",
+    VT_TRACE("[VT_SHIM TRACE 4a]: renderd_VTDecompressionSessionDecodeFrame: session=%p, data_len=%zu, pts_ns=%lld, frame_ctx=%p\n",
             (void*)session, data_len, (long long)pts_ns, frame_ctx);
 
     if (session == NULL || data == NULL || data_len == 0) {
-        fprintf(stderr, "[VT_SHIM TRACE 4a-ERR]: Parameter error in renderd_VTDecompressionSessionDecodeFrame!\n");
+        VT_TRACE("[VT_SHIM TRACE 4a-ERR]: Parameter error in renderd_VTDecompressionSessionDecodeFrame!\n");
         return kVTParameterErr;
     }
 
@@ -433,7 +461,7 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         &block_buffer
     );
 
-    fprintf(stderr, "[VT_SHIM TRACE 4b]: CMBlockBufferCreateWithMemoryBlock: status=%d (0x%x), block_buffer=%p\n",
+    VT_TRACE("[VT_SHIM TRACE 4b]: CMBlockBufferCreateWithMemoryBlock: status=%d (0x%x), block_buffer=%p\n",
             (int)status, (unsigned int)status, (void*)block_buffer);
 
     if (status != noErr || block_buffer == NULL) {
@@ -441,21 +469,38 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         return status;
     }
 
-    static CMVideoFormatDescriptionRef s_active_format_desc = NULL;
-
     CMSampleTimingInfo timing_info;
     timing_info.duration = kCMTimeInvalid;
     timing_info.presentationTimeStamp = CMTimeMake(pts_ns, 1000000000);
     timing_info.decodeTimeStamp = kCMTimeInvalid;
 
-    CMVideoFormatDescriptionRef format_desc = renderd_CreateFormatDescriptionFromNAL(kCMVideoCodecType_HEVC, 1920, 1080, data, data_len);
+    // Only keyframes carry parameter sets, so most packets produce no format
+    // description; those reuse the one cached for this session by the caller.
+    //
+    // The codec and dimensions must come from the session rather than being assumed:
+    // building this with a hardcoded HEVC type meant an H.264 stream never produced a
+    // format description at all, and every frame failed with kVTVideoDecoderBadDataErr.
+    CMVideoFormatDescriptionRef format_desc =
+        renderd_CreateFormatDescriptionFromNAL(codec_type, width, height, data, data_len);
+
     if (format_desc != NULL) {
-        if (s_active_format_desc != NULL) {
-            CFRelease(s_active_format_desc);
+        if (inout_format_desc != NULL) {
+            if (*inout_format_desc != NULL) {
+                CFRelease(*inout_format_desc);
+            }
+            *inout_format_desc = (CMVideoFormatDescriptionRef)CFRetain(format_desc);
         }
-        s_active_format_desc = (CMVideoFormatDescriptionRef)CFRetain(format_desc);
-    } else if (s_active_format_desc != NULL) {
-        format_desc = (CMVideoFormatDescriptionRef)CFRetain(s_active_format_desc);
+    } else if (inout_format_desc != NULL && *inout_format_desc != NULL) {
+        format_desc = (CMVideoFormatDescriptionRef)CFRetain(*inout_format_desc);
+    }
+
+    if (format_desc == NULL) {
+        // Nothing to describe the sample with yet: the stream has not delivered a
+        // keyframe since this session was created. Drop the packet rather than handing
+        // CMSampleBufferCreate a NULL description it will reject.
+        if (block_buffer) CFRelease(block_buffer);
+        if (temp_buf) free(temp_buf);
+        return kVTVideoDecoderBadDataErr;
     }
 
     CMSampleBufferRef sample_buffer = NULL;
@@ -479,7 +524,7 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
         CFRelease(format_desc);
     }
 
-    fprintf(stderr, "[VT_SHIM TRACE 4c]: CMSampleBufferCreate: status=%d (0x%x), sample_buffer=%p\n",
+    VT_TRACE("[VT_SHIM TRACE 4c]: CMSampleBufferCreate: status=%d (0x%x), sample_buffer=%p\n",
             (int)status, (unsigned int)status, (void*)sample_buffer);
 
     if (status == noErr && sample_buffer != NULL) {
@@ -492,7 +537,7 @@ OSStatus renderd_VTDecompressionSessionDecodeFrame(
             frame_ctx,
             &info_flags_out
         );
-        fprintf(stderr, "[VT_SHIM TRACE 4d]: VTDecompressionSessionDecodeFrame: status=%d (0x%x), info_flags_out=0x%x\n",
+        VT_TRACE("[VT_SHIM TRACE 4d]: VTDecompressionSessionDecodeFrame: status=%d (0x%x), info_flags_out=0x%x\n",
                 (int)status, (unsigned int)status, (unsigned int)info_flags_out);
         CFRelease(sample_buffer);
     }
@@ -538,18 +583,18 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     int32_t *out_width,
     int32_t *out_height
 ) {
-    fprintf(stderr, "[VT_SHIM TRACE 6a]: renderd_CVPixelBufferCopyBGRA: image_buffer=%p, dest_capacity=%zu\n",
+    VT_TRACE("[VT_SHIM TRACE 6a]: renderd_CVPixelBufferCopyBGRA: image_buffer=%p, dest_capacity=%zu\n",
             (void*)image_buffer, dest_capacity);
 
     if (image_buffer == NULL || out_dest == NULL || out_width == NULL || out_height == NULL) {
-        fprintf(stderr, "[VT_SHIM TRACE 6a-ERR]: Parameter error in renderd_CVPixelBufferCopyBGRA!\n");
+        VT_TRACE("[VT_SHIM TRACE 6a-ERR]: Parameter error in renderd_CVPixelBufferCopyBGRA!\n");
         return kVTParameterErr;
     }
 
     CVPixelBufferRef pixel_buffer = (CVPixelBufferRef)image_buffer;
     OSStatus status = CVPixelBufferLockBaseAddress(pixel_buffer, kCVPixelBufferLock_ReadOnly);
     if (status != kCVReturnSuccess) {
-        fprintf(stderr, "[VT_SHIM TRACE 6b-ERR]: CVPixelBufferLockBaseAddress status=%d (0x%x)\n",
+        VT_TRACE("[VT_SHIM TRACE 6b-ERR]: CVPixelBufferLockBaseAddress status=%d (0x%x)\n",
                 (int)status, (unsigned int)status);
         return status;
     }
@@ -559,7 +604,7 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     size_t bytes_per_row = CVPixelBufferGetBytesPerRow(pixel_buffer);
     uint8_t *base_addr = (uint8_t *)CVPixelBufferGetBaseAddress(pixel_buffer);
 
-    fprintf(stderr, "[VT_SHIM TRACE 6b]: CVPixelBuffer locked base address: width=%d, height=%d, bytes_per_row=%zu, base_addr=%p\n",
+    VT_TRACE("[VT_SHIM TRACE 6b]: CVPixelBuffer locked base address: width=%d, height=%d, bytes_per_row=%zu, base_addr=%p\n",
             width, height, bytes_per_row, (void*)base_addr);
 
     *out_width = width;
@@ -568,7 +613,7 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     size_t expected_size = (size_t)width * (size_t)height * 4;
     if (dest_capacity < expected_size || base_addr == NULL) {
         CVPixelBufferUnlockBaseAddress(pixel_buffer, kCVPixelBufferLock_ReadOnly);
-        fprintf(stderr, "[VT_SHIM TRACE 6c-ERR]: Allocation error or NULL base address!\n");
+        VT_TRACE("[VT_SHIM TRACE 6c-ERR]: Allocation error or NULL base address!\n");
         return kVTAllocationFailedErr;
     }
 
@@ -738,6 +783,12 @@ OSStatus renderd_CMSampleBufferExtractNALs(
 
     *out_size = total_written;
     return noErr;
+}
+
+void renderd_CFRelease(void *obj) {
+    if (obj != NULL) {
+        CFRelease((CFTypeRef)obj);
+    }
 }
 
 OSStatus renderd_CMSampleBufferGetPresentationTimeNanos(

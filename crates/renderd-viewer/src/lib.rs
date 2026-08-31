@@ -29,7 +29,7 @@ pub mod window;
 
 pub use abr::FeedbackExporter;
 pub use app::App;
-pub use cli::{parse_host_arg, DecoderBackend, ViewerCli, DEFAULT_HOST_PORT};
+pub use cli::{parse_host_arg, CodecChoice, DecoderBackend, ViewerCli, DEFAULT_HOST_PORT};
 pub use clock_sync::VsyncReporter;
 pub use config::ViewerAppConfig;
 #[cfg(target_os = "macos")]

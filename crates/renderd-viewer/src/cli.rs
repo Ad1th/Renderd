@@ -34,6 +34,13 @@ pub struct ViewerCli {
     #[arg(long)]
     pub height: Option<u32>,
 
+    /// Force a codec instead of using this platform's preference order.
+    ///
+    /// `auto` (default) offers H.264 first on Windows and HEVC first elsewhere.
+    /// Pin this when one codec misbehaves on a particular machine.
+    #[arg(long, value_name = "CODEC", default_value = "auto")]
+    pub codec: CodecChoice,
+
     /// Video decoder backend to use on Windows.
     ///
     /// `mf` (default) uses a Media Foundation decoder MFT, which parses the bitstream
@@ -41,6 +48,30 @@ pub struct ViewerCli {
     /// parameters this build does not yet supply — it is kept only for development.
     #[arg(long, value_name = "BACKEND", default_value = "mf")]
     pub decoder: DecoderBackend,
+}
+
+/// Codec preference override.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CodecChoice {
+    /// Use the platform's default preference order.
+    #[default]
+    Auto,
+    /// Offer only H.264.
+    H264,
+    /// Offer only HEVC.
+    Hevc,
+}
+
+impl CodecChoice {
+    /// Returns the codec list to advertise in `SessionHello`.
+    #[must_use]
+    pub fn codecs(self) -> Vec<String> {
+        match self {
+            Self::Auto => crate::decode::preferred_codecs(),
+            Self::H264 => vec!["h264".to_string()],
+            Self::Hevc => vec!["hevc".to_string()],
+        }
+    }
 }
 
 /// Selectable video decoder implementation.
@@ -109,6 +140,20 @@ mod tests {
             "message names the input: {err}"
         );
         assert!(parse_host_arg("   ").is_err());
+    }
+
+    #[test]
+    fn test_codec_choice_auto_matches_platform_preference() {
+        assert_eq!(
+            CodecChoice::Auto.codecs(),
+            crate::decode::preferred_codecs()
+        );
+    }
+
+    #[test]
+    fn test_codec_choice_pins_a_single_codec() {
+        assert_eq!(CodecChoice::H264.codecs(), vec!["h264".to_string()]);
+        assert_eq!(CodecChoice::Hevc.codecs(), vec!["hevc".to_string()]);
     }
 
     #[test]
