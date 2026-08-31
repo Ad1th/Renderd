@@ -175,6 +175,7 @@ impl App {
         let frame_queue = self.frame_queue.clone();
         let discovery_conn = self.discovery.clone();
         let viewer_id = uuid::Uuid::new_v4();
+        let offered_codecs = self.config.codec_choice.codecs();
 
         // Hand the app's decoder to the receive task rather than constructing a second
         // one there. Two decoders meant a whole extra hardware decode device was created
@@ -223,7 +224,7 @@ impl App {
                     };
 
                     match control_client
-                        .negotiate(&conn, display, crate::decode::preferred_codecs(), 50_000, true)
+                        .negotiate(&conn, display, offered_codecs.clone(), 50_000, true)
                         .await
                     {
                         Ok((_hello, session_config, mut send_stream, mut _recv_stream)) => {

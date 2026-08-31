@@ -92,6 +92,10 @@ OSStatus renderd_VTDecompressionSessionCreateFromNAL(
 /// Submits a compressed video NAL bitstream packet to the decompression session for decoding.
 OSStatus renderd_VTDecompressionSessionDecodeFrame(
     VTDecompressionSessionRef session,
+    CMVideoCodecType codec_type,
+    int32_t width,
+    int32_t height,
+    CMVideoFormatDescriptionRef *inout_format_desc,
     const uint8_t *data,
     size_t data_len,
     int64_t pts_ns,
@@ -132,6 +136,9 @@ OSStatus renderd_CMSampleBufferExtractNALs(
     size_t *out_size,
     bool *out_is_keyframe
 );
+
+/// Releases a CoreFoundation object previously retained by this shim.
+void renderd_CFRelease(void *obj);
 
 /// Reads the presentation timestamp of a CMSampleBufferRef, rescaled to nanoseconds.
 OSStatus renderd_CMSampleBufferGetPresentationTimeNanos(

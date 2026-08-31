@@ -24,6 +24,8 @@ pub struct ViewerAppConfig {
     pub manual_host: Option<std::net::SocketAddr>,
     /// Which decoder implementation to construct.
     pub decoder_backend: crate::cli::DecoderBackend,
+    /// Codec preference to advertise during the handshake.
+    pub codec_choice: crate::cli::CodecChoice,
 }
 
 impl Default for ViewerAppConfig {
@@ -36,6 +38,7 @@ impl Default for ViewerAppConfig {
             fullscreen: false,
             manual_host: None,
             decoder_backend: crate::cli::DecoderBackend::Mf,
+            codec_choice: crate::cli::CodecChoice::Auto,
         }
     }
 }
@@ -57,6 +60,7 @@ impl ViewerAppConfig {
             fullscreen: config.viewer.fullscreen,
             manual_host: None,
             decoder_backend: crate::cli::DecoderBackend::Mf,
+            codec_choice: crate::cli::CodecChoice::Auto,
             config,
         })
     }
