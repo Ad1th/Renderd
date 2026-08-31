@@ -231,6 +231,19 @@ impl HostApp {
         rt.spawn(async move {
             let dispatcher = ControlDispatcher::new();
             while let Ok(conn) = quic_server_task.accept().await {
+                // One viewer at a time. A second concurrent session would spawn a second
+                // DataSender pulling from the same encoder ring buffer, and the two would
+                // steal frames from each other, leaving both viewers with a broken stream.
+                if !session.is_idle() {
+                    tracing::warn!(
+                        peer = %conn.remote_address(),
+                        session_state = %session.state(),
+                        "Rejecting viewer: a session is already active"
+                    );
+                    conn.close(quinn::VarInt::from_u32(1), b"host-busy");
+                    continue;
+                }
+
                 let session = session.clone();
                 let host_cfg = host_cfg.clone();
                 let menu_bar = menu_bar.clone();
@@ -322,20 +335,28 @@ impl HostApp {
                             let data_conn = conn.clone();
                             let encode_rx = encode.receiver();
                             let shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                            let sender_shutdown = Arc::clone(&shutdown_flag);
                             tokio::spawn(async move {
                                 data_sender
-                                    .run_loop(data_conn, encode_rx, shutdown_flag)
+                                    .run_loop(data_conn, encode_rx, sender_shutdown)
                                     .await;
                             });
+
+                            // Tear the session down when the viewer goes away. Without this
+                            // the sender task outlives the connection forever and the host
+                            // stays in STREAMING, refusing every later viewer.
+                            let reason = conn.closed().await;
+                            shutdown_flag.store(true, std::sync::atomic::Ordering::Relaxed);
+                            tracing::info!(
+                                peer = %conn.remote_address(),
+                                %reason,
+                                "Viewer disconnected — stopping capture and returning to IDLE"
+                            );
+                            Self::teardown_session(&capture, &session, &menu_bar);
                         }
                         Err(e) => {
                             tracing::warn!("Stream 0 handshake failed: {e}");
-                            let _ = capture
-                                .lock()
-                                .expect("CapturePipeline mutex poisoned")
-                                .stop();
-                            session.reset();
-                            menu_bar.update_status("Idle — Listening");
+                            Self::teardown_session(&capture, &session, &menu_bar);
                         }
                     }
                 });
@@ -371,6 +392,25 @@ impl HostApp {
 
         tracing::info!("renderd-host shutdown complete");
         Ok(())
+    }
+
+    /// Stops capture, returns the session to `IDLE`, and reflects that in the menu bar.
+    ///
+    /// Safe to call from either the disconnect path or the handshake-failure path.
+    fn teardown_session(
+        capture: &Arc<Mutex<CapturePipeline>>,
+        session: &HostSession,
+        menu_bar: &crate::ui::MenuBar,
+    ) {
+        if let Ok(mut guard) = capture.lock() {
+            if let Err(e) = guard.stop() {
+                tracing::warn!("Capture pipeline stop failed: {e}");
+            }
+        } else {
+            tracing::error!("CapturePipeline mutex poisoned during teardown");
+        }
+        session.reset();
+        menu_bar.update_status("Idle — Listening");
     }
 
     /// Blocks until SIGINT (Ctrl+C) or SIGTERM is received.

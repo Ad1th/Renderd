@@ -7,10 +7,13 @@ rust-version.workspace = true
 description = "SPAKE2+ pairing, HKDF key derivation, and TLS cert generation."
 
 [dependencies]
-uuid    = { workspace = true }
-hkdf    = { workspace = true }
-sha2    = { workspace = true }
-zeroize = { workspace = true }
+uuid      = { workspace = true }
+hkdf      = { workspace = true }
+sha2      = { workspace = true }
+zeroize   = { workspace = true }
+getrandom = { workspace = true }
+subtle    = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

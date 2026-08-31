@@ -737,7 +737,30 @@ OSStatus renderd_CMSampleBufferExtractNALs(
     }
 
     *out_size = total_written;
-    fprintf(stderr, "[EXTRACT_NAL_TRACE]: CMSampleBuffer=%p, block_len=%zu, is_keyframe=%d, total_written=%zu\n",
-            (void*)sample_buffer, block_len, (int)*out_is_keyframe, total_written);
+    return noErr;
+}
+
+OSStatus renderd_CMSampleBufferGetPresentationTimeNanos(
+    CMSampleBufferRef sample_buffer,
+    int64_t *out_pts_ns
+) {
+    if (sample_buffer == NULL || out_pts_ns == NULL) {
+        return kVTParameterErr;
+    }
+
+    *out_pts_ns = 0;
+
+    CMTime pts = CMSampleBufferGetPresentationTimeStamp(sample_buffer);
+    if (!CMTIME_IS_VALID(pts) || CMTIME_IS_INDEFINITE(pts)) {
+        return kVTParameterErr;
+    }
+
+    // Rescale to a 1 ns timebase; CMTimeConvertScale saturates rather than wrapping.
+    CMTime nanos = CMTimeConvertScale(pts, 1000000000, kCMTimeRoundingMethod_Default);
+    if (!CMTIME_IS_VALID(nanos)) {
+        return kVTParameterErr;
+    }
+
+    *out_pts_ns = (int64_t)nanos.value;
     return noErr;
 }

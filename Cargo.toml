@@ -61,6 +61,8 @@ p256               = { version = "0.13", features = ["ecdh", "ecdsa"] }
 hmac               = { version = "0.12" }
 sha2               = { version = "0.10" }
 hkdf               = { version = "0.12" }
+getrandom          = { version = "0.3" }
+subtle             = { version = "2", default-features = false }
 rcgen              = { version = "0.13" }
 zeroize            = { version = "1", features = ["derive"] }
 crossbeam-channel  = { version = "0.5" }

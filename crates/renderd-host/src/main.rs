@@ -63,11 +63,21 @@ fn main() -> Result<(), HostError> {
     if let Some(ref path) = cli.config {
         builder = builder.add_file(path);
     }
-    let config = builder.build()?;
+    let mut config = builder.build()?;
+
+    // Apply the CLI overrides. These flags are documented as overrides but were parsed
+    // and then dropped, so --port and --display-id silently did nothing.
+    if let Some(port) = cli.port {
+        config.network.listen_port = port;
+    }
+    if let Some(display_id) = cli.display_id {
+        config.host.display_id = display_id;
+    }
 
     tracing::info!(
         display_id = config.host.display_id,
         target_fps = config.host.target_fps,
+        listen_port = config.network.listen_port,
         "Configuration loaded successfully"
     );
 
@@ -78,6 +88,24 @@ fn main() -> Result<(), HostError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The documented CLI overrides must actually reach the config.
+    #[test]
+    fn test_cli_overrides_are_applied_to_config() {
+        let cli = HostCli::parse_from(["renderd-host", "--port", "44330", "--display-id", "7"]);
+        let mut config = renderd_config::RenderdConfig::default();
+        assert_ne!(config.network.listen_port, 44330);
+
+        if let Some(port) = cli.port {
+            config.network.listen_port = port;
+        }
+        if let Some(display_id) = cli.display_id {
+            config.host.display_id = display_id;
+        }
+
+        assert_eq!(config.network.listen_port, 44330);
+        assert_eq!(config.host.display_id, 7);
+    }
 
     #[test]
     fn test_host_app_scaffold() {

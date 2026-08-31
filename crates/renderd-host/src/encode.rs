@@ -32,6 +32,7 @@ pub struct EncodePipeline {
     rx: Receiver<EncodedFrame>,
     frame_counter: AtomicU64,
     force_keyframe_flag: AtomicBool,
+    dropped_frames: AtomicU64,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -41,6 +42,7 @@ impl std::fmt::Debug for EncodePipeline {
         f.debug_struct("EncodePipeline")
             .field("frame_counter", &self.frame_counter)
             .field("force_keyframe_flag", &self.force_keyframe_flag)
+            .field("dropped_frames", &self.dropped_frames)
             .finish_non_exhaustive()
     }
 }
@@ -61,6 +63,7 @@ impl EncodePipeline {
             rx,
             frame_counter: AtomicU64::new(1),
             force_keyframe_flag: AtomicBool::new(false),
+            dropped_frames: AtomicU64::new(0),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
         }
@@ -99,11 +102,21 @@ impl EncodePipeline {
                         if let Ok((nal_bytes, is_kf)) = unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) } {
                             if !nal_bytes.is_empty() {
                                 let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
+                                // Recover the capture timestamp VideoToolbox carried through
+                                // the encode. Without this every frame ships pts_ns = 0 and
+                                // the viewer has no presentation timing at all.
+                                // SAFETY: sample_buf was checked non-null above and is a valid
+                                // CMSampleBufferRef owned by the VideoToolbox callback.
+                                let pts_ns = unsafe {
+                                    renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf)
+                                }
+                                .unwrap_or(0);
                                 if frame_id <= 5 || is_kf {
                                     let first_32 = &nal_bytes[..32.min(nal_bytes.len())];
                                     tracing::info!(
                                         frame_id = frame_id,
                                         is_keyframe = is_kf,
+                                        pts_ns = pts_ns,
                                         data_len = nal_bytes.len(),
                                         first_32_bytes = ?first_32,
                                         "Host Encoder: extracted real VideoToolbox NAL units from CMSampleBufferRef"
@@ -114,7 +127,7 @@ impl EncodePipeline {
                                     frame_id,
                                     is_keyframe: is_kf,
                                     data: Bytes::from(nal_bytes),
-                                    pts_ns: 0,
+                                    pts_ns,
                                 };
                                 let _ = tx.try_send(frame);
                             }
@@ -187,9 +200,13 @@ impl EncodePipeline {
 
     /// Submits a raw byte payload to the encoding pipeline (used in mock / headless environments).
     ///
+    /// If the capacity-4 ring buffer is full the frame is dropped and the drop is counted
+    /// in [`EncodePipeline::dropped_frames`]; dropping the newest frame is the correct
+    /// latency-preserving behaviour for a live stream, so this is not an error.
+    ///
     /// # Errors
     ///
-    /// Returns [`HostError::Initialization`] if the ring buffer is full and dropping occurs.
+    /// Never returns an error; the `Result` is retained for API compatibility.
     pub fn push_frame(&self, data: Bytes, pts_ns: i64) -> Result<(), HostError> {
         let force_kf = self.force_keyframe_flag.swap(false, Ordering::SeqCst);
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
@@ -201,8 +218,10 @@ impl EncodePipeline {
             pts_ns,
         };
 
-        // Try sending to SPSC ring buffer (capacity 4). If full, drop frame.
-        let _ = self.tx.try_send(frame);
+        // Try sending to SPSC ring buffer (capacity 4). If full, drop the frame.
+        if self.tx.try_send(frame).is_err() {
+            self.dropped_frames.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(())
     }
 
@@ -244,6 +263,12 @@ impl EncodePipeline {
     #[must_use]
     pub fn receiver(&self) -> Receiver<EncodedFrame> {
         self.rx.clone()
+    }
+
+    /// Returns the number of encoded frames dropped because the ring buffer was full.
+    #[must_use]
+    pub fn dropped_frames(&self) -> u64 {
+        self.dropped_frames.load(Ordering::Relaxed)
     }
 }
 
