@@ -21,6 +21,9 @@ use crate::error::HostError;
 /// Default maximum fragment payload size in bytes (1200 max QUIC datagram - 16-byte header).
 pub const DEFAULT_MAX_PAYLOAD_SIZE: usize = 1184;
 
+/// Consecutive datagram send failures after which the sender considers the peer gone.
+const MAX_CONSECUTIVE_SEND_ERRORS: u32 = 120;
+
 /// Host datagram burst sender task manager.
 ///
 /// Encapsulates frame fragmentation and transmission over QUIC datagram sockets.
@@ -64,8 +67,14 @@ impl DataSender {
             ))
         })?;
 
-        let pts_offset_us =
-            u32::try_from((frame.pts_ns / 1_000).max(0)).unwrap_or(0) & MAX_PTS_OFFSET_US;
+        // The wire field is 24 bits of microseconds, so it wraps every ~16.7 s. Reduce
+        // modulo the field width rather than converting first: a `u32::try_from` on a
+        // full-range capture timestamp fails and would silently pin every frame to 0.
+        #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+        let pts_offset_us = {
+            let pts_us = frame.pts_ns.max(0) as u64 / 1_000;
+            (pts_us % (u64::from(MAX_PTS_OFFSET_US) + 1)) as u32
+        };
 
         let mut datagrams = Vec::with_capacity(frag_total_count);
 
@@ -145,50 +154,89 @@ impl DataSender {
             .map_err(|e| HostError::Initialization(format!("Datagram burst send failed: {e}")))
     }
 
-    /// Runs the datagram sender event loop, consuming frames from `rx` and transmitting them over `conn`.
+    /// Runs the datagram sender loop on the calling thread, consuming frames from `rx`
+    /// and transmitting them over `connection` until `shutdown` is set, the channel is
+    /// disconnected, or the QUIC connection dies.
+    ///
+    /// This blocks on the channel rather than polling it: `quinn::Connection::send_datagram`
+    /// is synchronous, so there is nothing to await between frames, and a poll-and-sleep
+    /// loop would add up to a whole sleep interval of latency to every frame.
+    pub fn run_blocking(
+        &self,
+        connection: &quinn::Connection,
+        rx: &Receiver<EncodedFrame>,
+        shutdown: &AtomicBool,
+    ) {
+        /// Wake-up interval used only to re-check the shutdown flag while idle.
+        const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+        let mut sent_frames: u64 = 0;
+        let mut consecutive_errors: u32 = 0;
+
+        while !shutdown.load(Ordering::Relaxed) {
+            let frame = match rx.recv_timeout(IDLE_POLL) {
+                Ok(frame) => frame,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
+            };
+
+            match self.send_frame_burst(connection, &frame) {
+                Ok(num_frags) => {
+                    consecutive_errors = 0;
+                    sent_frames += 1;
+                    if sent_frames == 1 {
+                        let first_32 = &frame.data[..32.min(frame.data.len())];
+                        tracing::info!(
+                            count = sent_frames,
+                            frame_id = frame.frame_id,
+                            bytes = frame.data.len(),
+                            frags = num_frags,
+                            first_32_bytes = ?first_32,
+                            "DataSender: transmitted first encoded frame QUIC datagram burst"
+                        );
+                    } else if sent_frames % 100 == 0 {
+                        tracing::info!(count = sent_frames, "DataSender: datagram burst checkpoint");
+                    }
+                }
+                Err(e) => {
+                    consecutive_errors += 1;
+                    // A dead connection fails on every frame; stop rather than spinning
+                    // and logging forever for a viewer that is already gone.
+                    if consecutive_errors >= MAX_CONSECUTIVE_SEND_ERRORS {
+                        tracing::warn!(
+                            errors = consecutive_errors,
+                            "DataSender: giving up after repeated datagram send failures: {e}"
+                        );
+                        break;
+                    }
+                    tracing::warn!("Failed to send datagram burst: {e}");
+                }
+            }
+        }
+
+        tracing::info!(
+            sent_frames,
+            "DataSender: transmit loop finished for this connection"
+        );
+    }
+
+    /// Runs the datagram sender loop from an async context.
+    ///
+    /// The work is offloaded to a blocking thread because the loop parks on a
+    /// synchronous channel, which must never happen on a tokio worker thread.
     pub async fn run_loop(
         &self,
         connection: quinn::Connection,
         rx: Receiver<EncodedFrame>,
         shutdown: Arc<AtomicBool>,
     ) {
-        static SENT_FRAME_COUNT: std::sync::atomic::AtomicU64 =
-            std::sync::atomic::AtomicU64::new(0);
-        while !shutdown.load(Ordering::Relaxed) {
-            match rx.try_recv() {
-                Ok(frame) => {
-                    let count = SENT_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                    match self.send_frame_burst(&connection, &frame) {
-                        Ok(num_frags) => {
-                            if count == 1 {
-                                let first_32 = &frame.data[..32.min(frame.data.len())];
-                                tracing::info!(
-                                    count = count,
-                                    frame_id = frame.frame_id,
-                                    bytes = frame.data.len(),
-                                    frags = num_frags,
-                                    first_32_bytes = ?first_32,
-                                    "DataSender: transmitted first encoded frame QUIC datagram burst"
-                                );
-                            } else if count % 100 == 0 {
-                                tracing::info!(
-                                    count = count,
-                                    "DataSender: datagram burst checkpoint"
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("Failed to send datagram burst: {e}");
-                        }
-                    }
-                }
-                Err(crossbeam_channel::TryRecvError::Empty) => {
-                    tokio::time::sleep(std::time::Duration::from_millis(1)).await;
-                }
-                Err(crossbeam_channel::TryRecvError::Disconnected) => {
-                    break;
-                }
-            }
+        let sender = Self::new();
+        if let Err(e) = tokio::task::spawn_blocking(move || {
+            sender.run_blocking(&connection, &rx, &shutdown);
+        })
+        .await
+        {
+            tracing::warn!("DataSender blocking task failed: {e}");
         }
     }
 }
@@ -252,6 +300,42 @@ mod tests {
         assert_eq!(h2.frag_total, 3);
         assert_eq!(h2.flags & FLAG_FIRST_FRAG, 0);
         assert_eq!(h2.flags & FLAG_LAST_FRAG, FLAG_LAST_FRAG);
+    }
+
+    /// A full-range capture timestamp must survive as a wrapped 24-bit microsecond
+    /// value, not collapse to zero.
+    #[test]
+    fn test_large_pts_wraps_instead_of_zeroing() {
+        // Mach absolute time scale: far beyond what fits in u32 microseconds.
+        let pts_ns = 9_876_543_210_000i64;
+        let frame = EncodedFrame {
+            frame_id: 1,
+            is_keyframe: true,
+            data: Bytes::from_static(b"x"),
+            pts_ns,
+        };
+
+        let frags = DataSender::fragment_frame(&frame, 1184).unwrap();
+        let header = FragmentHeader::decode(&frags[0][..HEADER_SIZE]).unwrap();
+
+        let expected = u32::try_from((pts_ns as u64 / 1_000) % (u64::from(MAX_PTS_OFFSET_US) + 1))
+            .expect("masked value fits in u32");
+        assert_eq!(header.pts_offset_us, expected);
+        assert_ne!(header.pts_offset_us, 0, "large PTS must not collapse to 0");
+    }
+
+    /// Negative or zero timestamps clamp to 0 without panicking.
+    #[test]
+    fn test_negative_pts_clamps_to_zero() {
+        let frame = EncodedFrame {
+            frame_id: 1,
+            is_keyframe: true,
+            data: Bytes::from_static(b"x"),
+            pts_ns: -5_000_000,
+        };
+        let frags = DataSender::fragment_frame(&frame, 1184).unwrap();
+        let header = FragmentHeader::decode(&frags[0][..HEADER_SIZE]).unwrap();
+        assert_eq!(header.pts_offset_us, 0);
     }
 
     #[test]
