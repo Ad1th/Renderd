@@ -68,26 +68,26 @@ static SOFT_RENDER_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::
 /// per frame — over two million times per frame at 1080p — so the scalar float form it
 /// replaces dominated the frame budget on the software path.
 #[inline]
-fn nv12_to_bgra(y: u8, u: u8, v: u8, out: &mut u32) -> u8 {
+fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
     /// 1.402 << 16
-    const R_V: i32 = 91_881;
+    const R_CR: i32 = 91_881;
     /// 0.344136 << 16
-    const G_U: i32 = 22_554;
+    const G_CB: i32 = 22_554;
     /// 0.714136 << 16
-    const G_V: i32 = 46_802;
+    const G_CR: i32 = 46_802;
     /// 1.772 << 16
-    const B_U: i32 = 116_130;
+    const B_CB: i32 = 116_130;
 
-    let y = i32::from(y) << 16;
-    let u = i32::from(u) - 128;
-    let v = i32::from(v) - 128;
+    let luma = i32::from(luma) << 16;
+    let chroma_b = i32::from(chroma_b) - 128;
+    let chroma_r = i32::from(chroma_r) - 128;
 
-    let r = ((y + R_V * v) >> 16).clamp(0, 255);
-    let g = ((y - G_U * u - G_V * v) >> 16).clamp(0, 255);
-    let b = ((y + B_U * u) >> 16).clamp(0, 255);
+    let red = ((luma + R_CR * chroma_r) >> 16).clamp(0, 255);
+    let green = ((luma - G_CB * chroma_b - G_CR * chroma_r) >> 16).clamp(0, 255);
+    let blue = ((luma + B_CB * chroma_b) >> 16).clamp(0, 255);
 
     #[allow(clippy::cast_sign_loss)]
-    let pixel = 0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
+    let pixel = 0xFF00_0000 | ((red as u32) << 16) | ((green as u32) << 8) | (blue as u32);
     *out = pixel;
     u8::from(pixel & 0x00FF_FFFF != 0)
 }
@@ -390,27 +390,29 @@ mod tests {
             clippy::cast_sign_loss,
             clippy::suboptimal_flops
         )]
-        fn reference(y: u8, u: u8, v: u8) -> (u32, u32, u32) {
-            let y = f32::from(y);
-            let u = f32::from(u) - 128.0;
-            let v = f32::from(v) - 128.0;
+        fn reference(luma: u8, chroma_b: u8, chroma_r: u8) -> (u32, u32, u32) {
+            let luma = f32::from(luma);
+            let chroma_b = f32::from(chroma_b) - 128.0;
+            let chroma_r = f32::from(chroma_r) - 128.0;
             (
-                (y + 1.402 * v).clamp(0.0, 255.0) as u32,
-                (y - 0.344_136 * u - 0.714_136 * v).clamp(0.0, 255.0) as u32,
-                (y + 1.772 * u).clamp(0.0, 255.0) as u32,
+                (luma + 1.402 * chroma_r).clamp(0.0, 255.0) as u32,
+                (luma - 0.344_136 * chroma_b - 0.714_136 * chroma_r).clamp(0.0, 255.0) as u32,
+                (luma + 1.772 * chroma_b).clamp(0.0, 255.0) as u32,
             )
         }
 
-        for y in (0..=255u8).step_by(17) {
-            for u in (0..=255u8).step_by(51) {
-                for v in (0..=255u8).step_by(51) {
+        for luma in (0..=255u8).step_by(17) {
+            for chroma_b in (0..=255u8).step_by(51) {
+                for chroma_r in (0..=255u8).step_by(51) {
                     let mut out = 0u32;
-                    nv12_to_bgra(y, u, v, &mut out);
-                    let (r, g, b) = ((out >> 16) & 0xFF, (out >> 8) & 0xFF, out & 0xFF);
-                    let (rr, rg, rb) = reference(y, u, v);
+                    nv12_to_bgra(luma, chroma_b, chroma_r, &mut out);
+                    let got = ((out >> 16) & 0xFF, (out >> 8) & 0xFF, out & 0xFF);
+                    let want = reference(luma, chroma_b, chroma_r);
                     assert!(
-                        r.abs_diff(rr) <= 1 && g.abs_diff(rg) <= 1 && b.abs_diff(rb) <= 1,
-                        "y={y} u={u} v={v}: got ({r},{g},{b}) want ({rr},{rg},{rb})"
+                        got.0.abs_diff(want.0) <= 1
+                            && got.1.abs_diff(want.1) <= 1
+                            && got.2.abs_diff(want.2) <= 1,
+                        "luma={luma} cb={chroma_b} cr={chroma_r}: got {got:?} want {want:?}"
                     );
                     assert_eq!(out >> 24, 0xFF, "alpha must be opaque");
                 }
