@@ -87,10 +87,7 @@ fn nv12_to_bgra(y: u8, u: u8, v: u8, out: &mut u32) -> u8 {
     let b = ((y + B_U * u) >> 16).clamp(0, 255);
 
     #[allow(clippy::cast_sign_loss)]
-    let pixel = 0xFF00_0000
-        | ((r as u32) << 16)
-        | ((g as u32) << 8)
-        | (b as u32);
+    let pixel = 0xFF00_0000 | ((r as u32) << 16) | ((g as u32) << 8) | (b as u32);
     *out = pixel;
     u8::from(pixel & 0x00FF_FFFF != 0)
 }

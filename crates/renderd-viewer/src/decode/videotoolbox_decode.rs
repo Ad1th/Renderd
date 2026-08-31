@@ -342,7 +342,9 @@ mod tests {
 
         // Six bytes of NAL header with no VPS/SPS/PPS: session creation cannot succeed.
         let truncated = vec![0x00, 0x00, 0x00, 0x01, 0x40, 0x01];
-        let err = decoder.decode_packet(&truncated, 1, 16_666_666).unwrap_err();
+        let err = decoder
+            .decode_packet(&truncated, 1, 16_666_666)
+            .unwrap_err();
         assert!(
             matches!(err, ViewerError::Decoder(ref m) if m.contains("no active VTDecompressionSession")),
             "unexpected error: {err:?}"

@@ -92,6 +92,12 @@ pub struct D3D12Decoder {
     direct_command_queue: Option<ID3D12CommandQueue>,
     #[cfg(target_os = "windows")]
     direct_command_allocator: Option<ID3D12CommandAllocator>,
+    /// Second DIRECT allocator, used for the read-back copy list. A command allocator
+    /// must not be reset while any command list recorded from it is still executing,
+    /// and the upload list is only GPU-waited on, never CPU-waited, before the copy
+    /// list is recorded.
+    #[cfg(target_os = "windows")]
+    direct_copy_allocator: Option<ID3D12CommandAllocator>,
     #[cfg(target_os = "windows")]
     video_decoder: Option<ID3D12VideoDecoder>,
     #[cfg(target_os = "windows")]
@@ -159,6 +165,8 @@ impl D3D12Decoder {
             direct_command_queue: None,
             #[cfg(target_os = "windows")]
             direct_command_allocator: None,
+            #[cfg(target_os = "windows")]
+            direct_copy_allocator: None,
             #[cfg(target_os = "windows")]
             video_decoder: None,
             #[cfg(target_os = "windows")]
@@ -377,7 +385,7 @@ impl D3D12Decoder {
                 std::mem::size_of::<D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT>() as u32,
             )
             .map_err(|e| ViewerError::Decoder(format!("CheckFeatureSupport HEVC: {e}")))?;
-        if support.SupportFlags != D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED {
+        if (support.SupportFlags & D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED).0 == 0 {
             return Err(ViewerError::Decoder(
                 "Hardware HEVC Main NV12 decode not supported on this adapter".to_string(),
             ));
@@ -411,6 +419,11 @@ impl D3D12Decoder {
         let direct_command_allocator: ID3D12CommandAllocator = device
             .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)
             .map_err(|e| ViewerError::Decoder(format!("CreateCommandAllocator (direct): {e}")))?;
+        let direct_copy_allocator: ID3D12CommandAllocator = device
+            .CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT)
+            .map_err(|e| {
+                ViewerError::Decoder(format!("CreateCommandAllocator (direct copy): {e}"))
+            })?;
 
         // 7. VideoDecoder ─────────────────────────────────────────────────────
         let decoder_desc = D3D12_VIDEO_DECODER_DESC {
@@ -561,6 +574,7 @@ impl D3D12Decoder {
         self.video_command_allocator = Some(video_command_allocator);
         self.direct_command_queue = Some(direct_command_queue);
         self.direct_command_allocator = Some(direct_command_allocator);
+        self.direct_copy_allocator = Some(direct_copy_allocator);
         self.video_decoder = Some(video_decoder);
         self.decoder_heap = Some(decoder_heap);
         self.output_texture = Some(output_texture);
@@ -624,6 +638,10 @@ impl D3D12Decoder {
             .direct_command_allocator
             .as_ref()
             .ok_or_else(|| ViewerError::Decoder("direct_command_allocator not init".to_string()))?;
+        let direct_copy_allocator = self
+            .direct_copy_allocator
+            .as_ref()
+            .ok_or_else(|| ViewerError::Decoder("direct_copy_allocator not init".to_string()))?;
         let video_decoder = self
             .video_decoder
             .as_ref()
@@ -743,13 +761,20 @@ impl D3D12Decoder {
             );
         }
 
-        // Map, copy packet bytes to upload buffer, unmap
+        // Map, copy packet bytes to upload buffer, unmap. The empty read range tells the
+        // driver the CPU will not read from this upload heap, and the written range is
+        // exactly the bytes touched, so no more than that is flushed.
+        let no_read = D3D12_RANGE { Begin: 0, End: 0 };
         let mut mapped_ptr: *mut core::ffi::c_void = std::ptr::null_mut();
         upload_buffer
-            .Map(0, None, Some(&mut mapped_ptr))
+            .Map(0, Some(&no_read), Some(&mut mapped_ptr))
             .map_err(|e| ViewerError::Decoder(format!("Map upload: {e}")))?;
         std::ptr::copy_nonoverlapping(packet.as_ptr(), mapped_ptr.cast::<u8>(), packet.len());
-        upload_buffer.Unmap(0, None);
+        let written = D3D12_RANGE {
+            Begin: 0,
+            End: packet.len(),
+        };
+        upload_buffer.Unmap(0, Some(&written));
 
         if is_diagnostic {
             tracing::info!("DECODE [3/10]: packet bytes written to upload buffer");
@@ -968,15 +993,19 @@ impl D3D12Decoder {
             tracing::info!("DECODE [7/10]: direct queue waited for video fence");
         }
 
-        direct_command_allocator
+        // Deliberately a *different* allocator from the upload list's. `Wait` above only
+        // queues a GPU-side wait and returns immediately, so the upload list recorded
+        // earlier this frame may still be executing; resetting its allocator here is
+        // undefined behaviour and shows up as device-removed or corrupted output.
+        direct_copy_allocator
             .Reset()
-            .map_err(|e| ViewerError::Decoder(format!("DirectCommandAllocator::Reset: {e}")))?;
+            .map_err(|e| ViewerError::Decoder(format!("DirectCopyAllocator::Reset: {e}")))?;
 
         let direct_cmd_list: ID3D12GraphicsCommandList = device
             .CreateCommandList(
                 0,
                 D3D12_COMMAND_LIST_TYPE_DIRECT,
-                direct_command_allocator,
+                direct_copy_allocator,
                 None::<&windows::Win32::Graphics::Direct3D12::ID3D12PipelineState>,
             )
             .map_err(|e| ViewerError::Decoder(format!("CreateCommandList (direct): {e}")))?;
@@ -1099,28 +1128,38 @@ impl D3D12Decoder {
         let y_offset = self.y_footprint.Offset as usize;
         let uv_offset = self.uv_footprint.Offset as usize;
 
-        // Tightly-packed NV12: width*height Y bytes + width*(height/2) UV bytes
+        // Tightly-packed NV12: width*height Y bytes + width*(height/2) UV bytes.
+        // Every row is fetched through `get`, so a footprint that disagrees with the
+        // mapped size fails the decode instead of indexing out of bounds.
         let mut nv12 = Vec::<u8>::with_capacity(width * height * 3 / 2);
+        // Y plane – copy each visible row, stripping GPU row-pitch padding – then the
+        // UV plane, whose rows hold `width` interleaved U+V bytes.
+        let extracted = copy_plane_rows(
+            &mut nv12,
+            mapped_slice,
+            y_offset,
+            y_row_pitch,
+            self.y_num_rows as usize,
+            width,
+        ) && copy_plane_rows(
+            &mut nv12,
+            mapped_slice,
+            uv_offset,
+            uv_row_pitch,
+            self.uv_num_rows as usize,
+            width,
+        );
 
-        // Y plane – copy each visible row, strip GPU padding
-        for row in 0..self.y_num_rows as usize {
-            let src_start = y_offset + row * y_row_pitch;
-            let src_end = src_start + width;
-            nv12.extend_from_slice(&mapped_slice[src_start..src_end]);
+        // The CPU wrote nothing to this read-back heap, so report an empty written range.
+        let nothing_written = D3D12_RANGE { Begin: 0, End: 0 };
+        readback_buffer.Unmap(0, Some(&nothing_written));
+
+        if !extracted {
+            return Err(ViewerError::Decoder(format!(
+                "NV12 read-back footprint overruns the {} byte mapped buffer",
+                self.readback_total_bytes
+            )));
         }
-
-        // UV plane – each UV row contains width interleaved U+V bytes
-        for row in 0..self.uv_num_rows as usize {
-            let src_start = uv_offset + row * uv_row_pitch;
-            let src_end = src_start + width;
-            nv12.extend_from_slice(&mapped_slice[src_start..src_end]);
-        }
-
-        let read_range = D3D12_RANGE {
-            Begin: 0,
-            End: self.readback_total_bytes as usize,
-        };
-        readback_buffer.Unmap(0, Some(&read_range));
 
         if is_diagnostic {
             tracing::info!("DECODE [10/10]: readback buffer unmapped & frame extraction complete");
@@ -1138,6 +1177,35 @@ impl D3D12Decoder {
             decode_duration,
         })
     }
+}
+
+/// Appends `rows` rows of `width` bytes each from `src`, stepping by `pitch` from `offset`.
+///
+/// Returns `false` without appending a partial row if any row would read past the end of
+/// `src`, so a footprint that disagrees with the mapped read-back buffer fails the decode
+/// rather than panicking the viewer.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn copy_plane_rows(
+    dst: &mut Vec<u8>,
+    src: &[u8],
+    offset: usize,
+    pitch: usize,
+    rows: usize,
+    width: usize,
+) -> bool {
+    for row in 0..rows {
+        let Some(start) = offset.checked_add(row * pitch) else {
+            return false;
+        };
+        let Some(end) = start.checked_add(width) else {
+            return false;
+        };
+        match src.get(start..end) {
+            Some(bytes) => dst.extend_from_slice(bytes),
+            None => return false,
+        }
+    }
+    true
 }
 
 // ── Diagnostics ───────────────────────────────────────────────────────────────
@@ -1205,6 +1273,27 @@ mod tests {
     fn test_d3d12_decoder_reset() {
         let mut decoder = D3D12Decoder::new();
         assert!(decoder.reset().is_ok());
+    }
+
+    #[test]
+    fn test_copy_plane_rows_strips_pitch_padding() {
+        // Two rows of 3 visible bytes in a 5-byte pitch, starting at offset 1.
+        let src = vec![
+            0xFF, // offset padding
+            1, 2, 3, 0, 0, // row 0
+            4, 5, 6, 0, 0, // row 1
+        ];
+        let mut dst = Vec::new();
+        assert!(copy_plane_rows(&mut dst, &src, 1, 5, 2, 3));
+        assert_eq!(dst, vec![1, 2, 3, 4, 5, 6]);
+    }
+
+    #[test]
+    fn test_copy_plane_rows_rejects_overrun() {
+        let src = vec![0u8; 8];
+        let mut dst = Vec::new();
+        // Three rows of pitch 4 need 12 bytes; only 8 are mapped.
+        assert!(!copy_plane_rows(&mut dst, &src, 0, 4, 3, 4));
     }
 
     /// On non-Windows platforms, `decode_packet` must return an error (not panic).
