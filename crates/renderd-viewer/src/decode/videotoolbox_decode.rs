@@ -16,6 +16,9 @@ use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 
+/// Number of leading frames whose per-frame pipeline diagnostics are logged at INFO.
+const DIAGNOSTIC_FRAMES: u64 = 8;
+
 /// macOS `VideoToolbox` hardware video decoder.
 pub struct VideoToolboxDecoder {
     initialized: bool,
@@ -104,19 +107,21 @@ impl Decoder for VideoToolboxDecoder {
             return Err(ViewerError::Decoder("Decoder not initialized".to_string()));
         }
 
-        tracing::info!(
-            frame_id = frame_id,
-            pts_ns = pts_ns,
-            packet_len = packet.len(),
-            first_8_bytes = ?&packet[..8.min(packet.len())],
-            "VT_TRACE [1]: VideoToolboxDecoder::decode_packet called"
-        );
-
-        #[cfg(target_os = "macos")]
-        tracing::info!(
-            session_exists = self.session.is_some(),
-            "VT_TRACE [1a]: session state"
-        );
+        // Per-frame diagnostics run at the source frame rate; formatting and emitting
+        // them at INFO for every frame costs more than the decode itself. Keep the first
+        // few frames at INFO for bring-up and drop the steady state to TRACE.
+        let is_diagnostic = self.decoded_count < DIAGNOSTIC_FRAMES;
+        if is_diagnostic {
+            tracing::info!(
+                frame_id = frame_id,
+                pts_ns = pts_ns,
+                packet_len = packet.len(),
+                first_8_bytes = ?&packet[..8.min(packet.len())],
+                "VT_TRACE [1]: VideoToolboxDecoder::decode_packet called"
+            );
+        } else {
+            tracing::trace!(frame_id, pts_ns, packet_len = packet.len(), "decode_packet");
+        }
 
         #[cfg(target_os = "macos")]
         {
@@ -139,7 +144,7 @@ impl Decoder for VideoToolboxDecoder {
                     vt_codec,
                     packet,
                     move |err, flags, image_buffer, cb_frame_id, cb_pts_ns| {
-                        tracing::info!(
+                        tracing::trace!(
                             status_code = err.code(),
                             flags = flags,
                             image_buffer_null = image_buffer.is_null(),
@@ -162,7 +167,7 @@ impl Decoder for VideoToolboxDecoder {
                             renderd_vt_sys::copy_pixel_buffer_bgra(image_buffer, &mut buffer)
                         };
 
-                        tracing::info!(
+                        tracing::trace!(
                             copy_res = ?copy_res,
                             "VT_TRACE [7]: copy_pixel_buffer_bgra result"
                         );
@@ -208,7 +213,7 @@ impl Decoder for VideoToolboxDecoder {
 
                             if let Ok(mut q) = queue.lock() {
                                 q.push_back(frame);
-                                tracing::info!(
+                                tracing::trace!(
                                     queue_len = q.len(),
                                     "VT_TRACE [8-SUCCESS]: Pushed DecodedFrame to output_queue"
                                 );
@@ -232,23 +237,35 @@ impl Decoder for VideoToolboxDecoder {
                 }
             }
 
-            if let Some(ref session) = self.session {
-                let frame_ctx = frame_id as usize as *mut std::ffi::c_void;
+            let Some(ref session) = self.session else {
+                // Without a session nothing decodes. Report it rather than returning Ok,
+                // so the caller sees a dead pipeline instead of a silently black screen.
+                tracing::error!("VT_TRACE [4-ERR]: No active DecompressionSession to decode frame");
+                return Err(ViewerError::Decoder(
+                    "no active VTDecompressionSession; session creation failed".to_string(),
+                ));
+            };
+
+            let frame_ctx = frame_id as usize as *mut std::ffi::c_void;
+            if is_diagnostic {
                 tracing::info!(
                     frame_id = frame_id,
                     pts_ns = pts_ns,
                     packet_len = packet.len(),
                     "VT_TRACE [4]: Calling session.decode_frame_with_ctx..."
                 );
-                let decode_res = session.decode_frame_with_ctx(packet, pts_ns as i64, frame_ctx);
+            }
+            let decode_res = session.decode_frame_with_ctx(packet, pts_ns as i64, frame_ctx);
+            if is_diagnostic {
                 tracing::info!(
                     decode_res = ?decode_res,
                     frame_id = frame_id,
                     "VT_TRACE [5]: session.decode_frame_with_ctx returned"
                 );
-            } else {
-                tracing::error!("VT_TRACE [4-ERR]: No active DecompressionSession to decode frame");
             }
+            decode_res.map_err(|e| {
+                ViewerError::Decoder(format!("VTDecompressionSessionDecodeFrame failed: {e:?}"))
+            })?;
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -267,7 +284,7 @@ impl Decoder for VideoToolboxDecoder {
         if let Ok(mut q) = self.output_queue.lock() {
             let frame = q.pop_front();
             if frame.is_some() {
-                tracing::info!(
+                tracing::trace!(
                     "VT_TRACE [9]: receive_frame popped a decoded frame from output_queue"
                 );
             }
@@ -280,13 +297,21 @@ impl Decoder for VideoToolboxDecoder {
     }
 
     fn reset(&mut self) -> Result<(), ViewerError> {
+        #[cfg(target_os = "macos")]
+        {
+            // Drain in-flight callbacks before dropping the session, then drop it. The
+            // session is built from the parameter sets of the stream that created it, so
+            // a reconnect must rebuild it from the new stream's keyframe rather than
+            // decode new frames against stale VPS/SPS/PPS.
+            if let Some(ref session) = self.session {
+                let _ = session.wait_for_async_frames();
+            }
+            self.session = None;
+        }
         if let Ok(mut q) = self.output_queue.lock() {
             q.clear();
         }
-        #[cfg(target_os = "macos")]
-        if let Some(ref session) = self.session {
-            let _ = session.wait_for_async_frames();
-        }
+        self.decoded_count = 0;
         Ok(())
     }
 }
@@ -302,11 +327,32 @@ mod tests {
 
         decoder.initialize("hevc", 1920, 1080).unwrap();
         assert_eq!(decoder.codec(), "hevc");
-
-        let test_packet = vec![0x00, 0x00, 0x00, 0x01, 0x40, 0x01]; // H.265 NAL unit header
-        decoder.decode_packet(&test_packet, 1, 16_666_666).unwrap();
-
-        assert_eq!(decoder.decoded_count(), 1);
+        assert!(decoder.receive_frame().unwrap().is_none());
         assert!(decoder.reset().is_ok());
+    }
+
+    /// A packet that carries no usable parameter sets leaves the decoder without a
+    /// session. That must surface as an error rather than a silent no-op, otherwise the
+    /// viewer shows a black screen with nothing in the logs to explain it.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_decode_without_session_reports_error() {
+        let mut decoder = VideoToolboxDecoder::new();
+        decoder.initialize("hevc", 1920, 1080).unwrap();
+
+        // Six bytes of NAL header with no VPS/SPS/PPS: session creation cannot succeed.
+        let truncated = vec![0x00, 0x00, 0x00, 0x01, 0x40, 0x01];
+        let err = decoder.decode_packet(&truncated, 1, 16_666_666).unwrap_err();
+        assert!(
+            matches!(err, ViewerError::Decoder(ref m) if m.contains("no active VTDecompressionSession")),
+            "unexpected error: {err:?}"
+        );
+    }
+
+    /// Decoding before `initialize` is a caller error.
+    #[test]
+    fn test_decode_before_initialize_is_error() {
+        let mut decoder = VideoToolboxDecoder::new();
+        assert!(decoder.decode_packet(&[0u8; 8], 1, 0).is_err());
     }
 }

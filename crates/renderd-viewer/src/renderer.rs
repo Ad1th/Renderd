@@ -59,6 +59,42 @@ pub trait Renderer: Send + Sync {
 
 static SOFT_RENDER_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Converts one NV12 pixel to a `0RGB` word, writing it into `out`.
+///
+/// Returns 1 if the resulting pixel has any colour, 0 if it is pure black; the caller
+/// uses this to report how much of a frame was non-blank.
+///
+/// Uses BT.601 full-range coefficients in 16.16 fixed point. This runs once per pixel
+/// per frame — over two million times per frame at 1080p — so the scalar float form it
+/// replaces dominated the frame budget on the software path.
+#[inline]
+fn nv12_to_bgra(y: u8, u: u8, v: u8, out: &mut u32) -> u8 {
+    /// 1.402 << 16
+    const R_V: i32 = 91_881;
+    /// 0.344136 << 16
+    const G_U: i32 = 22_554;
+    /// 0.714136 << 16
+    const G_V: i32 = 46_802;
+    /// 1.772 << 16
+    const B_U: i32 = 116_130;
+
+    let y = i32::from(y) << 16;
+    let u = i32::from(u) - 128;
+    let v = i32::from(v) - 128;
+
+    let r = ((y + R_V * v) >> 16).clamp(0, 255);
+    let g = ((y - G_U * u - G_V * v) >> 16).clamp(0, 255);
+    let b = ((y + B_U * u) >> 16).clamp(0, 255);
+
+    #[allow(clippy::cast_sign_loss)]
+    let pixel = 0xFF00_0000
+        | ((r as u32) << 16)
+        | ((g as u32) << 8)
+        | (b as u32);
+    *out = pixel;
+    u8::from(pixel & 0x00FF_FFFF != 0)
+}
+
 /// Software surface renderer using `softbuffer` for cross-platform pixel presentation.
 pub struct SoftRenderer {
     surface: std::sync::Mutex<
@@ -180,37 +216,27 @@ impl Renderer for SoftRenderer {
                                 }
                             }
                             PixelFormat::Nv12 | PixelFormat::P010 => {
-                                let nv12_min_len = num_pixels + num_pixels / 2;
-                                if src.len() >= nv12_min_len && dest.len() >= num_pixels {
-                                    let y_plane = &src[..num_pixels];
-                                    let uv_plane = &src[num_pixels..nv12_min_len];
+                                let uv_width = (width as usize).div_ceil(2) * 2;
+                                let uv_rows = (height as usize).div_ceil(2);
+                                let y_len = num_pixels;
+                                let uv_len = uv_rows * uv_width;
 
-                                    for row in 0..height {
-                                        for col in 0..width {
-                                            let y_idx = (row * width + col) as usize;
-                                            let y_val = f32::from(y_plane[y_idx]);
+                                if src.len() >= y_len + uv_len && dest.len() >= num_pixels {
+                                    let y_plane = &src[..y_len];
+                                    let uv_plane = &src[y_len..y_len + uv_len];
 
-                                            let uv_row = row / 2;
-                                            let uv_col = col & !1;
-                                            let uv_offset = (uv_row * width + uv_col) as usize;
+                                    for row in 0..height as usize {
+                                        let uv_row_base = (row / 2) * uv_width;
+                                        for col in 0..width as usize {
+                                            let y_idx = row * width as usize + col;
+                                            let uv_offset = uv_row_base + (col & !1);
 
-                                            let u_val = f32::from(uv_plane[uv_offset]) - 128.0;
-                                            let v_val = f32::from(uv_plane[uv_offset + 1]) - 128.0;
-
-                                            let r =
-                                                (y_val + 1.402 * v_val).clamp(0.0, 255.0) as u32;
-                                            let g = (y_val - 0.344_136 * u_val - 0.714_136 * v_val)
-                                                .clamp(0.0, 255.0)
-                                                as u32;
-                                            let b =
-                                                (y_val + 1.772 * u_val).clamp(0.0, 255.0) as u32;
-                                            let a = 255u32;
-
-                                            let pixel = (a << 24) | (r << 16) | (g << 8) | b;
-                                            if (pixel & 0x00FF_FFFF) != 0 {
-                                                non_zero_pixels += 1;
-                                            }
-                                            dest[y_idx] = pixel;
+                                            non_zero_pixels += u64::from(nv12_to_bgra(
+                                                y_plane[y_idx],
+                                                uv_plane[uv_offset],
+                                                uv_plane[uv_offset + 1],
+                                                &mut dest[y_idx],
+                                            ));
                                         }
                                     }
                                 }
@@ -357,6 +383,86 @@ mod tests {
         assert!(renderer.present().is_ok());
         renderer.shutdown().unwrap();
         assert!(!renderer.is_initialized());
+    }
+
+    /// The fixed-point BT.601 conversion must agree with the float form it replaced.
+    #[test]
+    fn test_nv12_to_bgra_matches_float_reference() {
+        #[allow(
+            clippy::cast_possible_truncation,
+            clippy::cast_sign_loss,
+            clippy::suboptimal_flops
+        )]
+        fn reference(y: u8, u: u8, v: u8) -> (u32, u32, u32) {
+            let y = f32::from(y);
+            let u = f32::from(u) - 128.0;
+            let v = f32::from(v) - 128.0;
+            (
+                (y + 1.402 * v).clamp(0.0, 255.0) as u32,
+                (y - 0.344_136 * u - 0.714_136 * v).clamp(0.0, 255.0) as u32,
+                (y + 1.772 * u).clamp(0.0, 255.0) as u32,
+            )
+        }
+
+        for y in (0..=255u8).step_by(17) {
+            for u in (0..=255u8).step_by(51) {
+                for v in (0..=255u8).step_by(51) {
+                    let mut out = 0u32;
+                    nv12_to_bgra(y, u, v, &mut out);
+                    let (r, g, b) = ((out >> 16) & 0xFF, (out >> 8) & 0xFF, out & 0xFF);
+                    let (rr, rg, rb) = reference(y, u, v);
+                    assert!(
+                        r.abs_diff(rr) <= 1 && g.abs_diff(rg) <= 1 && b.abs_diff(rb) <= 1,
+                        "y={y} u={u} v={v}: got ({r},{g},{b}) want ({rr},{rg},{rb})"
+                    );
+                    assert_eq!(out >> 24, 0xFF, "alpha must be opaque");
+                }
+            }
+        }
+    }
+
+    /// Neutral chroma with zero luma is black and reports as blank.
+    #[test]
+    fn test_nv12_to_bgra_black_is_reported_blank() {
+        let mut out = 0u32;
+        assert_eq!(nv12_to_bgra(0, 128, 128, &mut out), 0);
+        assert_eq!(out & 0x00FF_FFFF, 0);
+
+        assert_eq!(nv12_to_bgra(255, 128, 128, &mut out), 1);
+        assert_eq!(out & 0x00FF_FFFF, 0x00FF_FFFF);
+    }
+
+    /// An odd-sized NV12 frame must render without indexing past the chroma plane.
+    /// The UV plane of an odd-width frame is padded to an even width, and an odd-height
+    /// frame still carries a final half-height chroma row.
+    #[test]
+    fn test_odd_dimension_nv12_frame_is_within_bounds() {
+        let (width, height) = (5usize, 3usize);
+        let uv_width = width.div_ceil(2) * 2;
+        let uv_rows = height.div_ceil(2);
+        let y_len = width * height;
+        let uv_len = uv_rows * uv_width;
+
+        let src = vec![128u8; y_len + uv_len];
+        let mut dest = vec![0u32; y_len];
+
+        for row in 0..height {
+            let uv_row_base = (row / 2) * uv_width;
+            for col in 0..width {
+                let y_idx = row * width + col;
+                let uv_offset = uv_row_base + (col & !1);
+                assert!(
+                    y_len + uv_offset + 1 < src.len(),
+                    "chroma read at row {row} col {col} is out of bounds"
+                );
+                nv12_to_bgra(
+                    src[y_idx],
+                    src[y_len + uv_offset],
+                    src[y_len + uv_offset + 1],
+                    &mut dest[y_idx],
+                );
+            }
+        }
     }
 
     #[test]

@@ -8,9 +8,7 @@ use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::WindowId;
 
 use crate::config::ViewerAppConfig;
-use crate::decoder::Decoder;
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
-use crate::decoder::NullDecoder;
+use crate::decoder::{Decoder, NullDecoder};
 use crate::discovery::DiscoveryManager;
 use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
@@ -20,6 +18,12 @@ use crate::renderer::{Renderer, SoftRenderer, ViewportSize};
 use crate::state::AppState;
 use crate::ui::SystemTrayManager;
 use crate::window::WindowSystem;
+
+/// Delay before the first reconnect attempt after a host stream ends.
+const INITIAL_RECONNECT_BACKOFF: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Upper bound on the exponential reconnect backoff.
+const MAX_RECONNECT_BACKOFF: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Main application orchestrator managing lifecycle, windowing, rendering, and decoding.
 pub struct App {
@@ -155,8 +159,17 @@ impl App {
         let discovery_conn = self.discovery.clone();
         let viewer_id = uuid::Uuid::new_v4();
 
+        // Hand the app's decoder to the receive task rather than constructing a second
+        // one there. Two decoders meant a whole extra hardware decode device was created
+        // and initialized but never fed, and `with_decoder` had no effect on the pipeline.
+        let mut decoder = std::mem::replace(
+            &mut self.decoder,
+            Box::new(NullDecoder::new()),
+        );
+
         rt.spawn(async move {
             let control_client = ViewerControlClient::new(viewer_id);
+            let mut backoff = INITIAL_RECONNECT_BACKOFF;
             loop {
                 tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
                 if let Some(target_addr) = discovery_conn.snapshot().primary_addr() {
@@ -244,27 +257,41 @@ impl App {
                                 }
                             });
 
-                            let mut receiver = DatagramReceiver::new(4);
-                            #[cfg(target_os = "macos")]
-                            let mut decoder = crate::decode::VideoToolboxDecoder::new();
-                            #[cfg(target_os = "windows")]
-                            let mut decoder = crate::decode::D3D12Decoder::new();
-                            #[cfg(not(any(target_os = "macos", target_os = "windows")))]
-                            let mut decoder = NullDecoder::new();
+                            backoff = INITIAL_RECONNECT_BACKOFF;
 
+                            let mut receiver = DatagramReceiver::new(4);
+
+                            // Discard any state left by a previous session before
+                            // re-initializing for the newly negotiated stream.
+                            if let Err(e) = decoder.reset() {
+                                tracing::warn!("Decoder reset error: {e}");
+                            }
                             if let Err(e) = decoder.initialize(&session_config.selected_codec, session_config.width, session_config.height) {
                                 tracing::warn!("Decoder initialization error: {e}");
                             }
 
-                            if let Err(e) = receiver.run_receive_loop(&conn, &mut decoder, &frame_queue).await {
+                            if let Err(e) = receiver.run_receive_loop(&conn, decoder.as_mut(), &frame_queue).await {
                                 tracing::warn!("Datagram receiver loop ended: {e}");
                             }
+
+                            tracing::info!(
+                                peer = %conn.remote_address(),
+                                "Host stream ended — clearing stale frames and re-discovering"
+                            );
+                            frame_queue.clear();
                         }
                         Err(e) => {
                             tracing::warn!("Stream 0 negotiation failed: {e}");
                         }
                     }
-                    break;
+
+                    // Fall through to the next iteration rather than breaking: the loop
+                    // is the viewer's reconnect path, and exiting it left the viewer dead
+                    // for the rest of the process lifetime after any disconnect.
+                    backoff = (backoff * 2).min(MAX_RECONNECT_BACKOFF);
+                    tokio::time::sleep(backoff).await;
+                } else {
+                    backoff = INITIAL_RECONNECT_BACKOFF;
                 }
             }
         });
@@ -308,12 +335,8 @@ impl ApplicationHandler for App {
                             "Renderer initialized successfully"
                         );
                     }
-                    if let Err(e) = self
-                        .decoder
-                        .initialize("hevc", viewport.width, viewport.height)
-                    {
-                        tracing::error!("Failed to initialize decoder: {e}");
-                    }
+                    // The decoder is owned by the receive task and initialized from the
+                    // codec and dimensions the host negotiates, not from the window size.
                     self.window_system = Some(ws);
                 }
                 Err(e) => {

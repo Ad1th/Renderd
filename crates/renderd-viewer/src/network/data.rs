@@ -44,7 +44,7 @@ impl DatagramReceiver {
     ///
     /// # Errors
     /// Returns [`ViewerError::Network`] or [`ViewerError::Decoder`] if header parsing or decoding fails.
-    pub fn process_datagram<D: Decoder>(
+    pub fn process_datagram<D: Decoder + ?Sized>(
         &mut self,
         datagram: &[u8],
         decoder: &mut D,
@@ -100,7 +100,7 @@ impl DatagramReceiver {
     ///
     /// # Errors
     /// Returns [`ViewerError::Network`] if reading from QUIC connection fails.
-    pub async fn run_receive_loop<D: Decoder>(
+    pub async fn run_receive_loop<D: Decoder + ?Sized>(
         &mut self,
         connection: &quinn::Connection,
         decoder: &mut D,
@@ -126,7 +126,11 @@ impl DatagramReceiver {
                         "DatagramReceiver: first frame reassembled & delivered to decoder"
                     );
                 }
-                if let Ok(Some(decoded)) = decoder.receive_frame() {
+                // Drain everything the decoder has ready, not just one frame. Hardware
+                // decoders deliver asynchronously, so taking exactly one output per
+                // input leaves the display a fixed number of frames behind and never
+                // recovers that latency after a stall.
+                while let Ok(Some(decoded)) = decoder.receive_frame() {
                     if frame_count == 1 {
                         tracing::info!(
                             count = frame_count,
