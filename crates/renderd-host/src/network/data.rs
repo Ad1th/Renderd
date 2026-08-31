@@ -318,7 +318,9 @@ mod tests {
         let frags = DataSender::fragment_frame(&frame, 1184).unwrap();
         let header = FragmentHeader::decode(&frags[0][..HEADER_SIZE]).unwrap();
 
-        let expected = u32::try_from((pts_ns as u64 / 1_000) % (u64::from(MAX_PTS_OFFSET_US) + 1))
+        #[allow(clippy::cast_sign_loss)]
+        let micros = pts_ns as u64 / 1_000;
+        let expected = u32::try_from(micros % (u64::from(MAX_PTS_OFFSET_US) + 1))
             .expect("masked value fits in u32");
         assert_eq!(header.pts_offset_us, expected);
         assert_ne!(header.pts_offset_us, 0, "large PTS must not collapse to 0");

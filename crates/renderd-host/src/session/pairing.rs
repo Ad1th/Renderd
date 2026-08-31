@@ -133,12 +133,14 @@ impl PairingHandler {
         let pin = renderd_crypto::generate_pairing_pin()
             .map_err(|e| PairingError::EntropyUnavailable(e.to_string()))?;
 
-        let mut guard = self
-            .state
-            .lock()
-            .expect("PairingState mutex is not poisoned");
-        guard.active_pin = Some(pin.clone());
-        guard.pin_generated_at = Some(Instant::now());
+        {
+            let mut guard = self
+                .state
+                .lock()
+                .expect("PairingState mutex is not poisoned");
+            guard.active_pin = Some(pin.clone());
+            guard.pin_generated_at = Some(Instant::now());
+        }
 
         Ok(pin)
     }
