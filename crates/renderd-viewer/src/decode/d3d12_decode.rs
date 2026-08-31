@@ -45,7 +45,7 @@ use windows::{
         D3D12_TEXTURE_COPY_LOCATION_0, D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
         D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX, D3D12_TEXTURE_LAYOUT_UNKNOWN,
     },
-    Win32::Graphics::Dxgi::Common::{DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
+    Win32::Graphics::Dxgi::Common::{DXGI_COLOR_SPACE_TYPE, DXGI_FORMAT_NV12, DXGI_SAMPLE_DESC},
     Win32::Graphics::Dxgi::{
         CreateDXGIFactory1, IDXGIAdapter1, IDXGIFactory1, DXGI_ERROR_NOT_FOUND,
     },
@@ -61,6 +61,20 @@ use windows::{
         D3D12_VIDEO_FRAME_CODED_INTERLACE_TYPE_NONE,
     },
     Win32::System::Threading::{CreateEventW, WaitForSingleObject, INFINITE},
+};
+
+/// Byte size of the video-decode support query struct, as `CheckFeatureSupport` expects it.
+///
+/// Computed in a const so the narrowing is checked when the crate is built rather than
+/// silently truncating at runtime.
+#[cfg(target_os = "windows")]
+#[allow(clippy::cast_possible_truncation)]
+const SUPPORT_STRUCT_SIZE: u32 = {
+    let size = std::mem::size_of::<D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT>();
+    // The narrowing below is unreachable for a struct of a few dozen bytes; the assert
+    // turns any future growth past 4 GiB into a build failure rather than a bad size.
+    assert!(size <= u32::MAX as usize, "feature struct exceeds u32");
+    size as u32
 };
 
 // ── D3D12Decoder ─────────────────────────────────────────────────────────────
@@ -283,7 +297,7 @@ impl Decoder for D3D12Decoder {
             let frame = self.decode_packet_d3d12(packet, frame_id, pts_ns, start_time)?;
             self.output_queue.push_back(frame);
             self.decoded_count += 1;
-            return Ok(());
+            Ok(())
         }
 
         #[cfg(not(target_os = "windows"))]
@@ -317,6 +331,7 @@ impl D3D12Decoder {
         unsafe { self.init_d3d12_inner() }
     }
 
+    #[allow(clippy::too_many_lines)]
     unsafe fn init_d3d12_inner(&mut self) -> Result<(), ViewerError> {
         use windows::core::Interface;
 
@@ -381,8 +396,8 @@ impl D3D12Decoder {
         video_device
             .CheckFeatureSupport(
                 D3D12_FEATURE_VIDEO_DECODE_SUPPORT,
-                &raw mut support as *mut _,
-                std::mem::size_of::<D3D12_FEATURE_DATA_VIDEO_DECODE_SUPPORT>() as u32,
+                (&raw mut support).cast(),
+                SUPPORT_STRUCT_SIZE,
             )
             .map_err(|e| ViewerError::Decoder(format!("CheckFeatureSupport HEVC: {e}")))?;
         if (support.SupportFlags & D3D12_VIDEO_DECODE_SUPPORT_FLAG_SUPPORTED).0 == 0 {
@@ -915,8 +930,8 @@ impl D3D12Decoder {
             Enable: FALSE,
             pReferenceTexture2D: std::mem::ManuallyDrop::new(None),
             ReferenceSubresource: 0,
-            OutputColorSpace: Default::default(),
-            DecodeColorSpace: Default::default(),
+            OutputColorSpace: DXGI_COLOR_SPACE_TYPE::default(),
+            DecodeColorSpace: DXGI_COLOR_SPACE_TYPE::default(),
         };
         let output_args = D3D12_VIDEO_DECODE_OUTPUT_STREAM_ARGUMENTS {
             pOutputTexture2D: std::mem::ManuallyDrop::new(Some(output_texture.clone())),
@@ -1118,15 +1133,21 @@ impl D3D12Decoder {
             .Map(0, None, Some(&mut mapped))
             .map_err(|e| ViewerError::Decoder(format!("Map readback: {e}")))?;
 
-        let mapped_slice =
-            std::slice::from_raw_parts(mapped.cast::<u8>(), self.readback_total_bytes as usize);
+        let readback_len = usize::try_from(self.readback_total_bytes).map_err(|_| {
+            ViewerError::Decoder("read-back buffer larger than this address space".to_string())
+        })?;
+        let mapped_slice = std::slice::from_raw_parts(mapped.cast::<u8>(), readback_len);
 
         let width = self.width as usize;
         let height = self.height as usize;
         let y_row_pitch = self.y_footprint.Footprint.RowPitch as usize;
         let uv_row_pitch = self.uv_footprint.Footprint.RowPitch as usize;
-        let y_offset = self.y_footprint.Offset as usize;
-        let uv_offset = self.uv_footprint.Offset as usize;
+        let y_offset = usize::try_from(self.y_footprint.Offset).map_err(|_| {
+            ViewerError::Decoder("Y plane offset exceeds this address space".to_string())
+        })?;
+        let uv_offset = usize::try_from(self.uv_footprint.Offset).map_err(|_| {
+            ViewerError::Decoder("UV plane offset exceeds this address space".to_string())
+        })?;
 
         // Tightly-packed NV12: width*height Y bytes + width*(height/2) UV bytes.
         // Every row is fetched through `get`, so a footprint that disagrees with the
