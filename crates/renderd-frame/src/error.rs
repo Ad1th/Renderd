@@ -27,6 +27,19 @@ pub enum FrameError {
         frag_total: u16,
     },
 
+    /// A fragment declared a `frag_total` that disagrees with the frame under assembly.
+    #[error(
+        "Fragment total mismatch for frame {frame_id}: assembling {expected}, fragment claims {got}"
+    )]
+    FragmentTotalMismatch {
+        /// Frame ID.
+        frame_id: u64,
+        /// Fragment total recorded when reassembly of this frame began.
+        expected: u16,
+        /// Fragment total declared by the offending fragment.
+        got: u16,
+    },
+
     /// Duplicate fragment received for an already buffered position.
     #[error("Duplicate fragment {frag_id} received for frame {frame_id}")]
     DuplicateFragment {

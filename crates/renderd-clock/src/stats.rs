@@ -16,8 +16,12 @@ impl<const N: usize> Default for RollingStats<N> {
 
 impl<const N: usize> RollingStats<N> {
     /// Creates a new empty `RollingStats` ring buffer.
+    ///
+    /// A window of `N == 0` is rejected at compile time; it would divide by zero and
+    /// index an empty array on the first `push`.
     #[must_use]
     pub const fn new() -> Self {
+        const { assert!(N > 0, "RollingStats window size must be greater than 0") };
         Self {
             buffer: [0; N],
             head: 0,
@@ -57,7 +61,8 @@ impl<const N: usize> RollingStats<N> {
         sum as f64 / self.count as f64
     }
 
-    /// Returns the sample variance, or `0.0` if empty.
+    /// Returns the population variance (dividing by `n`, not `n - 1`), or `0.0` if
+    /// fewer than two samples have been recorded.
     #[must_use]
     #[allow(clippy::cast_precision_loss)]
     pub fn variance(&self) -> f64 {
@@ -75,7 +80,7 @@ impl<const N: usize> RollingStats<N> {
         sum_sq_diff / self.count as f64
     }
 
-    /// Returns the sample standard deviation.
+    /// Returns the population standard deviation, the square root of [`Self::variance`].
     #[must_use]
     pub fn std_dev(&self) -> f64 {
         self.variance().sqrt()

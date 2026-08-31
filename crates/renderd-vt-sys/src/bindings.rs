@@ -157,4 +157,10 @@ extern "C" {
         out_size: *mut usize,
         out_is_keyframe: *mut bool,
     ) -> OSStatus;
+
+    /// Reads the presentation timestamp of a `CMSampleBufferRef`, rescaled to nanoseconds.
+    pub fn renderd_CMSampleBufferGetPresentationTimeNanos(
+        sample_buffer: CMSampleBufferRef,
+        out_pts_ns: *mut i64,
+    ) -> OSStatus;
 }
