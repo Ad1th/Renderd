@@ -236,37 +236,54 @@ impl App {
                                 "Stream 0 handshake completed with host — starting datagram receiver and vsync reporter"
                             );
 
-                            // Spawn VsyncReporter & FeedbackExporter task to send VsyncReport, ReactiveStats, and PeriodicStats over Stream 0 (#110, #111)
+                            let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<u64>(16);
+
+                            // Spawn VsyncReporter & FeedbackExporter task to send VsyncReport, ReactiveStats, PeriodicStats, and KeyframeRequest over Stream 0 (#110, #111)
                             tokio::spawn(async move {
                                 use renderd_net::framing::send_control;
                                 use renderd_proto::generated::renderd::{envelope::Payload, Envelope};
                                 let mut vsync_reporter = crate::clock_sync::VsyncReporter::new();
                                 let mut feedback_exporter = crate::abr::FeedbackExporter::new();
+                                let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(16));
                                 loop {
-                                    tokio::time::sleep(tokio::time::Duration::from_millis(16)).await;
-                                    let report = vsync_reporter.create_vsync_report();
-                                    let env = Envelope {
-                                        payload: Some(Payload::VsyncReport(report)),
-                                    };
-                                    if send_control(&mut send_stream, &env).await.is_err() {
-                                        break;
-                                    }
+                                    tokio::select! {
+                                        _ = interval.tick() => {
+                                            let report = vsync_reporter.create_vsync_report();
+                                            let env = Envelope {
+                                                payload: Some(Payload::VsyncReport(report)),
+                                            };
+                                            if send_control(&mut send_stream, &env).await.is_err() {
+                                                break;
+                                            }
 
-                                    if let Some(reactive) = feedback_exporter.maybe_export_reactive() {
-                                        let env = Envelope {
-                                            payload: Some(Payload::ReactiveStats(reactive)),
-                                        };
-                                        if send_control(&mut send_stream, &env).await.is_err() {
-                                            break;
+                                            if let Some(reactive) = feedback_exporter.maybe_export_reactive() {
+                                                let env = Envelope {
+                                                    payload: Some(Payload::ReactiveStats(reactive)),
+                                                };
+                                                if send_control(&mut send_stream, &env).await.is_err() {
+                                                    break;
+                                                }
+                                            }
+
+                                            if let Some(periodic) = feedback_exporter.maybe_export_periodic() {
+                                                let env = Envelope {
+                                                    payload: Some(Payload::PeriodicStats(periodic)),
+                                                };
+                                                if send_control(&mut send_stream, &env).await.is_err() {
+                                                    break;
+                                                }
+                                            }
                                         }
-                                    }
-
-                                    if let Some(periodic) = feedback_exporter.maybe_export_periodic() {
-                                        let env = Envelope {
-                                            payload: Some(Payload::PeriodicStats(periodic)),
-                                        };
-                                        if send_control(&mut send_stream, &env).await.is_err() {
-                                            break;
+                                        Some(loss_count) = loss_rx.recv() => {
+                                            feedback_exporter.record_frame_loss(loss_count.max(1));
+                                            let kf_req = feedback_exporter.create_keyframe_request();
+                                            let env = Envelope {
+                                                payload: Some(Payload::KeyframeRequest(kf_req)),
+                                            };
+                                            if send_control(&mut send_stream, &env).await.is_err() {
+                                                break;
+                                            }
+                                            tracing::info!("Sent immediate KeyframeRequest over Stream 0 due to frame loss");
                                         }
                                     }
                                 }
@@ -285,7 +302,7 @@ impl App {
                                 tracing::warn!("Decoder initialization error: {e}");
                             }
 
-                            if let Err(e) = receiver.run_receive_loop(&conn, decoder.as_mut(), &frame_queue).await {
+                            if let Err(e) = receiver.run_receive_loop_with_loss_signal(&conn, decoder.as_mut(), &frame_queue, Some(loss_tx)).await {
                                 tracing::warn!("Datagram receiver loop ended: {e}");
                             }
 
