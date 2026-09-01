@@ -106,6 +106,21 @@ impl DatagramReceiver {
         decoder: &mut D,
         frame_queue: &Arc<FrameQueue>,
     ) -> Result<(), ViewerError> {
+        self.run_receive_loop_with_loss_signal(connection, decoder, frame_queue, None)
+            .await
+    }
+
+    /// Runs the datagram receiver event loop with an optional channel to signal frame loss for immediate keyframe requests.
+    ///
+    /// # Errors
+    /// Returns [`ViewerError::Network`] if reading from QUIC connection fails.
+    pub async fn run_receive_loop_with_loss_signal<D: Decoder + ?Sized>(
+        &mut self,
+        connection: &quinn::Connection,
+        decoder: &mut D,
+        frame_queue: &Arc<FrameQueue>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+    ) -> Result<(), ViewerError> {
         static RECV_DG_COUNT: AtomicU64 = AtomicU64::new(0);
         static REASM_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
         static DECODED_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -115,6 +130,7 @@ impl DatagramReceiver {
         let mut interval_reassembled: u64 = 0;
         let mut interval_bytes: u64 = 0;
         let mut interval_decoded: u64 = 0;
+        let mut last_dropped_frames = self.window.dropped_frames();
 
         while let Ok(datagram) = connection.read_datagram().await {
             let dg_len = datagram.len();
@@ -130,36 +146,50 @@ impl DatagramReceiver {
                 );
             }
 
-            if let Ok(Some(frame_id)) = self.process_datagram(&datagram, decoder) {
-                let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                interval_reassembled += 1;
+            match self.process_datagram(&datagram, decoder) {
+                Ok(Some(frame_id)) => {
+                    let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                    interval_reassembled += 1;
 
-                if frame_count == 1 {
-                    tracing::info!(
-                        count = frame_count,
-                        frame_id = frame_id,
-                        "DatagramReceiver: first frame reassembled & delivered to decoder"
-                    );
-                }
-
-                // Drain everything the decoder has ready, not just one frame. Hardware
-                // decoders deliver asynchronously, so taking exactly one output per
-                // input leaves the display a fixed number of frames behind and never
-                // recovers that latency after a stall.
-                while let Ok(Some(decoded)) = decoder.receive_frame() {
-                    let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                    interval_decoded += 1;
-
-                    if dec_count == 1 {
+                    if frame_count == 1 {
                         tracing::info!(
-                            count = dec_count,
-                            frame_id = decoded.frame_id,
-                            width = decoded.width,
-                            height = decoded.height,
-                            "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                            count = frame_count,
+                            frame_id = frame_id,
+                            "DatagramReceiver: first frame reassembled & delivered to decoder"
                         );
                     }
-                    let _ = frame_queue.push(decoded);
+
+                    // Drain everything the decoder has ready, not just one frame.
+                    while let Ok(Some(decoded)) = decoder.receive_frame() {
+                        let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                        interval_decoded += 1;
+
+                        if dec_count == 1 {
+                            tracing::info!(
+                                count = dec_count,
+                                frame_id = decoded.frame_id,
+                                width = decoded.width,
+                                height = decoded.height,
+                                "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                            );
+                        }
+                        let _ = frame_queue.push(decoded);
+                    }
+                }
+                Ok(None) => {}
+                Err(_) => {
+                    if let Some(ref tx) = loss_tx {
+                        let _ = tx.try_send(0);
+                    }
+                }
+            }
+
+            let current_drops = self.window.dropped_frames();
+            if current_drops > last_dropped_frames {
+                let diff = current_drops - last_dropped_frames;
+                last_dropped_frames = current_drops;
+                if let Some(ref tx) = loss_tx {
+                    let _ = tx.try_send(diff);
                 }
             }
 
