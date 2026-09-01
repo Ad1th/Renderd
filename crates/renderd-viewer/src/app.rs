@@ -390,8 +390,23 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested if self.window_system.is_some() => {
                 static RENDER_COUNT: std::sync::atomic::AtomicU64 =
                     std::sync::atomic::AtomicU64::new(0);
-                if let Some(frame) = self.frame_queue.pop() {
+                static INTERVAL_START: std::sync::Mutex<Option<std::time::Instant>> =
+                    std::sync::Mutex::new(None);
+                static INTERVAL_PRESENTED: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+                static INTERVAL_STALE: std::sync::atomic::AtomicU64 =
+                    std::sync::atomic::AtomicU64::new(0);
+
+                let (maybe_frame, stale_count) = self.frame_queue.pop_latest();
+                if stale_count > 0 {
+                    INTERVAL_STALE
+                        .fetch_add(stale_count as u64, std::sync::atomic::Ordering::Relaxed);
+                }
+
+                if let Some(frame) = maybe_frame {
                     let count = RENDER_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    INTERVAL_PRESENTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
                     if count == 1 {
                         tracing::info!(
                             count = count,
@@ -400,14 +415,41 @@ impl ApplicationHandler for App {
                             height = frame.height,
                             "Renderer: popped first decoded frame from FrameQueue and presenting to swapchain"
                         );
-                    } else if count % 100 == 0 {
-                        tracing::info!(count = count, "Renderer: frame presentation checkpoint");
                     }
+
+                    let render_start = std::time::Instant::now();
                     if let Err(e) = self.renderer.render_frame(&frame) {
                         tracing::error!("Error rendering frame: {e}");
                     }
                     if let Err(e) = self.renderer.present() {
                         tracing::error!("Error presenting frame: {e}");
+                    }
+                    let render_duration = render_start.elapsed();
+
+                    let mut start_guard = INTERVAL_START.lock().unwrap();
+                    let start = start_guard.get_or_insert_with(std::time::Instant::now);
+                    let elapsed = start.elapsed();
+                    if elapsed >= std::time::Duration::from_secs(1) {
+                        let elapsed_sec = elapsed.as_secs_f64();
+                        let pres = INTERVAL_PRESENTED.swap(0, std::sync::atomic::Ordering::Relaxed);
+                        let stale = INTERVAL_STALE.swap(0, std::sync::atomic::Ordering::Relaxed);
+                        #[allow(clippy::cast_precision_loss)]
+                        let pres_fps = (pres as f64) / elapsed_sec;
+                        #[allow(clippy::cast_precision_loss)]
+                        let stale_fps = (stale as f64) / elapsed_sec;
+
+                        tracing::info!(
+                            present_fps = format!("{pres_fps:.1}"),
+                            stale_drop_fps = format!("{stale_fps:.1}"),
+                            frame_id = frame.frame_id,
+                            decode_ms =
+                                format!("{:.2}", frame.decode_duration.as_secs_f64() * 1000.0),
+                            render_ms = format!("{:.2}", render_duration.as_secs_f64() * 1000.0),
+                            total_presented = count,
+                            total_stale_dropped = self.frame_queue.stale_dropped(),
+                            "VIEWER METRICS: display presentation & render latency"
+                        );
+                        *start_guard = Some(std::time::Instant::now());
                     }
                 }
             }
