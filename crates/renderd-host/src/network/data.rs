@@ -173,6 +173,10 @@ impl DataSender {
         let mut sent_frames: u64 = 0;
         let mut consecutive_errors: u32 = 0;
 
+        let mut interval_start = std::time::Instant::now();
+        let mut interval_frames: u64 = 0;
+        let mut interval_bytes: u64 = 0;
+
         while !shutdown.load(Ordering::Relaxed) {
             let frame = match rx.recv_timeout(IDLE_POLL) {
                 Ok(frame) => frame,
@@ -180,25 +184,58 @@ impl DataSender {
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             };
 
+            let frame_bytes = frame.data.len();
+            let frame_id = frame.frame_id;
+            let is_kf = frame.is_keyframe;
+            let pts_ns = frame.pts_ns;
+            let queue_depth = rx.len();
+
             match self.send_frame_burst(connection, &frame) {
                 Ok(num_frags) => {
                     consecutive_errors = 0;
                     sent_frames += 1;
+                    interval_frames += 1;
+                    interval_bytes += frame_bytes as u64;
+
                     if sent_frames == 1 {
                         let first_32 = &frame.data[..32.min(frame.data.len())];
                         tracing::info!(
                             count = sent_frames,
-                            frame_id = frame.frame_id,
-                            bytes = frame.data.len(),
+                            frame_id = frame_id,
+                            bytes = frame_bytes,
                             frags = num_frags,
                             first_32_bytes = ?first_32,
                             "DataSender: transmitted first encoded frame QUIC datagram burst"
                         );
-                    } else if sent_frames % 100 == 0 {
+                    }
+
+                    let elapsed = interval_start.elapsed();
+                    if elapsed >= std::time::Duration::from_secs(1) {
+                        let elapsed_sec = elapsed.as_secs_f64();
+                        #[allow(clippy::cast_precision_loss)]
+                        let fps = (interval_frames as f64) / elapsed_sec;
+                        #[allow(clippy::cast_precision_loss)]
+                        let instantaneous_bitrate_kbps =
+                            ((interval_bytes as f64) * 8.0 / 1000.0) / elapsed_sec;
+                        let avg_frame_kb = interval_bytes
+                            .checked_div(interval_frames)
+                            .map_or(0, |b| b / 1024);
+
                         tracing::info!(
-                            count = sent_frames,
-                            "DataSender: datagram burst checkpoint"
+                            fps = format!("{fps:.1}"),
+                            instantaneous_bitrate_kbps = format!("{instantaneous_bitrate_kbps:.0}"),
+                            avg_frame_kb = avg_frame_kb,
+                            queue_depth = queue_depth,
+                            last_frame_id = frame_id,
+                            is_keyframe = is_kf,
+                            pts_ns = pts_ns,
+                            total_sent = sent_frames,
+                            "HOST METRICS: transmit throughput & encoder pacing"
                         );
+
+                        interval_start = std::time::Instant::now();
+                        interval_frames = 0;
+                        interval_bytes = 0;
                     }
                 }
                 Err(e) => {
