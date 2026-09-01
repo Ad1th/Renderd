@@ -17,7 +17,7 @@ pub enum PixelFormat {
 }
 
 /// Uncompressed decoded video frame ready for rendering.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DecodedFrame {
     /// Frame sequence identifier.
     pub frame_id: u64,
