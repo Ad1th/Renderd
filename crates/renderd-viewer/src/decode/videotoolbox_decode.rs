@@ -212,6 +212,9 @@ impl Decoder for VideoToolboxDecoder {
                             };
 
                             if let Ok(mut q) = queue.lock() {
+                                while q.len() >= 4 {
+                                    q.pop_front();
+                                }
                                 q.push_back(frame);
                                 tracing::trace!(
                                     queue_len = q.len(),
