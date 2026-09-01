@@ -62,14 +62,30 @@ OSStatus renderd_VTCompressionSessionCreate(
     // 2. Disable frame reordering (B-frames) to ensure 0-frame latency (P-frames / IDR only)
     VTSessionSetProperty(session, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
 
-    // 3. Set Profile Level for maximum compression efficiency
+    // 3. Set zero frame delay for immediate output without encoder buffering
+    int32_t max_delay_count = 0;
+    CFNumberRef max_delay_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &max_delay_count);
+    if (max_delay_num != NULL) {
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_MaxFrameDelayCount, max_delay_num);
+        CFRelease(max_delay_num);
+    }
+
+    // 4. Set expected frame rate (60 fps)
+    int32_t expected_fps = 60;
+    CFNumberRef fps_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &expected_fps);
+    if (fps_num != NULL) {
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, fps_num);
+        CFRelease(fps_num);
+    }
+
+    // 5. Set Profile Level for maximum compression efficiency
     if (codec_type == kCMVideoCodecType_H264) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel);
     } else if (codec_type == kCMVideoCodecType_HEVC) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
     }
 
-    // 4. Set MaxKeyFrameIntervalDuration to 0.5 seconds (RFC-0002 §6.1)
+    // 6. Set MaxKeyFrameIntervalDuration to 0.5 seconds (RFC-0002 §6.1)
     double max_keyframe_interval_sec = 0.5;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
@@ -81,10 +97,10 @@ OSStatus renderd_VTCompressionSessionCreate(
         CFRelease(max_keyframe_interval);
     }
 
-    // 5. Set initial target bitrate
+    // 7. Set initial target bitrate
     renderd_VTCompressionSessionSetBitrate(session, initial_bitrate_kbps);
 
-    // 6. Prepare encoder for low-latency session execution
+    // 8. Prepare encoder for low-latency session execution
     VTCompressionSessionPrepareToEncodeFrames(session);
 
     *session_out = session;
