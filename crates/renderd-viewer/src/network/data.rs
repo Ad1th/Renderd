@@ -108,17 +108,32 @@ impl DatagramReceiver {
     ) -> Result<(), ViewerError> {
         static RECV_DG_COUNT: AtomicU64 = AtomicU64::new(0);
         static REASM_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+        static DECODED_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+
+        let mut interval_start = std::time::Instant::now();
+        let mut interval_datagrams: u64 = 0;
+        let mut interval_reassembled: u64 = 0;
+        let mut interval_bytes: u64 = 0;
+        let mut interval_decoded: u64 = 0;
+
         while let Ok(datagram) = connection.read_datagram().await {
+            let dg_len = datagram.len();
             let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+            interval_datagrams += 1;
+            interval_bytes += dg_len as u64;
+
             if dg_count == 1 {
                 tracing::info!(
                     count = dg_count,
-                    bytes = datagram.len(),
+                    bytes = dg_len,
                     "DatagramReceiver: first QUIC datagram received from host"
                 );
             }
+
             if let Ok(Some(frame_id)) = self.process_datagram(&datagram, decoder) {
                 let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                interval_reassembled += 1;
+
                 if frame_count == 1 {
                     tracing::info!(
                         count = frame_count,
@@ -126,14 +141,18 @@ impl DatagramReceiver {
                         "DatagramReceiver: first frame reassembled & delivered to decoder"
                     );
                 }
+
                 // Drain everything the decoder has ready, not just one frame. Hardware
                 // decoders deliver asynchronously, so taking exactly one output per
                 // input leaves the display a fixed number of frames behind and never
                 // recovers that latency after a stall.
                 while let Ok(Some(decoded)) = decoder.receive_frame() {
-                    if frame_count == 1 {
+                    let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                    interval_decoded += 1;
+
+                    if dec_count == 1 {
                         tracing::info!(
-                            count = frame_count,
+                            count = dec_count,
                             frame_id = decoded.frame_id,
                             width = decoded.width,
                             height = decoded.height,
@@ -142,6 +161,37 @@ impl DatagramReceiver {
                     }
                     let _ = frame_queue.push(decoded);
                 }
+            }
+
+            let elapsed = interval_start.elapsed();
+            if elapsed >= std::time::Duration::from_secs(1) {
+                let elapsed_sec = elapsed.as_secs_f64();
+                #[allow(clippy::cast_precision_loss)]
+                let dg_fps = (interval_datagrams as f64) / elapsed_sec;
+                #[allow(clippy::cast_precision_loss)]
+                let reasm_fps = (interval_reassembled as f64) / elapsed_sec;
+                #[allow(clippy::cast_precision_loss)]
+                let decoded_fps = (interval_decoded as f64) / elapsed_sec;
+                #[allow(clippy::cast_precision_loss)]
+                let recv_bitrate_kbps = ((interval_bytes as f64) * 8.0 / 1000.0) / elapsed_sec;
+
+                tracing::info!(
+                    recv_dg_sec = format!("{dg_fps:.1}"),
+                    reasm_fps = format!("{reasm_fps:.1}"),
+                    decoded_fps = format!("{decoded_fps:.1}"),
+                    recv_bitrate_kbps = format!("{recv_bitrate_kbps:.0}"),
+                    reasm_pending = self.window.pending_len(),
+                    reasm_dropped = self.window.dropped_frames(),
+                    frag_dropped = self.dropped_fragments(),
+                    frame_queue_len = frame_queue.len(),
+                    "VIEWER METRICS: network receive & decode throughput"
+                );
+
+                interval_start = std::time::Instant::now();
+                interval_datagrams = 0;
+                interval_reassembled = 0;
+                interval_bytes = 0;
+                interval_decoded = 0;
             }
         }
         Ok(())
