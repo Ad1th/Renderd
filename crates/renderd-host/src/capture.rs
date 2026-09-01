@@ -59,8 +59,8 @@ impl CapturePipeline {
     /// Returns [`HostError::Initialization`] if screen capture permission is denied or stream creation fails.
     pub fn start(
         &mut self,
-        _width: u32,
-        _height: u32,
+        width: u32,
+        height: u32,
         target_fps: u32,
         encode_pipeline: Arc<EncodePipeline>,
     ) -> Result<(), HostError> {
@@ -73,9 +73,9 @@ impl CapturePipeline {
             use renderd_sc_sys::{ContentFilter, ScreenRecordingPermission, ScreenStream};
 
             let status = ScreenRecordingPermission::check();
-            if !status.is_granted() {
+            if !status.is_granted() && !ScreenRecordingPermission::request() {
                 return Err(HostError::Initialization(
-                    "Screen recording permission denied by macOS TCC".into(),
+                    "Screen recording permission denied by macOS TCC. Please grant Screen Recording permissions in System Settings -> Privacy & Security -> Screen & System Audio Recording and restart your terminal.".into(),
                 ));
             }
 
@@ -85,25 +85,31 @@ impl CapturePipeline {
 
             let pipeline_ref = encode_pipeline;
 
-            let stream = ScreenStream::new(&filter, target_fps, move |frame| {
-                static SC_CALLBACK_COUNT: std::sync::atomic::AtomicU64 =
-                    std::sync::atomic::AtomicU64::new(0);
-                let count =
-                    SC_CALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if count == 1 {
-                    tracing::info!(
-                        count = count,
-                        pts_ns = frame.pts_ns,
-                        "CapturePipeline: forwarding first captured frame to VideoToolbox encoder"
-                    );
-                } else if count % 100 == 0 {
-                    tracing::info!(
-                        count = count,
-                        "CapturePipeline: captured frame callback checkpoint"
-                    );
-                }
-                let _ = pipeline_ref.encode_surface(&frame.surface, frame.pts_ns);
-            })
+            let stream = ScreenStream::with_dimensions(
+                &filter,
+                width as usize,
+                height as usize,
+                target_fps,
+                move |frame| {
+                    static SC_CALLBACK_COUNT: std::sync::atomic::AtomicU64 =
+                        std::sync::atomic::AtomicU64::new(0);
+                    let count =
+                        SC_CALLBACK_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                    if count == 1 {
+                        tracing::info!(
+                            count = count,
+                            pts_ns = frame.pts_ns,
+                            "CapturePipeline: forwarding first captured frame to VideoToolbox encoder"
+                        );
+                    } else if count % 100 == 0 {
+                        tracing::info!(
+                            count = count,
+                            "CapturePipeline: captured frame callback checkpoint"
+                        );
+                    }
+                    let _ = pipeline_ref.encode_surface(&frame.surface, frame.pts_ns);
+                },
+            )
             .map_err(|e| HostError::Initialization(format!("ScreenStream creation failed: {e}")))?;
 
             stream.start().map_err(|e| {
