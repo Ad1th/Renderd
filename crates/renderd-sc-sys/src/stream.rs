@@ -61,6 +61,11 @@ extern "C" {
         label: *const i8,
         attr: *const std::ffi::c_void,
     ) -> *mut std::ffi::c_void;
+    fn dispatch_queue_attr_make_with_qos_class(
+        attr: *const std::ffi::c_void,
+        qos_class: u32,
+        relative_priority: i32,
+    ) -> *mut std::ffi::c_void;
     fn CVPixelBufferGetWidth(pixel_buffer: *const std::ffi::c_void) -> usize;
     fn CVPixelBufferGetHeight(pixel_buffer: *const std::ffi::c_void) -> usize;
     fn CVPixelBufferGetPixelFormatType(pixel_buffer: *const std::ffi::c_void) -> u32;
@@ -338,9 +343,12 @@ impl ScreenStream {
             )
         };
 
-        // Create dedicated GCD dispatch queue labeled "dev.renderd.sc-capture"
+        // Create dedicated GCD dispatch queue with QOS_CLASS_USER_INTERACTIVE (0x21) priority
         let queue_label = c"dev.renderd.sc-capture".as_ptr();
-        let queue_ptr = unsafe { dispatch_queue_create(queue_label, std::ptr::null()) };
+        let qos_attr = unsafe {
+            dispatch_queue_attr_make_with_qos_class(std::ptr::null(), 0x21, 0)
+        };
+        let queue_ptr = unsafe { dispatch_queue_create(queue_label, qos_attr) };
         let queue: Option<&NSObject> = unsafe { (queue_ptr as *const NSObject).as_ref() };
 
         // Register output delegate for screen sample buffers via Objective-C selector
