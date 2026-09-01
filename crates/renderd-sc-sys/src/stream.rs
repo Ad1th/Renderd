@@ -268,12 +268,39 @@ impl ScreenStream {
     where
         F: Fn(CaptureFrame) + Send + Sync + 'static,
     {
+        Self::with_dimensions(
+            filter,
+            filter.width(),
+            filter.height(),
+            target_fps,
+            callback,
+        )
+    }
+
+    /// Creates and configures a new `ScreenStream` targeting the specified display filter
+    /// with specific output dimensions, hardware-scaled to fit.
+    ///
+    /// # Errors
+    /// Returns [`ScError::StreamFailed`] if stream allocation or output delegate registration fails.
+    pub fn with_dimensions<F>(
+        filter: &ContentFilter,
+        width: usize,
+        height: usize,
+        target_fps: u32,
+        callback: F,
+    ) -> Result<Self, ScError>
+    where
+        F: Fn(CaptureFrame) + Send + Sync + 'static,
+    {
         let config = unsafe { SCStreamConfiguration::new() };
+        let out_width = if width > 0 { width } else { filter.width() };
+        let out_height = if height > 0 { height } else { filter.height() };
 
         // SAFETY: config is a newly allocated SCStreamConfiguration object.
         unsafe {
-            config.setWidth(filter.width());
-            config.setHeight(filter.height());
+            config.setWidth(out_width);
+            config.setHeight(out_height);
+            config.setScalesToFit(true);
             config.setShowsCursor(false);
 
             // Set minimumFrameInterval to achieve target framerate
