@@ -148,6 +148,8 @@ pub struct D3D12Decoder {
     readback_total_bytes: u64,
     #[cfg(target_os = "windows")]
     readback_buffer: Option<ID3D12Resource>,
+    #[cfg(target_os = "windows")]
+    sync_event: Option<windows::Win32::Foundation::HANDLE>,
 }
 
 impl Default for D3D12Decoder {
@@ -229,6 +231,8 @@ impl D3D12Decoder {
             readback_total_bytes: 0,
             #[cfg(target_os = "windows")]
             readback_buffer: None,
+            #[cfg(target_os = "windows")]
+            sync_event: None,
         }
     }
 
@@ -295,6 +299,9 @@ impl Decoder for D3D12Decoder {
         #[cfg(target_os = "windows")]
         {
             let frame = self.decode_packet_d3d12(packet, frame_id, pts_ns, start_time)?;
+            while self.output_queue.len() >= 4 {
+                self.output_queue.pop_front();
+            }
             self.output_queue.push_back(frame);
             self.decoded_count += 1;
             Ok(())
@@ -605,6 +612,10 @@ impl D3D12Decoder {
         self.y_num_rows = num_rows[0];
         self.uv_num_rows = num_rows[1];
         self.readback_total_bytes = total_bytes;
+
+        let event = CreateEventW(None, false, false, None)
+            .map_err(|e| ViewerError::Decoder(format!("CreateEventW: {e}")))?;
+        self.sync_event = Some(event);
 
         Ok(())
     }
@@ -1111,16 +1122,12 @@ impl D3D12Decoder {
 
         // 6. CPU Wait for direct queue completion ─────────────────────────────
         if fence.GetCompletedValue() < copy_fence_val {
-            let event = CreateEventW(None, false, false, None)
-                .map_err(|e| ViewerError::Decoder(format!("CreateEventW: {e}")))?;
-            fence
-                .SetEventOnCompletion(copy_fence_val, event)
-                .map_err(|e| {
-                    let _ = CloseHandle(event);
-                    ViewerError::Decoder(format!("SetEventOnCompletion: {e}"))
-                })?;
-            WaitForSingleObject(event, INFINITE);
-            let _ = CloseHandle(event);
+            if let Some(event) = self.sync_event {
+                fence
+                    .SetEventOnCompletion(copy_fence_val, event)
+                    .map_err(|e| ViewerError::Decoder(format!("SetEventOnCompletion: {e}")))?;
+                WaitForSingleObject(event, INFINITE);
+            }
         }
 
         if is_diagnostic {
@@ -1275,6 +1282,15 @@ fn log_nv12_stats(buf: &[u8], width: u32, height: u32, frame_id: u64, packet_len
         uv_first16 = ?uv_first16,
         "D3D12Decoder: decoded frame NV12 stats"
     );
+}
+
+#[cfg(target_os = "windows")]
+impl Drop for D3D12Decoder {
+    fn drop(&mut self) {
+        if let Some(event) = self.sync_event.take() {
+            let _ = unsafe { windows::Win32::Foundation::CloseHandle(event) };
+        }
+    }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
