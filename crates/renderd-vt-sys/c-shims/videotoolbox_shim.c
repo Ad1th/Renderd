@@ -62,7 +62,14 @@ OSStatus renderd_VTCompressionSessionCreate(
     // 2. Disable frame reordering (B-frames) to ensure 0-frame latency (P-frames / IDR only)
     VTSessionSetProperty(session, kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse);
 
-    // 3. Set MaxKeyFrameIntervalDuration to 0.5 seconds (RFC-0002 §6.1)
+    // 3. Set Profile Level for maximum compression efficiency
+    if (codec_type == kCMVideoCodecType_H264) {
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel);
+    } else if (codec_type == kCMVideoCodecType_HEVC) {
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
+    }
+
+    // 4. Set MaxKeyFrameIntervalDuration to 0.5 seconds (RFC-0002 §6.1)
     double max_keyframe_interval_sec = 0.5;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
@@ -74,10 +81,10 @@ OSStatus renderd_VTCompressionSessionCreate(
         CFRelease(max_keyframe_interval);
     }
 
-    // 4. Set initial target bitrate
+    // 5. Set initial target bitrate
     renderd_VTCompressionSessionSetBitrate(session, initial_bitrate_kbps);
 
-    // 5. Prepare encoder for low-latency session execution
+    // 6. Prepare encoder for low-latency session execution
     VTCompressionSessionPrepareToEncodeFrames(session);
 
     *session_out = session;
@@ -92,12 +99,12 @@ OSStatus renderd_VTCompressionSessionSetBitrate(
         return kVTInvalidSessionErr;
     }
 
-    // Convert kbps to bytes per second (RFC-0002 §6.1)
-    int64_t bytes_per_sec = (int64_t)bitrate_kbps * 1000 / 8;
+    // Convert kbps to bits per second (kVTCompressionPropertyKey_AverageBitRate expects bps)
+    int64_t bits_per_sec = (int64_t)bitrate_kbps * 1000;
     CFNumberRef bps_num = CFNumberCreate(
         kCFAllocatorDefault,
         kCFNumberSInt64Type,
-        &bytes_per_sec
+        &bits_per_sec
     );
 
     OSStatus status = kVTParameterErr;
