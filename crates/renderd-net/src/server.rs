@@ -29,7 +29,8 @@ impl QuicServer {
         transport.max_concurrent_uni_streams(100_u32.into());
         transport.max_idle_timeout(Some(quinn::VarInt::from_u32(10_000).into()));
         transport.keep_alive_interval(Some(std::time::Duration::from_secs(2)));
-        transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+        transport.datagram_receive_buffer_size(Some(4 * 1024 * 1024));
+        transport.datagram_send_buffer_size(4 * 1024 * 1024);
         server_config.transport_config(Arc::new(transport));
 
         let endpoint = Endpoint::server(server_config, addr).map_err(|e| {
