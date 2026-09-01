@@ -36,8 +36,10 @@ impl WindowSystem {
             .primary_monitor()
             .or_else(|| event_loop.available_monitors().next());
 
-        let (init_width, init_height) = if !fullscreen {
-            if let Some(ref mon) = monitor {
+        let (init_width, init_height) = if fullscreen {
+            (width, height)
+        } else {
+            monitor.as_ref().map_or((width, height), |mon| {
                 let mon_size = mon.size();
                 // Ensure the window fits within 88% of the monitor work area to account for taskbar and decorations
                 let max_w = (f64::from(mon_size.width) * 0.88).round() as u32;
@@ -53,11 +55,7 @@ impl WindowSystem {
                 } else {
                     (width, height)
                 }
-            } else {
-                (width, height)
-            }
-        } else {
-            (width, height)
+            })
         };
 
         let size = PhysicalSize::new(init_width, init_height);
