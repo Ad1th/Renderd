@@ -200,7 +200,8 @@ impl Renderer for SoftRenderer {
     #[allow(
         clippy::cast_possible_truncation,
         clippy::cast_sign_loss,
-        clippy::suboptimal_flops
+        clippy::suboptimal_flops,
+        clippy::too_many_lines
     )]
     fn render_frame(&mut self, frame: &DecodedFrame) -> Result<(), ViewerError> {
         if !self.initialized {
@@ -275,11 +276,14 @@ impl Renderer for SoftRenderer {
                                     } else {
                                         for row in 0..dst_h as usize {
                                             let src_row = (row * frame_h as usize) / dst_h as usize;
-                                            let dst_row_base = (dst_y as usize + row) * target_w as usize + dst_x as usize;
+                                            let dst_row_base = (dst_y as usize + row)
+                                                * target_w as usize
+                                                + dst_x as usize;
                                             let src_row_base = src_row * frame_w as usize;
 
                                             for col in 0..dst_w as usize {
-                                                let src_col = (col * frame_w as usize) / dst_w as usize;
+                                                let src_col =
+                                                    (col * frame_w as usize) / dst_w as usize;
                                                 let src_idx = (src_row_base + src_col) * 4;
                                                 let b = u32::from(src[src_idx]);
                                                 let g = u32::from(src[src_idx + 1]);
@@ -325,12 +329,15 @@ impl Renderer for SoftRenderer {
                                     } else {
                                         for row in 0..dst_h as usize {
                                             let src_row = (row * frame_h as usize) / dst_h as usize;
-                                            let dst_row_base = (dst_y as usize + row) * target_w as usize + dst_x as usize;
+                                            let dst_row_base = (dst_y as usize + row)
+                                                * target_w as usize
+                                                + dst_x as usize;
                                             let uv_row_base = (src_row / 2) * uv_width;
                                             let y_row_base = src_row * frame_w as usize;
 
                                             for col in 0..dst_w as usize {
-                                                let src_col = (col * frame_w as usize) / dst_w as usize;
+                                                let src_col =
+                                                    (col * frame_w as usize) / dst_w as usize;
                                                 let y_idx = y_row_base + src_col;
                                                 let uv_offset = uv_row_base + (src_col & !1);
 

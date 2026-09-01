@@ -345,9 +345,8 @@ impl ScreenStream {
 
         // Create dedicated GCD dispatch queue with QOS_CLASS_USER_INTERACTIVE (0x21) priority
         let queue_label = c"dev.renderd.sc-capture".as_ptr();
-        let qos_attr = unsafe {
-            dispatch_queue_attr_make_with_qos_class(std::ptr::null(), 0x21, 0)
-        };
+        let qos_attr =
+            unsafe { dispatch_queue_attr_make_with_qos_class(std::ptr::null(), 0x21, 0) };
         let queue_ptr = unsafe { dispatch_queue_create(queue_label, qos_attr) };
         let queue: Option<&NSObject> = unsafe { (queue_ptr as *const NSObject).as_ref() };
 
