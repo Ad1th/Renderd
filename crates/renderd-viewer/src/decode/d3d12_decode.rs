@@ -79,11 +79,17 @@ const SUPPORT_STRUCT_SIZE: u32 = {
 
 // ── D3D12Decoder ─────────────────────────────────────────────────────────────
 
+#[cfg(target_os = "windows")]
+#[derive(Debug, Clone, Copy)]
+struct SyncHandle(windows::Win32::Foundation::HANDLE);
+
+#[cfg(target_os = "windows")]
+unsafe impl Send for SyncHandle {}
+
+#[cfg(target_os = "windows")]
+unsafe impl Sync for SyncHandle {}
+
 /// Direct3D 12 hardware HEVC video decoder.
-///
-/// All D3D12/media COM objects implement `Send + Sync` in `windows 0.58`.
-/// Persistent `HANDLE` fields are intentionally avoided so `D3D12Decoder` is `Send + Sync`
-/// automatically without requiring unsafe raw pointer overrides.
 #[derive(Debug)]
 pub struct D3D12Decoder {
     initialized: bool,
@@ -149,7 +155,7 @@ pub struct D3D12Decoder {
     #[cfg(target_os = "windows")]
     readback_buffer: Option<ID3D12Resource>,
     #[cfg(target_os = "windows")]
-    sync_event: Option<windows::Win32::Foundation::HANDLE>,
+    sync_event: Option<SyncHandle>,
 }
 
 impl Default for D3D12Decoder {
@@ -615,7 +621,7 @@ impl D3D12Decoder {
 
         let event = CreateEventW(None, false, false, None)
             .map_err(|e| ViewerError::Decoder(format!("CreateEventW: {e}")))?;
-        self.sync_event = Some(event);
+        self.sync_event = Some(SyncHandle(event));
 
         Ok(())
     }
@@ -1122,11 +1128,11 @@ impl D3D12Decoder {
 
         // 6. CPU Wait for direct queue completion ─────────────────────────────
         if fence.GetCompletedValue() < copy_fence_val {
-            if let Some(event) = self.sync_event {
+            if let Some(sync_event) = self.sync_event {
                 fence
-                    .SetEventOnCompletion(copy_fence_val, event)
+                    .SetEventOnCompletion(copy_fence_val, sync_event.0)
                     .map_err(|e| ViewerError::Decoder(format!("SetEventOnCompletion: {e}")))?;
-                WaitForSingleObject(event, INFINITE);
+                WaitForSingleObject(sync_event.0, INFINITE);
             }
         }
 
@@ -1287,8 +1293,8 @@ fn log_nv12_stats(buf: &[u8], width: u32, height: u32, frame_id: u64, packet_len
 #[cfg(target_os = "windows")]
 impl Drop for D3D12Decoder {
     fn drop(&mut self) {
-        if let Some(event) = self.sync_event.take() {
-            let _ = unsafe { windows::Win32::Foundation::CloseHandle(event) };
+        if let Some(sync_event) = self.sync_event.take() {
+            let _ = unsafe { CloseHandle(sync_event.0) };
         }
     }
 }
