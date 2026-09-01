@@ -386,6 +386,9 @@ impl ApplicationHandler for App {
                 if let Err(e) = self.renderer.resize(viewport) {
                     tracing::error!("Error resizing renderer: {e}");
                 }
+                if let Some(ref ws) = self.window_system {
+                    ws.request_redraw();
+                }
             }
             WindowEvent::RedrawRequested if self.window_system.is_some() => {
                 static RENDER_COUNT: std::sync::atomic::AtomicU64 =
