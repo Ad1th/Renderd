@@ -20,6 +20,11 @@ impl WindowSystem {
     ///
     /// # Errors
     /// Returns [`ViewerError::Window`] if window creation fails.
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        clippy::cast_precision_loss
+    )]
     pub fn new(
         event_loop: &ActiveEventLoop,
         title: &str,
@@ -27,7 +32,35 @@ impl WindowSystem {
         height: u32,
         fullscreen: bool,
     ) -> Result<Self, ViewerError> {
-        let size = PhysicalSize::new(width, height);
+        let monitor = event_loop
+            .primary_monitor()
+            .or_else(|| event_loop.available_monitors().next());
+
+        let (init_width, init_height) = if !fullscreen {
+            if let Some(ref mon) = monitor {
+                let mon_size = mon.size();
+                // Ensure the window fits within 88% of the monitor work area to account for taskbar and decorations
+                let max_w = (f64::from(mon_size.width) * 0.88).round() as u32;
+                let max_h = (f64::from(mon_size.height) * 0.88).round() as u32;
+
+                if width > max_w || height > max_h {
+                    let scale_w = f64::from(max_w) / f64::from(width.max(1));
+                    let scale_h = f64::from(max_h) / f64::from(height.max(1));
+                    let scale = scale_w.min(scale_h);
+                    let w = ((f64::from(width) * scale).round() as u32).max(640);
+                    let h = ((f64::from(height) * scale).round() as u32).max(480);
+                    (w, h)
+                } else {
+                    (width, height)
+                }
+            } else {
+                (width, height)
+            }
+        } else {
+            (width, height)
+        };
+
+        let size = PhysicalSize::new(init_width, init_height);
         let attributes = WindowAttributes::default()
             .with_title(title)
             .with_inner_size(size)
@@ -41,6 +74,23 @@ impl WindowSystem {
 
         if fullscreen {
             window.set_fullscreen(Some(Fullscreen::Borderless(None)));
+        } else if let Some(ref mon) = monitor {
+            // Explicitly center window on the active monitor work area
+            let mon_pos = mon.position();
+            let mon_size = mon.size();
+            let actual_size = window.outer_size();
+            let center_x = mon_pos.x
+                + (i32::try_from(mon_size.width).unwrap_or(0)
+                    - i32::try_from(actual_size.width).unwrap_or(0))
+                    / 2;
+            let center_y = mon_pos.y
+                + (i32::try_from(mon_size.height).unwrap_or(0)
+                    - i32::try_from(actual_size.height).unwrap_or(0))
+                    / 2;
+            window.set_outer_position(winit::dpi::PhysicalPosition::new(
+                center_x.max(mon_pos.x),
+                center_y.max(mon_pos.y),
+            ));
         }
 
         Ok(Self { window, fullscreen })
