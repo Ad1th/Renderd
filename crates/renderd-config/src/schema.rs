@@ -50,7 +50,7 @@ impl Default for HostConfig {
         Self {
             display_id: 0,
             target_fps: 60,
-            max_bitrate_kbps: 50_000,
+            max_bitrate_kbps: 25_000,
             codec: "hevc".to_string(),
             vsync_phase_sync: true,
         }
