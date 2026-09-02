@@ -27,14 +27,14 @@ impl Default for AbrManager {
 
 impl AbrManager {
     /// Creates a new `AbrManager` with default 1080p60 parameters:
-    /// min = 5,000 Kbps (5 Mbps), max = 50,000 Kbps (50 Mbps), initial = 20,000 Kbps (20 Mbps).
+    /// min = 15,000 Kbps (15 Mbps), max = 60,000 Kbps (60 Mbps), initial = 35,000 Kbps (35 Mbps).
     #[must_use]
     pub fn new() -> Self {
         Self::with_bounds(
-            BitrateKbps(5_000),
-            BitrateKbps(50_000),
-            BitrateKbps(20_000),
-            BitrateKbps(2_000),
+            BitrateKbps(15_000),
+            BitrateKbps(60_000),
+            BitrateKbps(35_000),
+            BitrateKbps(3_000),
         )
     }
 
@@ -169,7 +169,7 @@ mod tests {
         let pipeline = EncodePipeline::new();
 
         let initial_bw = manager.current_bitrate();
-        assert_eq!(initial_bw.0, 20_000);
+        assert_eq!(initial_bw.0, 35_000);
 
         // Send ReactiveStats with 10% loss rate (above 5% loss threshold)
         let stats = ReactiveStats {
