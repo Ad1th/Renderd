@@ -17,6 +17,7 @@ use crate::error::HostError;
 #[derive(Debug, Clone)]
 pub struct AbrManager {
     engine: Arc<Mutex<AbrEngine>>,
+    last_keyframe_request: Arc<Mutex<std::time::Instant>>,
 }
 
 impl Default for AbrManager {
@@ -27,14 +28,14 @@ impl Default for AbrManager {
 
 impl AbrManager {
     /// Creates a new `AbrManager` with default 1080p60 parameters:
-    /// min = 15,000 Kbps (15 Mbps), max = 60,000 Kbps (60 Mbps), initial = 35,000 Kbps (35 Mbps).
+    /// min = 8,000 Kbps (8 Mbps), max = 25,000 Kbps (25 Mbps), initial = 15,000 Kbps (15 Mbps).
     #[must_use]
     pub fn new() -> Self {
         Self::with_bounds(
+            BitrateKbps(8_000),
+            BitrateKbps(25_000),
             BitrateKbps(15_000),
-            BitrateKbps(60_000),
-            BitrateKbps(35_000),
-            BitrateKbps(3_000),
+            BitrateKbps(2_000),
         )
     }
 
@@ -54,8 +55,12 @@ impl AbrManager {
             0.05, // 5% loss triggers backoff
             0.20, // 20% loss triggers panic
         );
+        let past = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_secs(5))
+            .unwrap_or_else(std::time::Instant::now);
         Self {
             engine: Arc::new(Mutex::new(engine)),
+            last_keyframe_request: Arc::new(Mutex::new(past)),
         }
     }
 
@@ -85,7 +90,7 @@ impl AbrManager {
         pipeline.set_bitrate(decision.target_bitrate_kbps.0)?;
 
         if decision.request_keyframe {
-            pipeline.force_keyframe();
+            self.on_keyframe_request(pipeline);
         }
 
         tracing::debug!(
@@ -140,9 +145,15 @@ impl AbrManager {
         Ok(decision)
     }
 
-    /// Triggers an immediate explicit keyframe request on `encode_pipeline`.
+    /// Triggers an explicit IDR keyframe on `encode_pipeline`, debounced to at most once per 500 ms.
     pub fn on_keyframe_request(&self, pipeline: &EncodePipeline) {
-        pipeline.force_keyframe();
+        if let Ok(mut last) = self.last_keyframe_request.lock() {
+            if last.elapsed() >= std::time::Duration::from_millis(500) {
+                *last = std::time::Instant::now();
+                pipeline.force_keyframe();
+                tracing::info!("AbrManager: dispatched debounced IDR keyframe to encoder");
+            }
+        }
     }
 
     /// Returns the currently active target bitrate in Kbps.
@@ -169,7 +180,7 @@ mod tests {
         let pipeline = EncodePipeline::new();
 
         let initial_bw = manager.current_bitrate();
-        assert_eq!(initial_bw.0, 35_000);
+        assert_eq!(initial_bw.0, 15_000);
 
         // Send ReactiveStats with 10% loss rate (above 5% loss threshold)
         let stats = ReactiveStats {
