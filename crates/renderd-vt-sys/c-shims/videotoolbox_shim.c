@@ -85,8 +85,8 @@ OSStatus renderd_VTCompressionSessionCreate(
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
     }
 
-    // 6. Set Target Quality (0.85) to prioritize visual fidelity and prevent macroblock blocking
-    float quality_val = 0.85f;
+    // 6. Set Target Quality (0.75) for balanced low-latency encoding
+    float quality_val = 0.75f;
     CFNumberRef quality_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat32Type, &quality_val);
     if (quality_num != NULL) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_Quality, quality_num);
@@ -141,8 +141,8 @@ OSStatus renderd_VTCompressionSessionSetBitrate(
         CFRelease(bps_num);
     }
 
-    // Configure DataRateLimits to allow peak bursts (1.5x average bitrate over 1.0s window)
-    int64_t byte_limit = (int64_t)((double)bitrate_kbps * 1000.0 * 1.5 / 8.0);
+    // Configure DataRateLimits to enforce smooth network transmission (1.10x average bitrate over 1.0s window)
+    int64_t byte_limit = (int64_t)((double)bitrate_kbps * 1000.0 * 1.10 / 8.0);
     double duration_sec = 1.0;
     CFNumberRef bytes_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &byte_limit);
     CFNumberRef dur_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &duration_sec);
