@@ -307,6 +307,7 @@ impl ScreenStream {
             config.setHeight(out_height);
             config.setScalesToFit(true);
             config.setShowsCursor(false);
+            let _: () = msg_send![&config, setQueueDepth: 2isize];
 
             // Set minimumFrameInterval to achieve target framerate
             if target_fps > 0 {
