@@ -56,7 +56,7 @@ impl FeedbackExporter {
 
             frames_displayed: 0,
             frames_dropped: 0,
-            receive_bandwidth_kbps: 50_000.0,
+            receive_bandwidth_kbps: 20_000.0,
         }
     }
 
@@ -108,7 +108,7 @@ impl FeedbackExporter {
         let hint = if self.receive_bandwidth_kbps >= 0.0 {
             self.receive_bandwidth_kbps as u32
         } else {
-            50_000
+            20_000
         };
         KeyframeRequest {
             after_frame_id: self.last_frame_id,
