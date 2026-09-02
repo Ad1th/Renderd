@@ -178,11 +178,20 @@ impl DataSender {
         let mut interval_bytes: u64 = 0;
 
         while !shutdown.load(Ordering::Relaxed) {
-            let frame = match rx.recv_timeout(IDLE_POLL) {
+            let mut frame = match rx.recv_timeout(IDLE_POLL) {
                 Ok(frame) => frame,
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             };
+
+            // If multiple frames are queued in rx, skip stale frames and take the freshest frame
+            while let Ok(fresher) = rx.try_recv() {
+                let is_kf = frame.is_keyframe || fresher.is_keyframe;
+                frame = fresher;
+                if is_kf {
+                    frame.is_keyframe = true;
+                }
+            }
 
             let frame_bytes = frame.data.len();
             let frame_id = frame.frame_id;
