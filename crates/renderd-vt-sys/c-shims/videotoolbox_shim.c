@@ -85,8 +85,16 @@ OSStatus renderd_VTCompressionSessionCreate(
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
     }
 
-    // 6. Set MaxKeyFrameIntervalDuration to 0.5 seconds (RFC-0002 §6.1)
-    double max_keyframe_interval_sec = 0.5;
+    // 6. Set Target Quality (0.85) to prioritize visual fidelity and prevent macroblock blocking
+    float quality_val = 0.85f;
+    CFNumberRef quality_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat32Type, &quality_val);
+    if (quality_num != NULL) {
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_Quality, quality_num);
+        CFRelease(quality_num);
+    }
+
+    // 7. Set MaxKeyFrameIntervalDuration to 3.0 seconds (on-demand keyframes handle loss recovery)
+    double max_keyframe_interval_sec = 3.0;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
         kCFNumberFloat64Type,
@@ -97,10 +105,10 @@ OSStatus renderd_VTCompressionSessionCreate(
         CFRelease(max_keyframe_interval);
     }
 
-    // 7. Set initial target bitrate
+    // 8. Set initial target bitrate and data rate limits
     renderd_VTCompressionSessionSetBitrate(session, initial_bitrate_kbps);
 
-    // 8. Prepare encoder for low-latency session execution
+    // 9. Prepare encoder for low-latency session execution
     VTCompressionSessionPrepareToEncodeFrames(session);
 
     *session_out = session;
@@ -132,6 +140,22 @@ OSStatus renderd_VTCompressionSessionSetBitrate(
         );
         CFRelease(bps_num);
     }
+
+    // Configure DataRateLimits to allow peak bursts (1.5x average bitrate over 1.0s window)
+    int64_t byte_limit = (int64_t)((double)bitrate_kbps * 1000.0 * 1.5 / 8.0);
+    double duration_sec = 1.0;
+    CFNumberRef bytes_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &byte_limit);
+    CFNumberRef dur_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &duration_sec);
+    if (bytes_num != NULL && dur_num != NULL) {
+        const void *values[] = { bytes_num, dur_num };
+        CFArrayRef limits_array = CFArrayCreate(kCFAllocatorDefault, values, 2, &kCFTypeArrayCallBacks);
+        if (limits_array != NULL) {
+            VTSessionSetProperty(session, kVTCompressionPropertyKey_DataRateLimits, limits_array);
+            CFRelease(limits_array);
+        }
+    }
+    if (bytes_num != NULL) CFRelease(bytes_num);
+    if (dur_num != NULL) CFRelease(dur_num);
 
     return status;
 }
