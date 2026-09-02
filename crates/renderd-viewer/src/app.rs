@@ -242,9 +242,15 @@ impl App {
                             tokio::spawn(async move {
                                 use renderd_net::framing::send_control;
                                 use renderd_proto::generated::renderd::{envelope::Payload, Envelope};
+                                const KF_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
+
                                 let mut vsync_reporter = crate::clock_sync::VsyncReporter::new();
                                 let mut feedback_exporter = crate::abr::FeedbackExporter::new();
                                 let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(16));
+                                let mut last_kf_req = std::time::Instant::now()
+                                    .checked_sub(std::time::Duration::from_secs(5))
+                                    .unwrap_or_else(std::time::Instant::now);
+
                                 loop {
                                     tokio::select! {
                                         _ = interval.tick() => {
@@ -276,14 +282,17 @@ impl App {
                                         }
                                         Some(loss_count) = loss_rx.recv() => {
                                             feedback_exporter.record_frame_loss(loss_count.max(1));
-                                            let kf_req = feedback_exporter.create_keyframe_request();
-                                            let env = Envelope {
-                                                payload: Some(Payload::KeyframeRequest(kf_req)),
-                                            };
-                                            if send_control(&mut send_stream, &env).await.is_err() {
-                                                break;
+                                            if last_kf_req.elapsed() >= KF_DEBOUNCE {
+                                                last_kf_req = std::time::Instant::now();
+                                                let kf_req = feedback_exporter.create_keyframe_request();
+                                                let env = Envelope {
+                                                    payload: Some(Payload::KeyframeRequest(kf_req)),
+                                                };
+                                                if send_control(&mut send_stream, &env).await.is_err() {
+                                                    break;
+                                                }
+                                                tracing::info!("Sent debounced KeyframeRequest over Stream 0 due to frame loss");
                                             }
-                                            tracing::info!("Sent immediate KeyframeRequest over Stream 0 due to frame loss");
                                         }
                                     }
                                 }
