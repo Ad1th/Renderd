@@ -25,7 +25,7 @@ jobs:
       is_prerelease: ${{ steps.version.outputs.is_prerelease }}
       changelog_notes: ${{ steps.changelog.outputs.notes }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Determine Version & Prerelease Status
         id: version
@@ -62,7 +62,7 @@ jobs:
     name: Build Host (macOS Apple Silicon)
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -84,7 +84,7 @@ jobs:
           shasum -a 256 "${ARCHIVE_DIR}.tar.gz" > "${ARCHIVE_DIR}.tar.gz.sha256"
 
       - name: Upload Host Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: host-macos-aarch64
           path: |
@@ -100,7 +100,7 @@ jobs:
           - x86_64-pc-windows-msvc
           - aarch64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -124,7 +124,7 @@ jobs:
           "$hash  ${ArchiveName}.zip" | Out-File -Encoding ascii "${ArchiveName}.zip.sha256"
 
       - name: Upload Viewer Binary Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: viewer-${{ matrix.target }}
           path: |
@@ -136,10 +136,10 @@ jobs:
     needs: [prepare-release-notes, build-host-mac, build-viewer-windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           path: release-assets
           merge-multiple: true
