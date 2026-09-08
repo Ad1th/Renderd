@@ -116,11 +116,15 @@ impl ControlDispatcher {
             .as_ref()
             .expect("display validated non-None above");
 
+        // Never capture faster than the viewer can show. A 60 Hz panel fed 120 fps
+        // just drops every other frame after paying to encode and ship it.
+        let frame_rate = negotiate_frame_rate(host_config.target_fps, display.refresh_rate);
+
         let session_config = SessionConfig {
             selected_codec: selected_codec.clone(),
             width: display.width,
             height: display.height,
-            frame_rate: host_config.target_fps as f32,
+            frame_rate,
             initial_bitrate_kbps: host_config.max_bitrate_kbps,
             codec_extra_data: vec![],
             phase_sync_enabled: host_config.vsync_phase_sync,
@@ -152,10 +156,30 @@ impl ControlDispatcher {
     }
 }
 
+/// Picks the stream frame rate: the host target, capped at the viewer's refresh rate
+/// when the viewer reports one.
+#[allow(clippy::cast_precision_loss)]
+fn negotiate_frame_rate(host_target_fps: u32, viewer_refresh_hz: f32) -> f32 {
+    let host = host_target_fps.max(1) as f32;
+    if viewer_refresh_hz >= 20.0 && viewer_refresh_hz.is_finite() {
+        host.min(viewer_refresh_hz.round())
+    } else {
+        host
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use renderd_net::MockConnection;
+
+    #[test]
+    fn test_frame_rate_capped_by_viewer_refresh() {
+        assert!((negotiate_frame_rate(120, 60.0) - 60.0).abs() < f32::EPSILON);
+        assert!((negotiate_frame_rate(60, 144.0) - 60.0).abs() < f32::EPSILON);
+        assert!((negotiate_frame_rate(60, 0.0) - 60.0).abs() < f32::EPSILON);
+        assert!((negotiate_frame_rate(60, 59.94) - 60.0).abs() < f32::EPSILON);
+    }
     use renderd_proto::{
         envelope::ValidateConfig,
         generated::renderd::{DisplayInfo, SessionHello},
