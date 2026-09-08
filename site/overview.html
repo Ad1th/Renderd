@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Renderd — High-Performance Peer-to-Peer Display Streaming</title>
+  <meta name="description" content="Renderd is an open-source, ultra-low-latency peer-to-peer display streaming daemon built in Rust. Stream your macOS display to Windows with sub-16ms latency." />
+  <meta property="og:title" content="Renderd — High-Performance Display Streaming" />
+  <meta property="og:description" content="Ultra-low-latency P2P display streaming from macOS to Windows, built in Rust." />
+  <meta property="og:type" content="website" />
+  <link rel="canonical" href="https://ad1th.github.io/renderd/" />
+  <link rel="stylesheet" href="assets/css/main.css" />
+  <script>
+    // Inline theme to prevent flash
+    (function(){var t=localStorage.getItem('renderd-theme')||(window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+  </script>
+</head>
+<body>
+
+<!-- ── Navigation ── -->
+<nav class="nav" role="navigation" aria-label="Main navigation">
+  <div class="nav-inner">
+    <a href="index.html" class="nav-brand" aria-label="Renderd home">
+      <div class="nav-brand-icon" aria-hidden="true">⚡</div>
+      Renderd
+    </a>
+
+    <ul class="nav-links" role="list">
+      <li><a href="features.html">Features</a></li>
+      <li><a href="architecture.html">Architecture</a></li>
+      <li><a href="roadmap.html">Roadmap</a></li>
+      <li><a href="platforms.html">Platforms</a></li>
+      <li><a href="docs.html">Documentation</a></li>
+      <li><a href="releases.html">Releases</a></li>
+      <li><a href="faq.html">FAQ</a></li>
+      <li><a href="contributing.html">Contributing</a></li>
+    </ul>
+
+    <div class="nav-actions">
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" title="Toggle light/dark mode">
+        <span id="theme-icon">🌙</span>
+      </button>
+      <a href="https://github.com/Ad1th/renderd" class="nav-btn-github" target="_blank" rel="noopener" aria-label="View on GitHub">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+      <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">
+        <span></span><span></span><span></span>
+      </button>
+    </div>
+  </div>
+</nav>
+
+<!-- Mobile nav -->
+<div class="nav-mobile" id="nav-mobile" aria-label="Mobile navigation">
+  <ul role="list">
+    <li><a href="features.html">Features</a></li>
+    <li><a href="architecture.html">Architecture</a></li>
+    <li><a href="roadmap.html">Roadmap</a></li>
+    <li><a href="platforms.html">Platforms</a></li>
+    <li><a href="docs.html">Documentation</a></li>
+    <li><a href="releases.html">Releases</a></li>
+    <li><a href="faq.html">FAQ</a></li>
+    <li><a href="contributing.html">Contributing</a></li>
+    <li><a href="https://github.com/Ad1th/renderd" target="_blank" rel="noopener">GitHub ↗</a></li>
+  </ul>
+</div>
+
+<!-- ── Hero ── -->
+<section class="hero" aria-labelledby="hero-title">
+  <div class="container text-center">
+    <div class="hero-badge" role="status">
+      <span class="hero-badge-dot" aria-hidden="true"></span>
+      Active Development — Milestone 3 in Progress
+    </div>
+
+    <h1 class="hero-title" id="hero-title">
+      Display Streaming.<br>
+      <span class="text-gradient">Zero Compromises.</span>
+    </h1>
+
+    <p class="hero-sub">
+      Renderd is an open-source, ultra-low-latency peer-to-peer display streaming daemon built in Rust.
+      Stream your macOS screen to a Windows PC over QUIC/UDP — no cloud, no relay, no subscriptions.
+    </p>
+
+    <div class="hero-cta">
+      <a href="docs.html" class="btn btn-primary btn-lg" id="hero-get-started">
+        Get Started →
+      </a>
+      <a href="architecture.html" class="btn btn-secondary btn-lg" id="hero-architecture">
+        View Architecture
+      </a>
+      <a href="https://github.com/Ad1th/renderd" class="btn btn-ghost btn-lg" target="_blank" rel="noopener" id="hero-github">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        View on GitHub
+      </a>
+    </div>
+
+    <div class="hero-stats" role="list">
+      <div class="hero-stat" role="listitem">
+        <span class="hero-stat-value">≤30ms</span>
+        <span class="hero-stat-label">Glass-to-Glass @ 1080p60</span>
+      </div>
+      <div class="hero-stat" role="listitem">
+        <span class="hero-stat-value">0</span>
+        <span class="hero-stat-label">Cloud Dependencies</span>
+      </div>
+      <div class="hero-stat" role="listitem">
+        <span class="hero-stat-value">14</span>
+        <span class="hero-stat-label">Crate Workspace</span>
+      </div>
+      <div class="hero-stat" role="listitem">
+        <span class="hero-stat-value">QUIC</span>
+        <span class="hero-stat-label">Transport Protocol</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Why Renderd ── -->
+<section class="section" aria-labelledby="why-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:3.5rem">
+      <span class="section-label">The Problem</span>
+      <h2 class="section-title" id="why-title">Why Renderd Exists</h2>
+      <p class="section-desc" style="margin:0 auto">
+        Software display extensions between macOS and Windows have historically suffered from
+        fundamental latency, image quality, and architecture compromises.
+      </p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-red">🔒</div>
+        <h3>Proprietary Relays &amp; Paywalls</h3>
+        <p>Most commercial cross-platform display apps route video frames through remote cloud servers or require ongoing subscriptions.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-orange">📡</div>
+        <h3>High Latency &amp; Frame Stutter</h3>
+        <p>Protocols built on WebRTC or TCP struggle with jitter control and frame pacing on high-refresh-rate displays (120Hz/144Hz).</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.2s">
+        <div class="card-icon card-icon-purple">🖥️</div>
+        <h3>No macOS → Windows Path</h3>
+        <p>Existing open-source tools like Sunshine/Moonlight are optimized for Windows hosts. No lightweight daemon exists for macOS hosts streaming to Windows viewers.</p>
+      </div>
+    </div>
+
+    <div class="alert alert-success" style="margin-top:2.5rem" role="note">
+      <span class="alert-icon">✅</span>
+      <div class="alert-content">
+        <strong>Renderd's solution:</strong> Pairs Apple's zero-copy <code>ScreenCaptureKit</code> and <code>VideoToolbox</code> hardware encoder directly with Windows' low-overhead <code>Direct3D12</code> / <code>MediaFoundation</code> decoder over a custom QUIC transport layer — delivering display-class latency without any cloud dependency.
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Comparison Matrix ── -->
+<section class="section" style="padding-top:0" aria-labelledby="compare-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">Competitive Analysis</span>
+      <h2 id="compare-title">How Renderd Compares</h2>
+    </div>
+
+    <div class="table-wrapper fade-in">
+      <table>
+        <thead>
+          <tr>
+            <th>Feature / Metric</th>
+            <th>Apple Sidecar</th>
+            <th>Luna Display</th>
+            <th>Sunshine / Moonlight</th>
+            <th>DeskIn / Duet</th>
+            <th style="color:var(--accent-blue)">Renderd</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>Host Support</strong></td>
+            <td>macOS</td>
+            <td>macOS / Windows</td>
+            <td>Windows / Linux</td>
+            <td>macOS / Windows</td>
+            <td style="color:var(--accent-blue);font-weight:600">macOS 14+</td>
+          </tr>
+          <tr>
+            <td><strong>Viewer Support</strong></td>
+            <td>iPadOS only</td>
+            <td>iPadOS / Mac / Win</td>
+            <td>Multi-platform</td>
+            <td>Multi-platform</td>
+            <td style="color:var(--accent-blue);font-weight:600">Windows 10+ (x64/ARM64)</td>
+          </tr>
+          <tr>
+            <td><strong>Protocol Transport</strong></td>
+            <td>Proprietary AWDL</td>
+            <td>Proprietary Wi-Fi/USB</td>
+            <td>WebRTC / Custom UDP</td>
+            <td>Cloud Relay / TCP</td>
+            <td style="color:var(--accent-blue);font-weight:600">QUIC Datagrams / UDP</td>
+          </tr>
+          <tr>
+            <td><strong>Hardware Video</strong></td>
+            <td>AVFoundation</td>
+            <td>Custom Dongle</td>
+            <td>NVENC / AMF / VAAPI</td>
+            <td>Software / HW hybrid</td>
+            <td style="color:var(--accent-blue);font-weight:600">ScreenCaptureKit → D3D12</td>
+          </tr>
+          <tr>
+            <td><strong>Vsync Phase Sync</strong></td>
+            <td>❌ No</td>
+            <td>❌ No</td>
+            <td>❌ No</td>
+            <td>❌ No</td>
+            <td style="color:var(--accent-green);font-weight:600">✅ Yes (~16.7ms alignment)</td>
+          </tr>
+          <tr>
+            <td><strong>Cloud Dependency</strong></td>
+            <td>iCloud Auth</td>
+            <td>None</td>
+            <td>None</td>
+            <td>Cloud Account</td>
+            <td style="color:var(--accent-green);font-weight:600">Zero (100% P2P)</td>
+          </tr>
+          <tr>
+            <td><strong>Open Source</strong></td>
+            <td>❌ No</td>
+            <td>❌ No</td>
+            <td>✅ Yes</td>
+            <td>❌ No</td>
+            <td style="color:var(--accent-green);font-weight:600">✅ Yes (MIT)</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ── Key Features Preview ── -->
+<section class="section" style="padding-top:0" aria-labelledby="features-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:3rem">
+      <span class="section-label">Capabilities</span>
+      <h2 id="features-title">Built for Performance</h2>
+    </div>
+
+    <div class="grid-3">
+      <div class="card fade-in">
+        <div class="card-icon card-icon-blue">⚡</div>
+        <h3>Zero-Copy Pipeline</h3>
+        <p>Direct IOSurface binding to VideoToolbox on macOS. Direct3D12 swapchain presenting on Windows. No unnecessary CPU copies anywhere in the critical path.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-purple">🔄</div>
+        <h3>Adaptive Bitrate (ABR)</h3>
+        <p>Real-time congestion control adjusting encoder bitrate dynamically based on fragment loss rate and arrival jitter. Dual-timescale: 100ms reactive + 500ms proactive.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.2s">
+        <div class="card-icon card-icon-cyan">🕐</div>
+        <h3>Vsync Phase Sync</h3>
+        <p>Monotonic clock alignment adjusting host frame dispatch to match viewer vertical display refresh intervals. Eliminates the dual-vsync penalty that plagues other solutions.</p>
+      </div>
+      <div class="card fade-in">
+        <div class="card-icon card-icon-green">🔐</div>
+        <h3>SPAKE2+ Pairing</h3>
+        <p>One-time secure pairing via 6-digit PIN using SPAKE2+ (RFC 9382). Subsequent sessions use mutual TLS within QUIC. PairToken stored in system keychain.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.1s">
+        <div class="card-icon card-icon-orange">📐</div>
+        <h3>Layered Configuration</h3>
+        <p>Flexible settings via defaults, <code>renderd.toml</code>, <code>RENDERD_*</code> environment variables, or CLI flags. Powered by Figment for ergonomic multi-source config.</p>
+      </div>
+      <div class="card fade-in" style="transition-delay:0.2s">
+        <div class="card-icon card-icon-red">🔍</div>
+        <h3>Auto LAN Discovery</h3>
+        <p>Zero-configuration discovery using mDNS/Bonjour (<code>_renderd._udp.local.</code>). Manual IP fallback for enterprise environments with restricted multicast.</p>
+      </div>
+    </div>
+
+    <div class="text-center" style="margin-top:2.5rem">
+      <a href="features.html" class="btn btn-secondary" id="all-features-btn">View All Features →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Architecture Preview ── -->
+<section class="section" style="background:var(--bg-card);border-top:1px solid var(--border);border-bottom:1px solid var(--border)" aria-labelledby="arch-preview-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:2.5rem">
+      <span class="section-label">System Design</span>
+      <h2 id="arch-preview-title">Control Plane + Data Plane</h2>
+      <p class="section-desc" style="margin:0 auto">
+        Renderd separates control plane signaling (QUIC Stream 0 with Protobuf framing) from data plane
+        frame delivery (QUIC Datagrams with 16-byte fixed headers).
+      </p>
+    </div>
+
+    <div class="mermaid-wrapper fade-in">
+      <div class="mermaid" id="arch-diagram">
+flowchart LR
+    subgraph macOS ["macOS Host (renderd-host)"]
+        SCK["ScreenCaptureKit\n(Zero-Copy Capture)"] --> VT["VideoToolbox\n(HEVC / H.264 HW Encoder)"]
+        VT --> FRAG["Frame Fragmenter\n(Sliding-Window Datagrams)"]
+        FRAG --> QUIC_H["QUIC Engine (quinn)\n(Stream 0 Control + Datagrams)"]
+    end
+
+    subgraph Transport ["Network — Peer-to-Peer UDP"]
+        QUIC_H <== "Control Envelopes (Proto3)" ==> QUIC_V["QUIC Engine (quinn)"]
+        QUIC_H -. "Sub-16ms Video Datagrams" .-> QUIC_V
+    end
+
+    subgraph Windows ["Windows 10+ Viewer (renderd-viewer)"]
+        QUIC_V --> REASS["Fragment Reassembler\n(Out-of-Order Ring Buffer)"]
+        REASS --> MF["MediaFoundation\n(Hardware Video Decoder)"]
+        MF --> D3D12["Direct3D12 Renderer\n(Zero-Copy Swapchain Present)"]
+    end
+      </div>
+    </div>
+
+    <div class="text-center" style="margin-top:2rem">
+      <a href="architecture.html" class="btn btn-secondary" id="full-arch-btn">Explore Full Architecture →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── Status ── -->
+<section class="section" aria-labelledby="status-title">
+  <div class="container">
+    <div class="text-center" style="margin-bottom:3rem">
+      <span class="section-label">Development Status</span>
+      <h2 id="status-title">Where We Are</h2>
+    </div>
+
+    <div class="alert alert-note" role="note">
+      <span class="alert-icon">ℹ️</span>
+      <div class="alert-content">
+        <strong>Pre-release:</strong> Renderd is currently executing across a 10-milestone engineering roadmap. Core infrastructure, protocol schemas, and configuration engines are established. Streaming data plane pipelines are under active construction.
+      </div>
+    </div>
+
+    <div style="margin-top:2rem;max-width:640px;margin-left:auto;margin-right:auto">
+      <div class="milestone">
+        <div class="milestone-dot done" title="Complete" aria-label="Complete">✅</div>
+        <div class="milestone-content">
+          <h3>Milestone 1: Repository Bootstrap &amp; Infrastructure</h3>
+          <p>Workspace configuration, CI/CD, tooling enforcement, and build automation.</p>
+          <span class="badge badge-green" style="margin-top:0.5rem">Complete</span>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot done" title="Complete" aria-label="Complete">✅</div>
+        <div class="milestone-content">
+          <h3>Milestone 2: Foundation Layer</h3>
+          <p>Protobuf schema, <code>renderd-proto</code>, and <code>renderd-config</code> crates.</p>
+          <span class="badge badge-green" style="margin-top:0.5rem">Complete</span>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot active" title="In Progress" aria-label="In Progress">🔨</div>
+        <div class="milestone-content">
+          <h3>Milestone 3: Core Data Structures &amp; Utilities</h3>
+          <p><code>renderd-frame</code>, <code>renderd-clock</code>, <code>renderd-abr</code> crates.</p>
+          <span class="badge badge-blue" style="margin-top:0.5rem">In Progress</span>
+        </div>
+      </div>
+      <div class="milestone">
+        <div class="milestone-dot" title="Planned" aria-label="Planned">4</div>
+        <div class="milestone-content">
+          <h3>Milestone 4–10: Capture, Network, Viewer &amp; Release</h3>
+          <p>macOS capture engine, QUIC transport, Windows viewer, benchmarks, and v0.1.0 release.</p>
+          <span class="badge badge-orange" style="margin-top:0.5rem">Planned</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="text-center" style="margin-top:2.5rem">
+      <a href="roadmap.html" class="btn btn-secondary" id="full-roadmap-btn">View Full Roadmap →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA ── -->
+<section class="section" style="padding-top:0" aria-labelledby="cta-title">
+  <div class="container">
+    <div class="card text-center" style="padding:3.5rem 2rem;background:linear-gradient(135deg,var(--bg-card) 0%,var(--bg-card-hover) 100%)">
+      <h2 id="cta-title" style="margin-bottom:1rem">Ready to Contribute?</h2>
+      <p style="max-width:480px;margin:0 auto 2rem">
+        Renderd is MIT-licensed and welcomes contributions. Read the engineering guidelines, explore the codebase, and help build the future of P2P display streaming.
+      </p>
+      <div class="flex-center" style="gap:1rem;flex-wrap:wrap">
+        <a href="contributing.html" class="btn btn-primary" id="contribute-btn">Contributing Guide</a>
+        <a href="https://github.com/Ad1th/renderd" class="btn btn-secondary" target="_blank" rel="noopener" id="github-cta-btn">View on GitHub</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── Footer ── -->
+<footer class="footer" role="contentinfo">
+  <div class="container">
+    <div class="footer-inner">
+      <div>
+        <div class="footer-brand">
+          <span aria-hidden="true">⚡</span> Renderd
+        </div>
+        <p class="footer-desc">
+          High-performance, peer-to-peer macOS host to Windows 10+ display streaming daemon built in Rust.
+          MIT Licensed. No cloud, no relay, no compromise.
+        </p>
+      </div>
+      <div class="footer-links-section">
+        <h4>Links</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="architecture.html">Architecture</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="docs.html">Documentation</a></li>
+          <li><a href="faq.html">FAQ</a></li>
+          <li><a href="contributing.html">Contributing</a></li>
+          <li><a href="https://github.com/Ad1th/renderd" target="_blank" rel="noopener">GitHub ↗</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Renderd Contributors. MIT License.</span>
+      <span>Built with ❤️ in Rust</span>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js" defer></script>
+<script src="assets/js/main.js" defer></script>
+</body>
+</html>
