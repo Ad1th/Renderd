@@ -2428,6 +2428,7 @@ dependencies = [
  "renderd-frame",
  "renderd-proto",
  "rustls",
+ "socket2",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
