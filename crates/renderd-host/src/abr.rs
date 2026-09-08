@@ -3,15 +3,24 @@
 //! Receives control-plane telemetry (`ReactiveStats`, `PeriodicStats`, `KeyframeRequest`)
 //! from the connected viewer and drives the `AbrEngine` to adjust encoder bitrate and
 //! request IDR keyframes.
+//!
+//! Only measured loss drives the bitrate. An earlier version also capped the bitrate
+//! at 80% of the viewer's *received* bandwidth, but on a still desktop the encoder
+//! sends almost nothing, so "received bandwidth" collapsed and dragged the bitrate to
+//! its floor — and the moment a video started playing it looked like a slideshow.
 
 use std::sync::{Arc, Mutex};
 
 use renderd_abr::{AbrEngine, BitrateDecision};
+use renderd_config::{AbrConfig, HostConfig};
 use renderd_proto::generated::renderd::{PeriodicStats, ReactiveStats};
 use renderd_proto::types::BitrateKbps;
 
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
+
+/// Loss rate at which the engine halves the bitrate and forces a keyframe.
+const PANIC_LOSS_RATE: f64 = 0.15;
 
 /// Manager for host-side ABR decision processing.
 #[derive(Debug, Clone)]
@@ -39,6 +48,27 @@ impl AbrManager {
         )
     }
 
+    /// Creates an `AbrManager` from the loaded configuration.
+    ///
+    /// The host's `max_bitrate_kbps` is the *starting* bitrate; the ABR range comes
+    /// from the `[abr]` section, with the start clamped inside it.
+    #[must_use]
+    pub fn from_config(abr: &AbrConfig, host: &HostConfig) -> Self {
+        let min = abr.min_bitrate_kbps.max(1_000);
+        let max = abr.max_bitrate_kbps.max(min);
+        let initial = host.max_bitrate_kbps.clamp(min, max);
+        let step = abr.step_kbps.max(250);
+        let engine = AbrEngine::new(
+            BitrateKbps(min),
+            BitrateKbps(max),
+            BitrateKbps(initial),
+            BitrateKbps(step),
+            f64::from(abr.loss_threshold.clamp(0.001, 0.5)),
+            PANIC_LOSS_RATE,
+        );
+        Self::from_engine(engine)
+    }
+
     /// Creates an `AbrManager` with explicit parameter bounds.
     #[must_use]
     pub fn with_bounds(
@@ -55,6 +85,10 @@ impl AbrManager {
             0.05, // 5% loss triggers backoff
             0.20, // 20% loss triggers panic
         );
+        Self::from_engine(engine)
+    }
+
+    fn from_engine(engine: AbrEngine) -> Self {
         let past = std::time::Instant::now()
             .checked_sub(std::time::Duration::from_secs(5))
             .unwrap_or_else(std::time::Instant::now);
@@ -86,7 +120,8 @@ impl AbrManager {
         let decision = engine.update(loss_rate);
         drop(engine);
 
-        // Apply decision to encoder pipeline
+        // `set_bitrate` is a no-op for an unchanged value, so this is cheap to call
+        // on every tick.
         pipeline.set_bitrate(decision.target_bitrate_kbps.0)?;
 
         if decision.request_keyframe {
@@ -96,6 +131,7 @@ impl AbrManager {
         tracing::debug!(
             loss_rate = stats.loss_rate,
             target_kbps = decision.target_bitrate_kbps.0,
+            state = ?decision.state,
             request_keyframe = decision.request_keyframe,
             "Applied ABR reactive stats decision"
         );
@@ -105,53 +141,50 @@ impl AbrManager {
 
     /// Processes a long-term [`PeriodicStats`] report (500 ms loop) from the viewer.
     ///
+    /// The periodic report is telemetry only; it is logged and does not steer the
+    /// bitrate (see the module documentation for why).
+    ///
     /// # Errors
-    /// Returns [`HostError::Initialization`] if updating bitrate on `encode_pipeline` fails.
+    /// Returns [`HostError::Initialization`] if the engine mutex is poisoned.
     pub fn on_periodic_stats(
         &self,
         stats: &PeriodicStats,
-        pipeline: &EncodePipeline,
+        _pipeline: &EncodePipeline,
     ) -> Result<BitrateDecision, HostError> {
-        let rx_bw_kbps = stats.receive_bandwidth_kbps;
-
-        // If receive bandwidth is reported (> 0), evaluate if current bitrate exceeds 80% of estimated bandwidth
-        if rx_bw_kbps > 0.0 {
-            let mut engine = self
-                .engine
-                .lock()
-                .map_err(|_| HostError::Initialization("AbrManager mutex poisoned".into()))?;
-
-            let current = engine.current_bitrate().0;
-            // SAFETY/LINT: rx_bw_kbps is checked > 0.0 above, making sign loss impossible.
-            #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
-            let target_from_bw = (rx_bw_kbps * 0.8) as u32;
-
-            if target_from_bw < current && target_from_bw >= 1_000 {
-                // High loss / bandwidth degradation detected
-                let decision = engine.update(0.10); // simulate 10% degradation
-                drop(engine);
-                pipeline.set_bitrate(decision.target_bitrate_kbps.0)?;
-                return Ok(decision);
-            }
-        }
-
-        let mut engine = self
+        let engine = self
             .engine
             .lock()
             .map_err(|_| HostError::Initialization("AbrManager mutex poisoned".into()))?;
-        let decision = engine.update(0.0);
+        let decision = BitrateDecision {
+            state: engine.state(),
+            target_bitrate_kbps: engine.current_bitrate(),
+            request_keyframe: false,
+        };
         drop(engine);
+
+        tracing::info!(
+            viewer_rx_kbps = format!("{:.0}", stats.receive_bandwidth_kbps),
+            decode_us = stats.decode_time_us,
+            render_us = stats.render_time_us,
+            frames_displayed = stats.frames_displayed,
+            frames_dropped = stats.frames_dropped,
+            target_kbps = decision.target_bitrate_kbps.0,
+            "VIEWER TELEMETRY"
+        );
 
         Ok(decision)
     }
 
-    /// Triggers an explicit IDR keyframe on `encode_pipeline`, debounced to at most once per 500 ms.
+    /// Triggers an explicit IDR keyframe on `encode_pipeline`, debounced to at most once per 250 ms.
+    ///
+    /// A keyframe already costs the link a burst; issuing another before the first
+    /// one has even been decoded only makes the loss that triggered it worse.
     pub fn on_keyframe_request(&self, pipeline: &EncodePipeline) {
         if let Ok(mut last) = self.last_keyframe_request.lock() {
-            if last.elapsed() >= std::time::Duration::from_millis(500) {
+            if last.elapsed() >= std::time::Duration::from_millis(250) {
                 *last = std::time::Instant::now();
                 pipeline.force_keyframe();
-                tracing::info!("AbrManager: dispatched debounced IDR keyframe to encoder");
+                tracing::info!("AbrManager: dispatched IDR keyframe request to encoder");
             }
         }
     }
@@ -210,5 +243,37 @@ mod tests {
 
         let frame = rx.try_recv().unwrap();
         assert!(frame.is_keyframe);
+    }
+
+    /// A quiet desktop reporting tiny received bandwidth must not drag the bitrate down.
+    #[test]
+    fn test_periodic_stats_do_not_steer_bitrate() {
+        let manager = AbrManager::new();
+        let pipeline = EncodePipeline::new();
+        let before = manager.current_bitrate();
+        let stats = PeriodicStats {
+            receive_bandwidth_kbps: 300.0,
+            decode_time_us: 1_000,
+            render_time_us: 500,
+            frames_displayed: 10,
+            frames_dropped: 0,
+        };
+        manager.on_periodic_stats(&stats, &pipeline).unwrap();
+        assert_eq!(manager.current_bitrate(), before);
+    }
+
+    #[test]
+    fn test_from_config_clamps_initial_into_range() {
+        let abr = AbrConfig {
+            min_bitrate_kbps: 10_000,
+            max_bitrate_kbps: 20_000,
+            ..Default::default()
+        };
+        let host = HostConfig {
+            max_bitrate_kbps: 50_000,
+            ..Default::default()
+        };
+        let manager = AbrManager::from_config(&abr, &host);
+        assert_eq!(manager.current_bitrate().0, 20_000);
     }
 }

@@ -16,6 +16,9 @@ pub mod permission;
 #[cfg(target_os = "macos")]
 pub mod stream;
 
+#[cfg(target_os = "macos")]
+pub mod virtual_display;
+
 pub use error::ScError;
 
 #[cfg(target_os = "macos")]
@@ -26,3 +29,6 @@ pub use permission::{PermissionStatus, ScreenRecordingPermission};
 
 #[cfg(target_os = "macos")]
 pub use stream::{CaptureFrame, FrameCallback, ScreenStream};
+
+#[cfg(target_os = "macos")]
+pub use virtual_display::{VirtualDisplay, VirtualDisplayConfig, VirtualDisplayError};

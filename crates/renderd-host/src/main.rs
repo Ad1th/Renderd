@@ -17,7 +17,7 @@ pub use abr::AbrManager;
 pub use app::HostApp;
 pub use autostart::{AutoStart, AutoStartManager, AutoStartStatus};
 pub use capture::CapturePipeline;
-pub use cli::HostCli;
+pub use cli::{DisplayMode, HostCli};
 pub use clock::ClockController;
 pub use encode::{EncodePipeline, EncodedFrame};
 pub use error::HostError;
@@ -73,11 +73,15 @@ fn main() -> Result<(), HostError> {
     if let Some(display_id) = cli.display_id {
         config.host.display_id = display_id;
     }
+    if let Some(mode) = cli.mode {
+        config.host.extend_display = mode == cli::DisplayMode::Extend;
+    }
 
     tracing::info!(
         display_id = config.host.display_id,
         target_fps = config.host.target_fps,
         listen_port = config.network.listen_port,
+        extend_display = config.host.extend_display,
         "Configuration loaded successfully"
     );
 

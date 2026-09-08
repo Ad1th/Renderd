@@ -110,6 +110,30 @@ impl DatagramReceiver {
             .await
     }
 
+    /// Like [`Self::run_receive_loop_with_loss_signal`], but also invokes `on_frame`
+    /// each time one or more decoded frames are pushed into the queue.
+    ///
+    /// The viewer uses this to wake its event loop exactly when there is something new
+    /// to present, instead of polling for frames on a spin loop.
+    ///
+    /// # Errors
+    /// Returns [`ViewerError::Network`] if reading from the QUIC connection fails.
+    pub async fn run_receive_loop_with_wake<D, W>(
+        &mut self,
+        connection: &quinn::Connection,
+        decoder: &mut D,
+        frame_queue: &Arc<FrameQueue>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+        on_frame: &W,
+    ) -> Result<(), ViewerError>
+    where
+        D: Decoder + ?Sized,
+        W: Fn() + Sync,
+    {
+        self.receive_loop_inner(connection, decoder, frame_queue, loss_tx, Some(on_frame))
+            .await
+    }
+
     /// Runs the datagram receiver event loop with an optional channel to signal frame loss for immediate keyframe requests.
     ///
     /// # Errors
@@ -121,6 +145,23 @@ impl DatagramReceiver {
         frame_queue: &Arc<FrameQueue>,
         loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
     ) -> Result<(), ViewerError> {
+        self.receive_loop_inner::<D, fn()>(connection, decoder, frame_queue, loss_tx, None)
+            .await
+    }
+
+    #[allow(clippy::too_many_lines)]
+    async fn receive_loop_inner<D, W>(
+        &mut self,
+        connection: &quinn::Connection,
+        decoder: &mut D,
+        frame_queue: &Arc<FrameQueue>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+        on_frame: Option<&W>,
+    ) -> Result<(), ViewerError>
+    where
+        D: Decoder + ?Sized,
+        W: Fn() + Sync,
+    {
         static RECV_DG_COUNT: AtomicU64 = AtomicU64::new(0);
         static REASM_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
         static DECODED_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
@@ -160,6 +201,7 @@ impl DatagramReceiver {
                     }
 
                     // Drain everything the decoder has ready, not just one frame.
+                    let mut pushed_any = false;
                     while let Ok(Some(decoded)) = decoder.receive_frame() {
                         let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
                         interval_decoded += 1;
@@ -174,6 +216,12 @@ impl DatagramReceiver {
                             );
                         }
                         let _ = frame_queue.push(decoded);
+                        pushed_any = true;
+                    }
+                    if pushed_any {
+                        if let Some(wake) = on_frame {
+                            wake();
+                        }
                     }
                 }
                 Ok(None) => {}

@@ -26,6 +26,7 @@ OSStatus renderd_VTCompressionSessionCreate(
     int32_t height,
     CMVideoCodecType codec_type,
     uint32_t initial_bitrate_kbps,
+    uint32_t expected_fps,
     RenderD_VTOutputCallback callback,
     void *callback_ctx,
     VTCompressionSessionRef *session_out
@@ -127,6 +128,9 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
     int32_t *out_width,
     int32_t *out_height
 );
+
+/// Returns an upper bound on the Annex-B byte length renderd_CMSampleBufferExtractNALs will produce.
+size_t renderd_CMSampleBufferEncodedLength(CMSampleBufferRef sample_buffer);
 
 /// Extracts NAL units (including VPS/SPS/PPS parameter sets on keyframes) from a CMSampleBufferRef.
 OSStatus renderd_CMSampleBufferExtractNALs(

@@ -22,4 +22,22 @@ pub struct HostCli {
     /// Listening UDP port override.
     #[arg(short, long)]
     pub port: Option<u16>,
+
+    /// How the viewer's screen is used.
+    ///
+    /// `extend` (default) creates a virtual display sized to the viewer's monitor
+    /// and streams that, so the viewer becomes an additional desktop. `mirror`
+    /// streams the display selected by `--display-id` instead.
+    #[arg(long, value_name = "MODE")]
+    pub mode: Option<DisplayMode>,
+}
+
+/// Whether the viewer extends or mirrors the host desktop.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DisplayMode {
+    /// Add a virtual display and stream it (the viewer is a second monitor).
+    #[default]
+    Extend,
+    /// Stream an existing display.
+    Mirror,
 }

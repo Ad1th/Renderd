@@ -8,6 +8,7 @@ pub mod framing;
 pub mod mock;
 pub mod server;
 pub mod tls;
+pub mod transport;
 
 pub use burst::FragmentBurst;
 pub use client::QuicClient;

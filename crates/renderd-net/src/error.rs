@@ -21,6 +21,15 @@ pub enum NetError {
     #[error("Datagram I/O error: {0}")]
     Datagram(String),
 
+    /// A datagram exceeded the connection's current maximum datagram size.
+    #[error("datagram of {size} bytes exceeds the current path limit of {max} bytes")]
+    DatagramTooLarge {
+        /// Size of the rejected datagram.
+        size: usize,
+        /// Largest datagram the connection accepts right now.
+        max: usize,
+    },
+
     /// Underlying I/O error.
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
