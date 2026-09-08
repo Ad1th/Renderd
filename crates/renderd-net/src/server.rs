@@ -1,11 +1,12 @@
 //! QUIC server wrapper for listening for incoming Renderd peer connections.
 
-use quinn::Endpoint;
+use quinn::{Endpoint, EndpointConfig};
 use rustls::ServerConfig;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::error::NetError;
+use crate::transport::{bind_udp, transport_config};
 
 /// Wrapper around a [`quinn::Endpoint`] operating as a server.
 pub struct QuicServer {
@@ -15,25 +16,44 @@ pub struct QuicServer {
 impl QuicServer {
     /// Binds a QUIC server endpoint to the specified address with the given TLS configuration.
     ///
+    /// Uses the 1200-byte QUIC minimum as the initial MTU; prefer
+    /// [`QuicServer::bind_with_mtu`] when the configured MTU is known.
+    ///
     /// # Errors
     /// Returns [`NetError`] if the socket binding or TLS configuration fails.
     pub fn bind(addr: SocketAddr, tls_config: ServerConfig) -> Result<Self, NetError> {
+        Self::bind_with_mtu(addr, tls_config, 1200)
+    }
+
+    /// Binds a QUIC server endpoint, starting path MTU at `initial_mtu` bytes.
+    ///
+    /// # Errors
+    /// Returns [`NetError`] if the socket binding or TLS configuration fails.
+    pub fn bind_with_mtu(
+        addr: SocketAddr,
+        tls_config: ServerConfig,
+        initial_mtu: u16,
+    ) -> Result<Self, NetError> {
         let crypto =
             quinn::crypto::rustls::QuicServerConfig::try_from(tls_config).map_err(|e| {
                 NetError::Tls(format!("Failed to convert TLS server config for QUIC: {e}"))
             })?;
         let mut server_config = quinn::ServerConfig::with_crypto(Arc::new(crypto));
+        server_config.transport_config(Arc::new(transport_config(initial_mtu)));
 
-        let mut transport = quinn::TransportConfig::default();
-        transport.max_concurrent_bidi_streams(100_u32.into());
-        transport.max_concurrent_uni_streams(100_u32.into());
-        transport.max_idle_timeout(Some(quinn::VarInt::from_u32(10_000).into()));
-        transport.keep_alive_interval(Some(std::time::Duration::from_secs(2)));
-        transport.datagram_receive_buffer_size(Some(4 * 1024 * 1024));
-        transport.datagram_send_buffer_size(4 * 1024 * 1024);
-        server_config.transport_config(Arc::new(transport));
+        let socket = bind_udp(addr).map_err(|e| {
+            NetError::Connection(format!("Failed to bind UDP socket on {addr}: {e}"))
+        })?;
+        let runtime = quinn::default_runtime()
+            .ok_or_else(|| NetError::Connection("no async runtime available".to_string()))?;
 
-        let endpoint = Endpoint::server(server_config, addr).map_err(|e| {
+        let endpoint = Endpoint::new(
+            EndpointConfig::default(),
+            Some(server_config),
+            socket,
+            runtime,
+        )
+        .map_err(|e| {
             NetError::Connection(format!(
                 "Failed to bind QUIC server endpoint on {addr}: {e}"
             ))
