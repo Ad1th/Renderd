@@ -30,6 +30,7 @@ OSStatus renderd_VTCompressionSessionCreate(
     int32_t height,
     CMVideoCodecType codec_type,
     uint32_t initial_bitrate_kbps,
+    uint32_t expected_fps,
     RenderD_VTOutputCallback callback,
     void *callback_ctx,
     VTCompressionSessionRef *session_out
@@ -70,31 +71,34 @@ OSStatus renderd_VTCompressionSessionCreate(
         CFRelease(max_delay_num);
     }
 
-    // 4. Set expected frame rate (60 fps)
-    int32_t expected_fps = 60;
-    CFNumberRef fps_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &expected_fps);
+    // 4. Tell the rate controller the real capture rate. A hard-coded 60 made the
+    //    encoder budget bits per frame wrongly for 120 Hz viewers.
+    int32_t fps = expected_fps > 0 ? (int32_t)expected_fps : 60;
+    CFNumberRef fps_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &fps);
     if (fps_num != NULL) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ExpectedFrameRate, fps_num);
         CFRelease(fps_num);
     }
 
-    // 5. Set Profile Level for maximum compression efficiency
+    // 5. Profile level. High / Main give the best quality per bit for desktop content.
     if (codec_type == kCMVideoCodecType_H264) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_High_AutoLevel);
+        // CABAC is ~10% more efficient than CAVLC at the same quality.
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_H264EntropyMode, kVTH264EntropyMode_CABAC);
     } else if (codec_type == kCMVideoCodecType_HEVC) {
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
     }
 
-    // 6. Set Target Quality (0.75) for balanced low-latency encoding
-    float quality_val = 0.75f;
-    CFNumberRef quality_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat32Type, &quality_val);
-    if (quality_num != NULL) {
-        VTSessionSetProperty(session, kVTCompressionPropertyKey_Quality, quality_num);
-        CFRelease(quality_num);
-    }
+    // 6. Prefer encode speed over marginal quality: the encoder must finish every
+    //    frame well inside one refresh interval, or latency accumulates. The key is
+    //    macOS 14+; on older systems the property is simply unsupported and ignored.
+    VTSessionSetProperty(session, CFSTR("PrioritizeEncodingSpeedOverQuality"), kCFBooleanTrue);
 
-    // 7. Set MaxKeyFrameIntervalDuration to 3.0 seconds (on-demand keyframes handle loss recovery)
-    double max_keyframe_interval_sec = 3.0;
+    // 7. Long GOP. Keyframes are large and momentarily blur the picture as the
+    //    rate controller absorbs them; loss recovery is handled by on-demand IDR
+    //    requests from the viewer, so periodic keyframes only need to bound how
+    //    long a viewer that missed a request stays corrupt.
+    double max_keyframe_interval_sec = 5.0;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
         kCFNumberFloat64Type,
@@ -141,8 +145,11 @@ OSStatus renderd_VTCompressionSessionSetBitrate(
         CFRelease(bps_num);
     }
 
-    // Configure DataRateLimits to enforce smooth network transmission (1.10x average bitrate over 1.0s window)
-    int64_t byte_limit = (int64_t)((double)bitrate_kbps * 1000.0 * 1.10 / 8.0);
+    // DataRateLimits bound the burst over a one second window. 1.10x was tight
+    // enough that every keyframe had to be starved of bits to fit, which showed as
+    // a visible blur on each IDR. 1.6x leaves room for a full-quality keyframe
+    // while still keeping the long-run average where the ABR controller put it.
+    int64_t byte_limit = (int64_t)((double)bitrate_kbps * 1000.0 * 1.60 / 8.0);
     double duration_sec = 1.0;
     CFNumberRef bytes_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt64Type, &byte_limit);
     CFNumberRef dur_num = CFNumberCreate(kCFAllocatorDefault, kCFNumberFloat64Type, &duration_sec);
@@ -675,6 +682,41 @@ OSStatus renderd_CVPixelBufferCopyBGRA(
 
     CVPixelBufferUnlockBaseAddress(pixel_buffer, kCVPixelBufferLock_ReadOnly);
     return noErr;
+}
+
+size_t renderd_CMSampleBufferEncodedLength(CMSampleBufferRef sample_buffer) {
+    if (sample_buffer == NULL) {
+        return 0;
+    }
+    size_t total = 0;
+    CMVideoFormatDescriptionRef format_desc = CMSampleBufferGetFormatDescription(sample_buffer);
+    if (format_desc != NULL) {
+        CMVideoCodecType codec_type = CMFormatDescriptionGetMediaSubType(format_desc);
+        size_t param_count = 0;
+        if (codec_type == kCMVideoCodecType_HEVC) {
+            CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format_desc, 0, NULL, NULL, &param_count, NULL);
+            for (size_t i = 0; i < param_count; i++) {
+                size_t param_size = 0;
+                if (CMVideoFormatDescriptionGetHEVCParameterSetAtIndex(format_desc, i, NULL, &param_size, NULL, NULL) == noErr) {
+                    total += 4 + param_size;
+                }
+            }
+        } else if (codec_type == kCMVideoCodecType_H264) {
+            CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format_desc, 0, NULL, NULL, &param_count, NULL);
+            for (size_t i = 0; i < param_count; i++) {
+                size_t param_size = 0;
+                if (CMVideoFormatDescriptionGetH264ParameterSetAtIndex(format_desc, i, NULL, &param_size, NULL, NULL) == noErr) {
+                    total += 4 + param_size;
+                }
+            }
+        }
+    }
+    CMBlockBufferRef block_buffer = CMSampleBufferGetDataBuffer(sample_buffer);
+    if (block_buffer != NULL) {
+        // Length prefixes are rewritten in place as 4-byte start codes: same size.
+        total += CMBlockBufferGetDataLength(block_buffer);
+    }
+    return total;
 }
 
 OSStatus renderd_CMSampleBufferExtractNALs(
