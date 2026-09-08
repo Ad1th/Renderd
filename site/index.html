@@ -761,8 +761,13 @@ a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-off
     window.addEventListener('resize', resize);
 
     var hostX = W*0.14, viewX = function(){ return W*0.86; };
-    var last = performance.now();
+    var last = performance.now(), running = true;
+    document.addEventListener('visibilitychange', function(){
+      if(document.hidden){ running = false; }
+      else if(!running){ running = true; last = performance.now(); requestAnimationFrame(frame); }
+    });
     function frame(now){
+      if(!running) return;
       var dt = Math.min(50, now-last)/1000; last = now;
       ctx.clearRect(0,0,W,H);
       hostX = W*0.14; var vx = W*0.86;
