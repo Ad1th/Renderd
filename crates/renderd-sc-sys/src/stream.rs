@@ -306,8 +306,11 @@ impl ScreenStream {
             config.setWidth(out_width);
             config.setHeight(out_height);
             config.setScalesToFit(true);
-            config.setShowsCursor(false);
-            let _: () = msg_send![&config, setQueueDepth: 2isize];
+            // This is a display the user works on, so the pointer must be visible.
+            config.setShowsCursor(true);
+            // Three is the documented minimum; two was silently rounded and made the
+            // capture pipeline stall whenever the encoder held a surface a beat too long.
+            let _: () = msg_send![&config, setQueueDepth: 3isize];
 
             // Set minimumFrameInterval to achieve target framerate
             if target_fps > 0 {
