@@ -112,6 +112,24 @@ impl CompressionSession {
     where
         F: Fn(VtError, VTEncodeInfoFlags, CMSampleBufferRef) + Send + Sync + 'static,
     {
+        Self::with_frame_rate(width, height, codec, initial_bitrate_kbps, 60, callback)
+    }
+
+    /// Creates a hardware compression session tuned for `expected_fps` frames per second.
+    ///
+    /// # Errors
+    /// Returns [`VtError`] if session creation or property configuration fails.
+    pub fn with_frame_rate<F>(
+        width: i32,
+        height: i32,
+        codec: VideoCodec,
+        initial_bitrate_kbps: u32,
+        expected_fps: u32,
+        callback: F,
+    ) -> Result<Self, VtError>
+    where
+        F: Fn(VtError, VTEncodeInfoFlags, CMSampleBufferRef) + Send + Sync + 'static,
+    {
         let cb_box = Box::new(CallbackBox {
             callback: Arc::new(callback),
         });
@@ -130,6 +148,7 @@ impl CompressionSession {
                 height,
                 codec.to_fourcc(),
                 initial_bitrate_kbps,
+                expected_fps,
                 vt_output_callback,
                 raw_cb_ctx,
                 &mut session,
@@ -573,23 +592,31 @@ pub unsafe fn sample_buffer_extract_nals(
         return Err(VtError(VtError::PARAMETER));
     }
 
-    let mut out_buf = vec![0u8; 4 * 1024 * 1024];
+    // Size the output exactly. The previous fixed 4 MiB scratch buffer meant a
+    // 4 MiB zero-fill and allocation per frame — 240 MiB/s of memset at 60 fps —
+    // and, because the vector kept its capacity, every queued frame pinned 4 MiB.
+    // SAFETY: sample_buffer is a valid CMSampleBufferRef.
+    let needed = unsafe { crate::bindings::renderd_CMSampleBufferEncodedLength(sample_buffer) };
+    let capacity = needed.max(64);
+    let mut out_buf = Vec::<u8>::with_capacity(capacity);
     let mut out_size: usize = 0;
     let mut is_keyframe: bool = false;
 
-    // SAFETY: sample_buffer is a valid CMSampleBufferRef and out_buf has 4MB capacity.
+    // SAFETY: sample_buffer is a valid CMSampleBufferRef and out_buf has `capacity`
+    // bytes of allocated storage; the shim never writes past `max_capacity`.
     let status = unsafe {
         crate::bindings::renderd_CMSampleBufferExtractNALs(
             sample_buffer,
             out_buf.as_mut_ptr(),
-            out_buf.len(),
+            capacity,
             &mut out_size,
             &mut is_keyframe,
         )
     };
 
     if status == 0 {
-        out_buf.truncate(out_size);
+        // SAFETY: the shim initialised exactly `out_size` bytes, and out_size <= capacity.
+        unsafe { out_buf.set_len(out_size.min(capacity)) };
         Ok((out_buf, is_keyframe))
     } else {
         Err(VtError(status))
