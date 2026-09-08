@@ -7,14 +7,19 @@ display_id = 0
 # Target capture framerate (1 to 240 fps)
 target_fps = 60
 
-# Maximum allowed hardware encoder bitrate in kbps (1000 to 200000 kbps)
-max_bitrate_kbps = 50000
+# Starting hardware encoder bitrate in kbps (1000 to 200000 kbps). The ABR
+# controller ramps up from here towards abr.max_bitrate_kbps on a clean link.
+max_bitrate_kbps = 30000
 
 # Hardware video encoder codec ("hevc" or "h264")
 codec = "hevc"
 
 # Enable vsync phase synchronization with viewer
 vsync_phase_sync = true
+
+# Create a virtual display sized to the viewer's monitor and stream that, making
+# the viewer an additional desktop. Set to false to mirror display_id instead.
+extend_display = true
 
 [network]
 # IP address string to bind host daemon socket
@@ -41,10 +46,10 @@ require_auth = true
 min_bitrate_kbps = 5000
 
 # Maximum allowed encoder bitrate in kbps
-max_bitrate_kbps = 100000
+max_bitrate_kbps = 60000
 
 # Bitrate step size for incremental adjustments in kbps
-step_kbps = 2000
+step_kbps = 2500
 
 # Packet loss rate threshold triggering down-step (0.0 to 1.0)
 loss_threshold = 0.02
