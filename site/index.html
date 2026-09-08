@@ -306,6 +306,17 @@ footer{padding:56px 0 40px}
 .skip-link:focus{transform:none}
 a:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
+<noscript><style>
+  /* Without JS the scroll-reveal never fires, so show everything up front. */
+  .rv{opacity:1!important;transform:none!important}
+  #flow,.scrollcue{display:none}
+</style></noscript>
+<style media="print">
+  body{background:#fff;color:#000;background-image:none}
+  body::before,body::after,#flow,.nav,.scrollcue,.hero-actions,.hero-tag{display:none!important}
+  .hero{min-height:auto}
+  *{color:#000!important;border-color:#999!important}
+</style>
 </head>
 <body>
 
