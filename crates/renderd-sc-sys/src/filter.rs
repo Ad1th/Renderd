@@ -48,6 +48,33 @@ impl ContentFilter {
     /// [`ScError::FilterCreationFailed`] if shareable content enumeration fails.
     #[allow(clippy::cast_sign_loss)]
     pub fn by_display_id(target_display_id: u32) -> Result<Self, ScError> {
+        Self::select(target_display_id, true)
+    }
+
+    /// Selects a display by ID, retrying until it shows up in the shareable content list.
+    ///
+    /// A freshly created virtual display takes a moment to be enumerated by
+    /// `ScreenCaptureKit`; this polls for up to `timeout` and never falls back to
+    /// another display, because capturing the wrong screen is worse than an error.
+    ///
+    /// # Errors
+    /// Returns [`ScError::NoDisplaysFound`] if the display does not appear in time.
+    pub fn wait_for_display(target_display_id: u32, timeout: Duration) -> Result<Self, ScError> {
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match Self::select(target_display_id, false) {
+                Ok(filter) => return Ok(filter),
+                Err(e) if std::time::Instant::now() < deadline => {
+                    tracing::debug!(display_id = target_display_id, error = %e, "display not yet capturable; retrying");
+                    std::thread::sleep(Duration::from_millis(150));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    fn select(target_display_id: u32, fallback_to_first: bool) -> Result<Self, ScError> {
         let content = fetch_shareable_content()?;
 
         // SAFETY: content is a valid SCShareableContent instance.
@@ -70,10 +97,12 @@ impl ContentFilter {
             }
         }
 
-        let target_display = matched_display.unwrap_or_else(|| {
+        let target_display = match matched_display {
+            Some(d) => d,
             // SAFETY: count > 0 is verified above.
-            unsafe { displays.objectAtIndex(0) }
-        });
+            None if fallback_to_first => unsafe { displays.objectAtIndex(0) },
+            None => return Err(ScError::NoDisplaysFound),
+        };
 
         // SAFETY: target_display is a valid SCDisplay object.
         let display_id: u32 = unsafe { objc2::msg_send![&target_display, displayID] };

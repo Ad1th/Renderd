@@ -4,13 +4,25 @@
 //! on [`CapturePipeline`] to align host frame presentation with viewer vsync deadlines.
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use renderd_clock::{ClockEpochEstimator, ClockSample};
 use renderd_proto::generated::renderd::VsyncReport;
 
 use crate::capture::CapturePipeline;
 use crate::error::HostError;
+
+/// Minimum time between two capture-rate reconfigurations.
+///
+/// Changing `minimumFrameInterval` makes `ScreenCaptureKit` rebuild its capture
+/// pipeline, which drops a few frames and stalls the encoder. The viewer reports
+/// vsync many times a second, so applying every report reconfigured capture
+/// continuously — visible as constant stutter — and, after a few minutes, left
+/// `SCStream` wedged and delivering nothing at all.
+const MIN_RECONFIGURE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// Relative change in vsync period below which a report is treated as noise.
+const PERIOD_DEADBAND: f64 = 0.01;
 
 /// Host presentation clock sync manager.
 ///
@@ -19,6 +31,7 @@ use crate::error::HostError;
 pub struct ClockController {
     estimator: Arc<Mutex<ClockEpochEstimator>>,
     last_target_interval: Arc<Mutex<Duration>>,
+    last_applied: Arc<Mutex<Option<(Duration, Instant)>>>,
 }
 
 impl Default for ClockController {
@@ -34,12 +47,15 @@ impl ClockController {
         Self {
             estimator: Arc::new(Mutex::new(ClockEpochEstimator::new(16))),
             last_target_interval: Arc::new(Mutex::new(Duration::from_nanos(16_666_666))),
+            last_applied: Arc::new(Mutex::new(None)),
         }
     }
 
     /// Processes a [`VsyncReport`] message from the connected viewer.
     ///
-    /// Updates presentation clock sync estimator and adjusts stream capture target interval on `capture_pipeline`.
+    /// Updates the presentation clock estimator every time, but only reconfigures the
+    /// capture stream when the reported period has really moved and at most once per
+    /// [`MIN_RECONFIGURE_INTERVAL`].
     ///
     /// # Errors
     /// Returns [`HostError::Initialization`] if updating target interval on `capture_pipeline` fails.
@@ -80,15 +96,42 @@ impl ClockController {
         *last_guard = target_interval;
         drop(last_guard);
 
-        capture_pipeline.set_target_interval(target_interval)?;
-
-        tracing::debug!(
-            vsync_period_ns = report.vsync_period_ns,
-            target_ms = target_interval.as_secs_f64() * 1000.0,
-            "Updated capture pipeline vsync phase pacing"
-        );
+        if self.should_reconfigure(target_interval)? {
+            capture_pipeline.set_target_interval(target_interval)?;
+            tracing::info!(
+                vsync_period_ns = report.vsync_period_ns,
+                target_ms = target_interval.as_secs_f64() * 1000.0,
+                "Updated capture pipeline vsync phase pacing"
+            );
+        }
 
         Ok(target_interval)
+    }
+
+    /// Decides whether `target` differs enough from what was last applied, and enough
+    /// time has passed, to justify reconfiguring the capture stream. Records the
+    /// application when it returns `true`.
+    fn should_reconfigure(&self, target: Duration) -> Result<bool, HostError> {
+        let now = Instant::now();
+        let mut applied = self
+            .last_applied
+            .lock()
+            .map_err(|_| HostError::Initialization("ClockController mutex poisoned".into()))?;
+
+        let apply = match *applied {
+            None => true,
+            Some((previous, at)) => {
+                let delta = (target.as_secs_f64() - previous.as_secs_f64()).abs();
+                let moved = delta > previous.as_secs_f64() * PERIOD_DEADBAND;
+                moved && now.duration_since(at) >= MIN_RECONFIGURE_INTERVAL
+            }
+        };
+
+        if apply {
+            *applied = Some((target, now));
+        }
+        drop(applied);
+        Ok(apply)
     }
 
     /// Returns the most recently computed target capture interval.
@@ -123,5 +166,18 @@ mod tests {
         let interval = controller.on_vsync_report(&report, &capture).unwrap();
         assert_eq!(interval, Duration::from_nanos(16_666_666));
         assert_eq!(controller.target_interval(), interval);
+    }
+
+    /// Repeated reports at the same period must not reconfigure capture again.
+    #[test]
+    fn test_reconfigure_is_throttled() {
+        let controller = ClockController::new();
+        let sixty = Duration::from_nanos(16_666_666);
+        assert!(controller.should_reconfigure(sixty).unwrap());
+        assert!(!controller.should_reconfigure(sixty).unwrap());
+        // A real change, but inside the hold-off window: still suppressed.
+        assert!(!controller
+            .should_reconfigure(Duration::from_nanos(8_333_333))
+            .unwrap());
     }
 }
