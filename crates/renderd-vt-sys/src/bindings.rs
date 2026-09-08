@@ -71,6 +71,7 @@ extern "C" {
         height: i32,
         codec_type: CMVideoCodecType,
         initial_bitrate_kbps: u32,
+        expected_fps: u32,
         callback: RenderD_VTOutputCallback,
         callback_ctx: *mut std::ffi::c_void,
         session_out: *mut VTCompressionSessionRef,
@@ -156,6 +157,9 @@ extern "C" {
         out_width: *mut i32,
         out_height: *mut i32,
     ) -> OSStatus;
+
+    /// Returns an upper bound on the Annex-B byte length the NAL extractor will write.
+    pub fn renderd_CMSampleBufferEncodedLength(sample_buffer: CMSampleBufferRef) -> usize;
 
     /// Extracts NAL units (including VPS/SPS/PPS parameter sets on keyframes) from a `CMSampleBufferRef`.
     pub fn renderd_CMSampleBufferExtractNALs(
