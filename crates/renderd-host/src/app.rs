@@ -25,7 +25,7 @@ use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use uuid::Uuid;
 
 use crate::abr::AbrManager;
-use crate::capture::CapturePipeline;
+use crate::capture::{CapturePipeline, CaptureTarget};
 use crate::clock::ClockController;
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
@@ -53,12 +53,13 @@ impl HostApp {
     /// using the provided [`RenderdConfig`].
     #[must_use]
     pub fn new(config: RenderdConfig) -> Self {
+        let abr = AbrManager::from_config(&config.abr, &config.host);
         Self {
             config,
             capture: Arc::new(Mutex::new(CapturePipeline::new())),
             encode: Arc::new(EncodePipeline::new()),
             clock: ClockController::new(),
-            abr: AbrManager::new(),
+            abr,
             session: HostSession::new(),
             network: NetworkManager::new(),
             ui: UiManager::new(),
@@ -174,8 +175,9 @@ impl HostApp {
                 ))
             })?;
 
+        let initial_mtu = self.config.network.quic_mtu;
         let quic_server = rt
-            .block_on(async { QuicServer::bind(bind_addr, tls_config) })
+            .block_on(async { QuicServer::bind_with_mtu(bind_addr, tls_config, initial_mtu) })
             .map_err(|e| {
                 HostError::Initialization(format!("Failed to bind QUIC server on {bind_addr}: {e}"))
             })?;
@@ -285,34 +287,50 @@ impl HostApp {
 
                             menu_bar.update_status(&format!("Streaming ({})", session.state()));
 
+                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                            let target_fps = (cfg.frame_rate.round() as u32).max(1);
+
+                            // Extend rather than mirror: give macOS a new display the
+                            // exact size of the viewer's monitor and capture that. The
+                            // handle must outlive the session — dropping it removes the
+                            // display — so it is held until the connection closes.
+                            let (target, _virtual_display) = Self::select_capture_target(
+                                &host_cfg,
+                                cfg.width,
+                                cfg.height,
+                                target_fps,
+                            );
+
                             // Activate VideoToolbox encoder & ScreenCaptureKit capture pipeline (#106)
+                            let start_bitrate = abr.current_bitrate().0;
                             if let Err(e) = encode.init(
                                 cfg.width,
                                 cfg.height,
-                                cfg.initial_bitrate_kbps,
+                                start_bitrate,
                                 &cfg.selected_codec,
+                                target_fps,
                             ) {
                                 tracing::warn!("Encode pipeline init failed: {e}");
                             }
-
-                            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-                            let target_fps = cfg.frame_rate as u32;
 
                             {
                                 let mut capture_guard =
                                     capture.lock().expect("CapturePipeline mutex poisoned");
                                 if let Err(e) = capture_guard.start(
+                                    target,
                                     cfg.width,
                                     cfg.height,
                                     target_fps,
                                     encode.clone(),
                                 ) {
-                                    tracing::warn!("Capture pipeline start failed: {e}");
+                                    tracing::error!("Capture pipeline start failed: {e}");
                                 } else {
                                     tracing::info!(
+                                        ?target,
                                         width = cfg.width,
                                         height = cfg.height,
                                         fps = target_fps,
+                                        bitrate_kbps = start_bitrate,
                                         "ScreenCaptureKit capture and VideoToolbox encoder active"
                                     );
                                 }
@@ -331,11 +349,16 @@ impl HostApp {
                                             let capture_guard = capture_for_ctrl
                                                 .lock()
                                                 .expect("CapturePipeline mutex poisoned");
-                                            let _ = clock.on_vsync_report(&report, &capture_guard);
+                                            if let Err(e) = clock.on_vsync_report(&report, &capture_guard) {
+                                                tracing::debug!("vsync report ignored: {e}");
+                                            }
                                         }
                                         Some(Payload::ReactiveStats(stats)) => {
-                                            let _ = abr_for_ctrl
-                                                .on_reactive_stats(&stats, &encode_for_ctrl);
+                                            if let Err(e) = abr_for_ctrl
+                                                .on_reactive_stats(&stats, &encode_for_ctrl)
+                                            {
+                                                tracing::debug!("reactive stats ignored: {e}");
+                                            }
                                         }
                                         Some(Payload::PeriodicStats(stats)) => {
                                             let _ = abr_for_ctrl
@@ -355,9 +378,12 @@ impl HostApp {
                             let encode_rx = encode.receiver();
                             let shutdown_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
                             let sender_shutdown = Arc::clone(&shutdown_flag);
+                            let encode_for_sender = encode.clone();
+                            let request_keyframe: Arc<dyn Fn() + Send + Sync> =
+                                Arc::new(move || encode_for_sender.force_keyframe());
                             tokio::spawn(async move {
                                 data_sender
-                                    .run_loop(data_conn, encode_rx, sender_shutdown)
+                                    .run_loop(data_conn, encode_rx, sender_shutdown, request_keyframe)
                                     .await;
                             });
 
@@ -371,11 +397,11 @@ impl HostApp {
                                 %reason,
                                 "Viewer disconnected — stopping capture and returning to IDLE"
                             );
-                            Self::teardown_session(&capture, &session, &menu_bar);
+                            Self::teardown_session(&capture, &encode, &session, &menu_bar);
                         }
                         Err(e) => {
                             tracing::warn!("Stream 0 handshake failed: {e}");
-                            Self::teardown_session(&capture, &session, &menu_bar);
+                            Self::teardown_session(&capture, &encode, &session, &menu_bar);
                         }
                     }
                 });
@@ -425,11 +451,67 @@ impl HostApp {
         (!ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
     }
 
-    /// Stops capture, returns the session to `IDLE`, and reflects that in the menu bar.
+    /// Chooses what to capture for a viewer of `width` × `height` at `fps`.
+    ///
+    /// In extend mode this creates a virtual display and returns its handle, which the
+    /// caller must keep alive for the session. Falls back to mirroring the main
+    /// display if the virtual display cannot be created, so a viewer always gets
+    /// *something* rather than a black window.
+    #[cfg(target_os = "macos")]
+    fn select_capture_target(
+        host_cfg: &renderd_config::HostConfig,
+        width: u32,
+        height: u32,
+        fps: u32,
+    ) -> (CaptureTarget, Option<renderd_sc_sys::VirtualDisplay>) {
+        use renderd_sc_sys::{VirtualDisplay, VirtualDisplayConfig};
+
+        if !host_cfg.extend_display {
+            return (Self::mirror_target(host_cfg), None);
+        }
+
+        let vd_cfg = VirtualDisplayConfig::new(width, height, fps);
+        match VirtualDisplay::create("Renderd Display", vd_cfg) {
+            Ok(display) => {
+                let id = display.display_id();
+                (CaptureTarget::Display(id), Some(display))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "Could not create a virtual display; mirroring the main display instead"
+                );
+                (Self::mirror_target(host_cfg), None)
+            }
+        }
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn select_capture_target(
+        host_cfg: &renderd_config::HostConfig,
+        _width: u32,
+        _height: u32,
+        _fps: u32,
+    ) -> (CaptureTarget, Option<()>) {
+        (Self::mirror_target(host_cfg), None)
+    }
+
+    /// The display to mirror: `display_id` from the config, or the main display when 0.
+    const fn mirror_target(host_cfg: &renderd_config::HostConfig) -> CaptureTarget {
+        if host_cfg.display_id == 0 {
+            CaptureTarget::MainDisplay
+        } else {
+            CaptureTarget::Display(host_cfg.display_id)
+        }
+    }
+
+    /// Stops capture, releases the encoder, returns the session to `IDLE`, and reflects
+    /// that in the menu bar.
     ///
     /// Safe to call from either the disconnect path or the handshake-failure path.
     fn teardown_session(
         capture: &Arc<Mutex<CapturePipeline>>,
+        encode: &Arc<EncodePipeline>,
         session: &HostSession,
         menu_bar: &crate::ui::MenuBar,
     ) {
@@ -440,6 +522,7 @@ impl HostApp {
         } else {
             tracing::error!("CapturePipeline mutex poisoned during teardown");
         }
+        encode.shutdown();
         session.reset();
         menu_bar.update_status("Idle — Listening");
     }
