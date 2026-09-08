@@ -59,6 +59,73 @@ pub trait Renderer: Send + Sync {
 
 static SOFT_RENDER_LOG_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Nearest-neighbour scale of a BGRA frame into a sub-rectangle of `dest`.
+///
+/// Split out of `render_frame` so the 1:1 fast path stays a single tight loop; this
+/// runs only when the window is not the exact size of the streamed framebuffer.
+#[allow(clippy::too_many_arguments)]
+fn scale_bgra(
+    src: &[u8],
+    dest: &mut [u32],
+    frame_w: u32,
+    frame_h: u32,
+    target_w: u32,
+    dst_x: u32,
+    dst_y: u32,
+    dst_w: u32,
+    dst_h: u32,
+) {
+    let (fw, fh) = (frame_w as usize, frame_h as usize);
+    let (tw, dx, dy) = (target_w as usize, dst_x as usize, dst_y as usize);
+    for row in 0..dst_h as usize {
+        let src_row = (row * fh) / dst_h as usize;
+        let dst_row_base = (dy + row) * tw + dx;
+        let src_row_base = src_row * fw;
+        for col in 0..dst_w as usize {
+            let src_col = (col * fw) / dst_w as usize;
+            let s = (src_row_base + src_col) * 4;
+            dest[dst_row_base + col] =
+                u32::from_le_bytes([src[s], src[s + 1], src[s + 2], src[s + 3]]);
+        }
+    }
+}
+
+/// Nearest-neighbour scale of an NV12 frame into a sub-rectangle of `dest`,
+/// converting to BGRA as it goes.
+#[allow(clippy::too_many_arguments)]
+fn scale_nv12(
+    y_plane: &[u8],
+    uv_plane: &[u8],
+    uv_width: usize,
+    dest: &mut [u32],
+    frame_w: u32,
+    frame_h: u32,
+    target_w: u32,
+    dst_x: u32,
+    dst_y: u32,
+    dst_w: u32,
+    dst_h: u32,
+) {
+    let (fw, fh) = (frame_w as usize, frame_h as usize);
+    let (tw, dx, dy) = (target_w as usize, dst_x as usize, dst_y as usize);
+    for row in 0..dst_h as usize {
+        let src_row = (row * fh) / dst_h as usize;
+        let dst_row_base = (dy + row) * tw + dx;
+        let uv_row_base = (src_row / 2) * uv_width;
+        let y_row_base = src_row * fw;
+        for col in 0..dst_w as usize {
+            let src_col = (col * fw) / dst_w as usize;
+            let uv_offset = uv_row_base + (src_col & !1);
+            nv12_to_bgra(
+                y_plane[y_row_base + src_col],
+                uv_plane[uv_offset],
+                uv_plane[uv_offset + 1],
+                &mut dest[dst_row_base + col],
+            );
+        }
+    }
+}
+
 /// Converts one NV12 pixel to a `0RGB` word, writing it into `out`.
 ///
 /// Returns 1 if the resulting pixel has any colour, 0 if it is pure black; the caller
@@ -210,173 +277,136 @@ impl Renderer for SoftRenderer {
             ));
         }
 
-        if let Ok(mut guard) = self.surface.lock() {
-            if let Some(ref mut surface) = *guard {
-                let target_w = if self.size.width > 0 {
-                    self.size.width
-                } else {
-                    frame.width.max(1)
-                };
-                let target_h = if self.size.height > 0 {
-                    self.size.height
-                } else {
-                    frame.height.max(1)
-                };
+        let Ok(mut guard) = self.surface.lock() else {
+            return Ok(());
+        };
+        let Some(surface) = guard.as_mut() else {
+            return Ok(());
+        };
 
-                if let (Some(w), Some(h)) = (
-                    std::num::NonZeroU32::new(target_w),
-                    std::num::NonZeroU32::new(target_h),
-                ) {
-                    let _ = surface.resize(w, h);
-                    if let Ok(mut buffer) = surface.buffer_mut() {
-                        let src = &frame.buffer;
-                        let dest = &mut buffer;
-                        let total_dest_pixels = (target_w * target_h) as usize;
-                        let mut non_zero_pixels = 0u64;
+        let target_w = if self.size.width > 0 {
+            self.size.width
+        } else {
+            frame.width.max(1)
+        };
+        let target_h = if self.size.height > 0 {
+            self.size.height
+        } else {
+            frame.height.max(1)
+        };
 
-                        if dest.len() < total_dest_pixels {
-                            return Ok(());
+        let (Some(w), Some(h)) = (
+            std::num::NonZeroU32::new(target_w),
+            std::num::NonZeroU32::new(target_h),
+        ) else {
+            return Ok(());
+        };
+        let _ = surface.resize(w, h);
+
+        let Ok(mut buffer) = surface.buffer_mut() else {
+            return Ok(());
+        };
+
+        let src = &frame.buffer;
+        let dest: &mut [u32] = &mut buffer;
+        let total_dest_pixels = (target_w * target_h) as usize;
+        if dest.len() < total_dest_pixels {
+            return Ok(());
+        }
+
+        let frame_w = frame.width.max(1);
+        let frame_h = frame.height.max(1);
+
+        let (dst_x, dst_y, dst_w, dst_h) =
+            compute_aspect_fit_rect(frame_w, frame_h, target_w, target_h);
+
+        // The common case with the host's extend-display mode: the window is exactly
+        // the size of the streamed framebuffer, so there is no scaling and no
+        // letterbox — just a format conversion straight into the presentation buffer.
+        let is_1to1 = dst_w == frame_w
+            && dst_h == frame_h
+            && dst_x == 0
+            && dst_y == 0
+            && target_w == frame_w
+            && target_h == frame_h;
+
+        if !is_1to1 && (dst_w < target_w || dst_h < target_h) {
+            dest[..total_dest_pixels].fill(0xFF00_0000);
+        }
+
+        match frame.format {
+            PixelFormat::Bgra8 => {
+                let num_src_pixels = (frame_w as usize) * (frame_h as usize);
+                if src.len() >= num_src_pixels * 4 {
+                    if is_1to1 {
+                        // BGRA bytes in memory are [B, G, R, A]; read little-endian and
+                        // the u32 is already 0xAARRGGBB, exactly softbuffer's layout.
+                        // One tight, auto-vectorised loop instead of four shifts per pixel.
+                        for (d, s) in dest[..num_src_pixels]
+                            .iter_mut()
+                            .zip(src.chunks_exact(4))
+                        {
+                            *d = u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
                         }
+                    } else {
+                        scale_bgra(
+                            src, dest, frame_w, frame_h, target_w, dst_x, dst_y, dst_w, dst_h,
+                        );
+                    }
+                }
+            }
+            PixelFormat::Nv12 | PixelFormat::P010 => {
+                let y_len = (frame_w as usize) * (frame_h as usize);
+                let uv_width = (frame_w as usize).div_ceil(2) * 2;
+                let uv_rows = (frame_h as usize).div_ceil(2);
+                let uv_len = uv_rows * uv_width;
 
-                        let frame_w = frame.width.max(1);
-                        let frame_h = frame.height.max(1);
+                if src.len() >= y_len + uv_len {
+                    let y_plane = &src[..y_len];
+                    let uv_plane = &src[y_len..y_len + uv_len];
 
-                        // Calculate aspect-ratio preserving destination rectangle (letterbox / pillarbox)
-                        let (dst_x, dst_y, dst_w, dst_h) =
-                            compute_aspect_fit_rect(frame_w, frame_h, target_w, target_h);
-
-                        let is_1to1 = dst_w == frame_w
-                            && dst_h == frame_h
-                            && dst_x == 0
-                            && dst_y == 0
-                            && target_w == frame_w
-                            && target_h == frame_h;
-
-                        // Clear letterbox / pillarbox margins to opaque black if viewport differs from scaled frame
-                        if !is_1to1 && (dst_w < target_w || dst_h < target_h) {
-                            dest[..total_dest_pixels].fill(0xFF00_0000);
-                        }
-
-                        match frame.format {
-                            PixelFormat::Bgra8 => {
-                                let num_src_pixels = (frame_w * frame_h) as usize;
-                                if src.len() >= num_src_pixels * 4 {
-                                    if is_1to1 {
-                                        for i in 0..num_src_pixels {
-                                            let b = u32::from(src[i * 4]);
-                                            let g = u32::from(src[i * 4 + 1]);
-                                            let r = u32::from(src[i * 4 + 2]);
-                                            let a = u32::from(src[i * 4 + 3]);
-                                            let pixel = (a << 24) | (r << 16) | (g << 8) | b;
-                                            if (pixel & 0x00FF_FFFF) != 0 {
-                                                non_zero_pixels += 1;
-                                            }
-                                            dest[i] = pixel;
-                                        }
-                                    } else {
-                                        for row in 0..dst_h as usize {
-                                            let src_row = (row * frame_h as usize) / dst_h as usize;
-                                            let dst_row_base = (dst_y as usize + row)
-                                                * target_w as usize
-                                                + dst_x as usize;
-                                            let src_row_base = src_row * frame_w as usize;
-
-                                            for col in 0..dst_w as usize {
-                                                let src_col =
-                                                    (col * frame_w as usize) / dst_w as usize;
-                                                let src_idx = (src_row_base + src_col) * 4;
-                                                let b = u32::from(src[src_idx]);
-                                                let g = u32::from(src[src_idx + 1]);
-                                                let r = u32::from(src[src_idx + 2]);
-                                                let a = u32::from(src[src_idx + 3]);
-                                                let pixel = (a << 24) | (r << 16) | (g << 8) | b;
-                                                if (pixel & 0x00FF_FFFF) != 0 {
-                                                    non_zero_pixels += 1;
-                                                }
-                                                dest[dst_row_base + col] = pixel;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            PixelFormat::Nv12 | PixelFormat::P010 => {
-                                let num_src_pixels = (frame_w * frame_h) as usize;
-                                let uv_width = (frame_w as usize).div_ceil(2) * 2;
-                                let uv_rows = (frame_h as usize).div_ceil(2);
-                                let y_len = num_src_pixels;
-                                let uv_len = uv_rows * uv_width;
-
-                                if src.len() >= y_len + uv_len {
-                                    let y_plane = &src[..y_len];
-                                    let uv_plane = &src[y_len..y_len + uv_len];
-
-                                    if is_1to1 {
-                                        for row in 0..frame_h as usize {
-                                            let uv_row_base = (row / 2) * uv_width;
-                                            let y_row_base = row * frame_w as usize;
-                                            for col in 0..frame_w as usize {
-                                                let y_idx = y_row_base + col;
-                                                let uv_offset = uv_row_base + (col & !1);
-
-                                                non_zero_pixels += u64::from(nv12_to_bgra(
-                                                    y_plane[y_idx],
-                                                    uv_plane[uv_offset],
-                                                    uv_plane[uv_offset + 1],
-                                                    &mut dest[y_idx],
-                                                ));
-                                            }
-                                        }
-                                    } else {
-                                        for row in 0..dst_h as usize {
-                                            let src_row = (row * frame_h as usize) / dst_h as usize;
-                                            let dst_row_base = (dst_y as usize + row)
-                                                * target_w as usize
-                                                + dst_x as usize;
-                                            let uv_row_base = (src_row / 2) * uv_width;
-                                            let y_row_base = src_row * frame_w as usize;
-
-                                            for col in 0..dst_w as usize {
-                                                let src_col =
-                                                    (col * frame_w as usize) / dst_w as usize;
-                                                let y_idx = y_row_base + src_col;
-                                                let uv_offset = uv_row_base + (src_col & !1);
-
-                                                non_zero_pixels += u64::from(nv12_to_bgra(
-                                                    y_plane[y_idx],
-                                                    uv_plane[uv_offset],
-                                                    uv_plane[uv_offset + 1],
-                                                    &mut dest[dst_row_base + col],
-                                                ));
-                                            }
-                                        }
-                                    }
-                                }
+                    if is_1to1 {
+                        let fw = frame_w as usize;
+                        for row in 0..frame_h as usize {
+                            let uv_row_base = (row / 2) * uv_width;
+                            let y_row_base = row * fw;
+                            let dst_row = &mut dest[y_row_base..y_row_base + fw];
+                            let y_row = &y_plane[y_row_base..y_row_base + fw];
+                            for (col, out) in dst_row.iter_mut().enumerate() {
+                                let uv_offset = uv_row_base + (col & !1);
+                                nv12_to_bgra(
+                                    y_row[col],
+                                    uv_plane[uv_offset],
+                                    uv_plane[uv_offset + 1],
+                                    out,
+                                );
                             }
                         }
-
-                        let count = SOFT_RENDER_LOG_COUNT
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                            + 1;
-                        if count <= 5 || count % 300 == 0 {
-                            tracing::info!(
-                                count = count,
-                                format = ?frame.format,
-                                frame_width = frame_w,
-                                frame_height = frame_h,
-                                viewport_width = target_w,
-                                viewport_height = target_h,
-                                dst_rect = ?(dst_x, dst_y, dst_w, dst_h),
-                                non_zero_pixels = non_zero_pixels,
-                                "RENDER: SoftRenderer presented frame scaled to viewport"
-                            );
-                        }
-
-                        let _ = buffer.present();
+                    } else {
+                        scale_nv12(
+                            y_plane, uv_plane, uv_width, dest, frame_w, frame_h, target_w, dst_x,
+                            dst_y, dst_w, dst_h,
+                        );
                     }
                 }
             }
         }
 
+        let count = SOFT_RENDER_LOG_COUNT
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
+        if count <= 3 || count % 600 == 0 {
+            tracing::info!(
+                count = count,
+                format = ?frame.format,
+                frame = ?(frame_w, frame_h),
+                viewport = ?(target_w, target_h),
+                scaled = !is_1to1,
+                "RENDER: SoftRenderer presented frame"
+            );
+        }
+
+        let _ = buffer.present();
         Ok(())
     }
 
