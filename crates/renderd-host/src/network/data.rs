@@ -13,16 +13,26 @@ use renderd_frame::{
     FragmentFlags, FragmentHeader, FLAG_FIRST_FRAG, FLAG_KEYFRAME, FLAG_LAST_FRAG, HEADER_SIZE,
     MAX_PTS_OFFSET_US,
 };
-use renderd_net::FragmentBurst;
+use renderd_net::{FragmentBurst, NetError};
 
 use crate::encode::EncodedFrame;
 use crate::error::HostError;
 
-/// Default maximum fragment payload size in bytes (1200 max QUIC datagram - 16-byte header).
-pub const DEFAULT_MAX_PAYLOAD_SIZE: usize = 1184;
+/// Fallback fragment payload size used before the path MTU is known
+/// (1200-byte minimum QUIC datagram, minus QUIC framing and the 16-byte header).
+pub const DEFAULT_MAX_PAYLOAD_SIZE: usize = 1150;
+
+/// Smallest payload worth sending; below this the header overhead dominates.
+const MIN_PAYLOAD_SIZE: usize = 256;
 
 /// Consecutive datagram send failures after which the sender considers the peer gone.
 const MAX_CONSECUTIVE_SEND_ERRORS: u32 = 120;
+
+/// Frames allowed to queue up behind the sender before it skips ahead.
+///
+/// Skipping is only worth it once the backlog costs more latency than a keyframe
+/// costs bandwidth; three frames is 50 ms at 60 fps.
+const SKIP_AHEAD_BACKLOG: usize = 3;
 
 /// Host datagram burst sender task manager.
 ///
@@ -137,10 +147,21 @@ impl DataSender {
         Ok(datagrams)
     }
 
-    /// Sends encoded frame fragments over a QUIC connection in non-yielding bursts.
+    /// Largest fragment payload the connection will carry right now.
     ///
-    /// Pulls frames from the `Receiver<EncodedFrame>` until the channel is empty or
-    /// `shutdown` is signalled.
+    /// Tracks path MTU discovery: the first frames of a session go out in ~1.1 KiB
+    /// fragments and, once the path is probed, in ~1.4 KiB ones — 20% fewer packets
+    /// for the same video.
+    #[must_use]
+    pub fn payload_size_for(connection: &quinn::Connection) -> usize {
+        FragmentBurst::max_datagram_size(connection)
+            .map(|max| max.saturating_sub(HEADER_SIZE))
+            .filter(|&payload| payload >= MIN_PAYLOAD_SIZE)
+            .unwrap_or(DEFAULT_MAX_PAYLOAD_SIZE)
+    }
+
+    /// Sends encoded frame fragments over a QUIC connection in non-yielding bursts,
+    /// sized to the connection's current maximum datagram size.
     ///
     /// # Errors
     /// Returns [`HostError::Initialization`] if network datagram sending fails.
@@ -149,7 +170,7 @@ impl DataSender {
         connection: &quinn::Connection,
         frame: &EncodedFrame,
     ) -> Result<usize, HostError> {
-        let fragments = Self::fragment_frame(frame, DEFAULT_MAX_PAYLOAD_SIZE)?;
+        let fragments = Self::fragment_frame(frame, Self::payload_size_for(connection))?;
         FragmentBurst::send_all(connection, &fragments)
             .map_err(|e| HostError::Initialization(format!("Datagram burst send failed: {e}")))
     }
@@ -158,24 +179,33 @@ impl DataSender {
     /// and transmitting them over `connection` until `shutdown` is set, the channel is
     /// disconnected, or the QUIC connection dies.
     ///
+    /// `request_keyframe` is invoked whenever the sender has to skip frames, so the
+    /// encoder can resynchronise the decoder with an IDR.
+    ///
     /// This blocks on the channel rather than polling it: `quinn::Connection::send_datagram`
     /// is synchronous, so there is nothing to await between frames, and a poll-and-sleep
     /// loop would add up to a whole sleep interval of latency to every frame.
+    #[allow(clippy::too_many_lines)]
     pub fn run_blocking(
         &self,
         connection: &quinn::Connection,
         rx: &Receiver<EncodedFrame>,
         shutdown: &AtomicBool,
+        request_keyframe: &(dyn Fn() + Sync),
     ) {
         /// Wake-up interval used only to re-check the shutdown flag while idle.
         const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
         let mut sent_frames: u64 = 0;
         let mut consecutive_errors: u32 = 0;
+        // Set after skipping frames: non-key frames are withheld until the encoder
+        // produces the IDR that makes them decodable again.
+        let mut awaiting_keyframe = false;
 
         let mut interval_start = std::time::Instant::now();
         let mut interval_frames: u64 = 0;
         let mut interval_bytes: u64 = 0;
+        let mut interval_skipped: u64 = 0;
 
         while !shutdown.load(Ordering::Relaxed) {
             let mut frame = match rx.recv_timeout(IDLE_POLL) {
@@ -184,19 +214,35 @@ impl DataSender {
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             };
 
-            // If multiple frames are queued in rx, skip stale frames and take the freshest frame
-            while let Ok(fresher) = rx.try_recv() {
-                let is_kf = frame.is_keyframe || fresher.is_keyframe;
-                frame = fresher;
-                if is_kf {
-                    frame.is_keyframe = true;
+            // Only skip ahead when a real backlog has built up. Skipping a single
+            // queued frame breaks the decoder's reference chain and costs a keyframe,
+            // which is far more expensive than the 16 ms it saves.
+            if rx.len() >= SKIP_AHEAD_BACKLOG {
+                let mut skipped = 0u64;
+                while let Ok(fresher) = rx.try_recv() {
+                    skipped += 1;
+                    frame = fresher;
+                }
+                interval_skipped += skipped;
+                if !frame.is_keyframe {
+                    awaiting_keyframe = true;
+                    request_keyframe();
+                }
+            }
+
+            if awaiting_keyframe {
+                if frame.is_keyframe {
+                    awaiting_keyframe = false;
+                } else {
+                    // Undecodable without its reference; do not waste the link on it.
+                    interval_skipped += 1;
+                    continue;
                 }
             }
 
             let frame_bytes = frame.data.len();
             let frame_id = frame.frame_id;
             let is_kf = frame.is_keyframe;
-            let pts_ns = frame.pts_ns;
             let queue_depth = rx.len();
 
             match self.send_frame_burst(connection, &frame) {
@@ -207,14 +253,12 @@ impl DataSender {
                     interval_bytes += frame_bytes as u64;
 
                     if sent_frames == 1 {
-                        let first_32 = &frame.data[..32.min(frame.data.len())];
                         tracing::info!(
-                            count = sent_frames,
-                            frame_id = frame_id,
+                            frame_id,
                             bytes = frame_bytes,
                             frags = num_frags,
-                            first_32_bytes = ?first_32,
-                            "DataSender: transmitted first encoded frame QUIC datagram burst"
+                            payload_size = Self::payload_size_for(connection),
+                            "DataSender: transmitted first encoded frame"
                         );
                     }
 
@@ -232,23 +276,30 @@ impl DataSender {
 
                         tracing::info!(
                             fps = format!("{fps:.1}"),
-                            instantaneous_bitrate_kbps = format!("{instantaneous_bitrate_kbps:.0}"),
-                            avg_frame_kb = avg_frame_kb,
-                            queue_depth = queue_depth,
+                            bitrate_kbps = format!("{instantaneous_bitrate_kbps:.0}"),
+                            avg_frame_kb,
+                            skipped = interval_skipped,
+                            queue_depth,
+                            payload_size = Self::payload_size_for(connection),
+                            rtt_ms = format!("{:.2}", connection.rtt().as_secs_f64() * 1000.0),
                             last_frame_id = frame_id,
                             is_keyframe = is_kf,
-                            pts_ns = pts_ns,
                             total_sent = sent_frames,
-                            "HOST METRICS: transmit throughput & encoder pacing"
+                            "HOST METRICS: transmit throughput"
                         );
 
                         interval_start = std::time::Instant::now();
                         interval_frames = 0;
                         interval_bytes = 0;
+                        interval_skipped = 0;
                     }
                 }
                 Err(e) => {
                     consecutive_errors += 1;
+                    // A fragment sized for the old path MTU was rejected mid-burst; the
+                    // frame is now partial on the wire, so resynchronise with an IDR.
+                    awaiting_keyframe = true;
+                    request_keyframe();
                     // A dead connection fails on every frame; stop rather than spinning
                     // and logging forever for a viewer that is already gone.
                     if consecutive_errors >= MAX_CONSECUTIVE_SEND_ERRORS {
@@ -278,15 +329,22 @@ impl DataSender {
         connection: quinn::Connection,
         rx: Receiver<EncodedFrame>,
         shutdown: Arc<AtomicBool>,
+        request_keyframe: Arc<dyn Fn() + Send + Sync>,
     ) {
         let sender = Self::new();
         if let Err(e) = tokio::task::spawn_blocking(move || {
-            sender.run_blocking(&connection, &rx, &shutdown);
+            sender.run_blocking(&connection, &rx, &shutdown, &*request_keyframe);
         })
         .await
         {
             tracing::warn!("DataSender blocking task failed: {e}");
         }
+    }
+}
+
+impl From<NetError> for HostError {
+    fn from(e: NetError) -> Self {
+        Self::Initialization(format!("network error: {e}"))
     }
 }
 
