@@ -1,11 +1,12 @@
 //! QUIC client wrapper for initiating Renderd peer connections.
 
-use quinn::Endpoint;
+use quinn::{Endpoint, EndpointConfig};
 use rustls::ClientConfig;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
 use crate::error::NetError;
+use crate::transport::{bind_udp, transport_config};
 
 /// Wrapper around a [`quinn::Endpoint`] operating as a client.
 pub struct QuicClient {
@@ -13,19 +14,24 @@ pub struct QuicClient {
 }
 
 impl QuicClient {
-    /// Binds an unbound client endpoint to a local ephemeral UDP port (`127.0.0.1:0` or `0.0.0.0:0`).
+    /// Binds an unbound client endpoint to a local ephemeral UDP port (`0.0.0.0:0`).
     ///
     /// # Errors
     /// Returns [`NetError`] if socket binding fails.
     pub fn bind_ephemeral() -> Result<Self, NetError> {
         let bind_addr = SocketAddr::from(([0, 0, 0, 0], 0));
-        let endpoint = Endpoint::client(bind_addr)
+        let socket = bind_udp(bind_addr)
+            .map_err(|e| NetError::Connection(format!("Failed to bind client socket: {e}")))?;
+        let runtime = quinn::default_runtime()
+            .ok_or_else(|| NetError::Connection("no async runtime available".to_string()))?;
+        let endpoint = Endpoint::new(EndpointConfig::default(), None, socket, runtime)
             .map_err(|e| NetError::Connection(format!("Failed to bind client endpoint: {e}")))?;
 
         Ok(Self { endpoint })
     }
 
-    /// Initiates a QUIC connection to a remote server address using the specified TLS configuration and server name.
+    /// Initiates a QUIC connection to a remote server address using the specified TLS
+    /// configuration and server name, starting at the 1200-byte minimum MTU.
     ///
     /// # Errors
     /// Returns [`NetError`] if connection initiation or TLS handshake fails.
@@ -35,20 +41,27 @@ impl QuicClient {
         server_name: &str,
         tls_config: ClientConfig,
     ) -> Result<quinn::Connection, NetError> {
+        self.connect_with_mtu(addr, server_name, tls_config, 1200)
+            .await
+    }
+
+    /// Initiates a QUIC connection, starting path MTU at `initial_mtu` bytes.
+    ///
+    /// # Errors
+    /// Returns [`NetError`] if connection initiation or TLS handshake fails.
+    pub async fn connect_with_mtu(
+        &self,
+        addr: SocketAddr,
+        server_name: &str,
+        tls_config: ClientConfig,
+        initial_mtu: u16,
+    ) -> Result<quinn::Connection, NetError> {
         let crypto =
             quinn::crypto::rustls::QuicClientConfig::try_from(tls_config).map_err(|e| {
                 NetError::Tls(format!("Failed to convert TLS client config for QUIC: {e}"))
             })?;
         let mut client_config = quinn::ClientConfig::new(Arc::new(crypto));
-
-        let mut transport = quinn::TransportConfig::default();
-        transport.max_concurrent_bidi_streams(100_u32.into());
-        transport.max_concurrent_uni_streams(100_u32.into());
-        transport.max_idle_timeout(Some(quinn::VarInt::from_u32(10_000).into()));
-        transport.keep_alive_interval(Some(std::time::Duration::from_secs(2)));
-        transport.datagram_receive_buffer_size(Some(4 * 1024 * 1024));
-        transport.datagram_send_buffer_size(4 * 1024 * 1024);
-        client_config.transport_config(Arc::new(transport));
+        client_config.transport_config(Arc::new(transport_config(initial_mtu)));
 
         let connecting = self
             .endpoint
