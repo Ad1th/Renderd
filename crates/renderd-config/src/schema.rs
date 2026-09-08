@@ -43,6 +43,16 @@ pub struct HostConfig {
 
     /// Enable vsync phase synchronization with viewer.
     pub vsync_phase_sync: bool,
+
+    /// Create a virtual display sized to the viewer and stream that, so the viewer
+    /// becomes an *additional* desktop. When `false` (or when the virtual display
+    /// API is unavailable) the host mirrors the display selected by `display_id`.
+    #[serde(default = "default_extend_display")]
+    pub extend_display: bool,
+}
+
+const fn default_extend_display() -> bool {
+    true
 }
 
 impl Default for HostConfig {
@@ -50,9 +60,10 @@ impl Default for HostConfig {
         Self {
             display_id: 0,
             target_fps: 60,
-            max_bitrate_kbps: 25_000,
+            max_bitrate_kbps: 30_000,
             codec: "hevc".to_string(),
             vsync_phase_sync: true,
+            extend_display: true,
         }
     }
 }
@@ -170,8 +181,8 @@ impl Default for AbrConfig {
     fn default() -> Self {
         Self {
             min_bitrate_kbps: 5_000,
-            max_bitrate_kbps: 100_000,
-            step_kbps: 2_000,
+            max_bitrate_kbps: 60_000,
+            step_kbps: 2_500,
             loss_threshold: 0.02,
         }
     }
