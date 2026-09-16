@@ -90,6 +90,54 @@ fn scale_bgra(
     }
 }
 
+/// Converts a full-resolution NV12 frame to BGRA in `dest`, one to one — no
+/// scaling, no letterboxing.
+///
+/// Pulled out of `render_frame` so it can be exercised directly in a unit test,
+/// same as `scale_nv12`; `softbuffer::Surface` needs a live window handle a test
+/// cannot create headlessly, so `render_frame` itself is not directly testable.
+fn convert_nv12_1to1(
+    y_plane: &[u8],
+    uv_plane: &[u8],
+    uv_width: usize,
+    frame_w: usize,
+    frame_h: usize,
+    dest: &mut [u32],
+) {
+    for row in 0..frame_h {
+        let uv_row_base = (row / 2) * uv_width;
+        let y_row_base = row * frame_w;
+        let dst_row = &mut dest[y_row_base..y_row_base + frame_w];
+        let y_row = &y_plane[y_row_base..y_row_base + frame_w];
+
+        // Process horizontally adjacent pixels in pairs — 4:2:0 chroma means
+        // every pair shares one (Cb, Cr) sample, so this halves the
+        // chroma-term multiplications in what is the hottest loop in the
+        // software render path.
+        let mut col = 0usize;
+        let mut pairs = dst_row.chunks_exact_mut(2);
+        for chunk in &mut pairs {
+            let uv_offset = uv_row_base + col;
+            let (o0, o1) = chunk.split_at_mut(1);
+            nv12_pair_to_bgra(
+                y_row[col],
+                y_row[col + 1],
+                uv_plane[uv_offset],
+                uv_plane[uv_offset + 1],
+                &mut o0[0],
+                &mut o1[0],
+            );
+            col += 2;
+        }
+        // Odd frame width: one trailing pixel shares the last chroma sample
+        // with no partner to pair it with.
+        if let [last] = pairs.into_remainder() {
+            let uv_offset = uv_row_base + col;
+            nv12_to_bgra(y_row[col], uv_plane[uv_offset], uv_plane[uv_offset + 1], last);
+        }
+    }
+}
+
 /// Nearest-neighbour scale of an NV12 frame into a sub-rectangle of `dest`,
 /// converting to BGRA as it goes.
 #[allow(clippy::too_many_arguments)]
@@ -126,6 +174,24 @@ fn scale_nv12(
     }
 }
 
+// BT.601 full-range YUV->RGB coefficients in 16.16 fixed point, shared by both the
+// per-pixel and per-pixel-pair conversion below.
+/// 1.402 << 16
+const YUV_R_CR: i32 = 91_881;
+/// 0.344136 << 16
+const YUV_G_CB: i32 = 22_554;
+/// 0.714136 << 16
+const YUV_G_CR: i32 = 46_802;
+/// 1.772 << 16
+const YUV_B_CB: i32 = 116_130;
+/// 0.5 in 16.16 fixed point — added before the final `>> 16` so the divide rounds
+/// to the nearest integer instead of always truncating toward zero. A plain
+/// right-shift is a floor, which biased every reconstructed pixel darker by up to
+/// one full level on every channel, every frame; harmless in isolation, but it
+/// compounds with compression noise and makes fine detail — scrolling text most of
+/// all — read as duller and muddier than the source.
+const YUV_HALF: i32 = 1 << 15;
+
 /// Converts one NV12 pixel to a `0RGB` word, writing it into `out`.
 ///
 /// Returns 1 if the resulting pixel has any colour, 0 if it is pure black; the caller
@@ -133,38 +199,53 @@ fn scale_nv12(
 ///
 /// Uses BT.601 full-range coefficients in 16.16 fixed point. This runs once per pixel
 /// per frame — over two million times per frame at 1080p — so the scalar float form it
-/// replaces dominated the frame budget on the software path.
+/// replaces dominated the frame budget on the software path. Where two horizontally
+/// adjacent pixels share one chroma sample (true for every pair in 4:2:0), prefer
+/// [`nv12_pair_to_bgra`], which computes the chroma terms once instead of twice.
 #[inline]
 fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
-    /// 1.402 << 16
-    const R_CR: i32 = 91_881;
-    /// 0.344136 << 16
-    const G_CB: i32 = 22_554;
-    /// 0.714136 << 16
-    const G_CR: i32 = 46_802;
-    /// 1.772 << 16
-    const B_CB: i32 = 116_130;
-
-    /// 0.5 in 16.16 fixed point — added before the final `>> 16` so the divide
-    /// rounds to the nearest integer instead of always truncating toward zero.
-    /// A plain right-shift is a floor, which biased every reconstructed pixel
-    /// darker by up to one full level on every channel, every frame; harmless in
-    /// isolation, but it compounds with compression noise and makes fine detail
-    /// — scrolling text most of all — read as duller and muddier than the source.
-    const HALF: i32 = 1 << 15;
-
     let luma = i32::from(luma) << 16;
     let chroma_b = i32::from(chroma_b) - 128;
     let chroma_r = i32::from(chroma_r) - 128;
 
-    let red = ((luma + R_CR * chroma_r + HALF) >> 16).clamp(0, 255);
-    let green = ((luma - G_CB * chroma_b - G_CR * chroma_r + HALF) >> 16).clamp(0, 255);
-    let blue = ((luma + B_CB * chroma_b + HALF) >> 16).clamp(0, 255);
+    let red = ((luma + YUV_R_CR * chroma_r + YUV_HALF) >> 16).clamp(0, 255);
+    let green =
+        ((luma - YUV_G_CB * chroma_b - YUV_G_CR * chroma_r + YUV_HALF) >> 16).clamp(0, 255);
+    let blue = ((luma + YUV_B_CB * chroma_b + YUV_HALF) >> 16).clamp(0, 255);
 
     #[allow(clippy::cast_sign_loss)]
     let pixel = 0xFF00_0000 | ((red as u32) << 16) | ((green as u32) << 8) | (blue as u32);
     *out = pixel;
     u8::from(pixel & 0x00FF_FFFF != 0)
+}
+
+/// Converts two horizontally adjacent NV12 pixels that share one chroma sample —
+/// true for every pixel pair in 4:2:0 — to two `0RGB` words in one call.
+///
+/// The three chroma-derived terms in the BT.601 matrix depend only on `(chroma_b,
+/// chroma_r)`, which is identical for both pixels of the pair; computing them once
+/// here instead of once per pixel removes three of the six fixed-point
+/// multiplications from what is the hottest loop in the software render path —
+/// roughly half the multiply work for the same two pixels.
+#[inline]
+fn nv12_pair_to_bgra(luma0: u8, luma1: u8, chroma_b: u8, chroma_r: u8, out0: &mut u32, out1: &mut u32) {
+    let chroma_b = i32::from(chroma_b) - 128;
+    let chroma_r = i32::from(chroma_r) - 128;
+
+    let r_term = YUV_R_CR * chroma_r + YUV_HALF;
+    let g_term = -YUV_G_CB * chroma_b - YUV_G_CR * chroma_r + YUV_HALF;
+    let b_term = YUV_B_CB * chroma_b + YUV_HALF;
+
+    for (luma, out) in [(luma0, out0), (luma1, out1)] {
+        let luma = i32::from(luma) << 16;
+        let red = ((luma + r_term) >> 16).clamp(0, 255);
+        let green = ((luma + g_term) >> 16).clamp(0, 255);
+        let blue = ((luma + b_term) >> 16).clamp(0, 255);
+
+        #[allow(clippy::cast_sign_loss)]
+        let pixel = 0xFF00_0000 | ((red as u32) << 16) | ((green as u32) << 8) | (blue as u32);
+        *out = pixel;
+    }
 }
 
 /// Computes destination rectangle `(dst_x, dst_y, dst_w, dst_h)` preserving source aspect ratio.
@@ -374,22 +455,9 @@ impl Renderer for SoftRenderer {
                     let uv_plane = &src[y_len..y_len + uv_len];
 
                     if is_1to1 {
-                        let fw = frame_w as usize;
-                        for row in 0..frame_h as usize {
-                            let uv_row_base = (row / 2) * uv_width;
-                            let y_row_base = row * fw;
-                            let dst_row = &mut dest[y_row_base..y_row_base + fw];
-                            let y_row = &y_plane[y_row_base..y_row_base + fw];
-                            for (col, out) in dst_row.iter_mut().enumerate() {
-                                let uv_offset = uv_row_base + (col & !1);
-                                nv12_to_bgra(
-                                    y_row[col],
-                                    uv_plane[uv_offset],
-                                    uv_plane[uv_offset + 1],
-                                    out,
-                                );
-                            }
-                        }
+                        convert_nv12_1to1(
+                            y_plane, uv_plane, uv_width, frame_w as usize, frame_h as usize, dest,
+                        );
                     } else {
                         scale_nv12(
                             y_plane, uv_plane, uv_width, dest, frame_w, frame_h, target_w, dst_x,
@@ -582,6 +650,78 @@ mod tests {
 
         assert_eq!(nv12_to_bgra(255, 128, 128, &mut out), 1);
         assert_eq!(out & 0x00FF_FFFF, 0x00FF_FFFF);
+    }
+
+    /// The pair fast path must produce byte-identical output to the per-pixel
+    /// function it replaces — the whole point is that it is a pure speed
+    /// optimization, not a different (even if close) approximation.
+    #[test]
+    fn test_nv12_pair_matches_per_pixel_exactly() {
+        for luma0 in (0..=255u8).step_by(13) {
+            for luma1 in (0..=255u8).step_by(23) {
+                for chroma_b in (0..=255u8).step_by(37) {
+                    for chroma_r in (0..=255u8).step_by(41) {
+                        let mut want0 = 0u32;
+                        let mut want1 = 0u32;
+                        nv12_to_bgra(luma0, chroma_b, chroma_r, &mut want0);
+                        nv12_to_bgra(luma1, chroma_b, chroma_r, &mut want1);
+
+                        let mut got0 = 0u32;
+                        let mut got1 = 0u32;
+                        nv12_pair_to_bgra(luma0, luma1, chroma_b, chroma_r, &mut got0, &mut got1);
+
+                        assert_eq!(
+                            (got0, got1),
+                            (want0, want1),
+                            "luma0={luma0} luma1={luma1} cb={chroma_b} cr={chroma_r}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// `convert_nv12_1to1`, exercised directly since `render_frame` itself needs a
+    /// live window. Covers an odd width so the pair loop's remainder branch runs,
+    /// and checks every pixel against the per-pixel reference function.
+    #[test]
+    fn test_convert_nv12_1to1_odd_width_matches_reference() {
+        let (width, height) = (7usize, 3usize);
+        let uv_width = width.div_ceil(2) * 2;
+        let uv_rows = height.div_ceil(2);
+        let y_len = width * height;
+        let uv_len = uv_rows * uv_width;
+
+        let mut y_plane = vec![0u8; y_len];
+        for (i, y) in y_plane.iter_mut().enumerate() {
+            *y = u8::try_from((i * 29) % 256).unwrap();
+        }
+        let mut uv_plane = vec![0u8; uv_len];
+        for (i, c) in uv_plane.iter_mut().enumerate() {
+            *c = u8::try_from((i * 53 + 17) % 256).unwrap();
+        }
+
+        let mut dest = vec![0u32; y_len];
+        convert_nv12_1to1(&y_plane, &uv_plane, uv_width, width, height, &mut dest);
+
+        for row in 0..height {
+            let uv_row_base = (row / 2) * uv_width;
+            for col in 0..width {
+                let uv_offset = uv_row_base + (col & !1);
+                let mut want = 0u32;
+                nv12_to_bgra(
+                    y_plane[row * width + col],
+                    uv_plane[uv_offset],
+                    uv_plane[uv_offset + 1],
+                    &mut want,
+                );
+                assert_eq!(
+                    dest[row * width + col],
+                    want,
+                    "mismatch at row {row} col {col}"
+                );
+            }
+        }
     }
 
     /// An odd-sized NV12 frame must render without indexing past the chroma plane.
