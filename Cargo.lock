@@ -2464,7 +2464,9 @@ version = "0.9.0-integration"
 dependencies = [
  "bytes",
  "clap",
+ "futures-util",
  "quinn",
+ "rcgen",
  "renderd-abr",
  "renderd-clock",
  "renderd-config",
@@ -2475,6 +2477,7 @@ dependencies = [
  "renderd-net",
  "renderd-proto",
  "renderd-vt-sys",
+ "rustls",
  "softbuffer",
  "thiserror 2.0.19",
  "tokio",
