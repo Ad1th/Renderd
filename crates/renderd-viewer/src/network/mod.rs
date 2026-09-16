@@ -4,4 +4,4 @@ pub mod control;
 pub mod data;
 
 pub use control::ViewerControlClient;
-pub use data::DatagramReceiver;
+pub use data::{DatagramReceiver, RecoverySignal};
