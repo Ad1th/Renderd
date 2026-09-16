@@ -19,6 +19,27 @@ use crate::frame_queue::FrameQueue;
 /// an unbounded loop if a peer somehow floods the connection.
 const DRAIN_CAP: usize = 4096;
 
+/// What the receive loop is telling the control-plane feedback task.
+///
+/// The two cases must stay distinct: both want an immediate keyframe, but only one
+/// of them is evidence the *network* is struggling. Conflating them (as a single
+/// loss counter previously did) meant that every local, CPU-bound decode backlog —
+/// which is common under sustained motion, exactly when scrolling stresses the
+/// software decoder hardest — got reported to the host as packet loss and pulled
+/// the encoder bitrate down for no network reason at all, visibly hurting quality
+/// during scrolling on top of the separate latency problem it caused.
+#[derive(Debug, Clone, Copy)]
+pub enum RecoverySignal {
+    /// Fragments were actually lost in transit or evicted from the reassembly
+    /// window incomplete. Real evidence of network trouble — this should count
+    /// toward the reported loss rate the host's ABR loop reacts to.
+    FragmentLoss(u64),
+    /// Decode fell behind datagram arrival and frames were skipped to catch up.
+    /// A purely local, CPU-bound event; it asks for a keyframe but must never be
+    /// reported as loss.
+    DecodeBacklog,
+}
+
 /// Datagram receiver and sliding-window frame reassembly manager.
 #[derive(Debug)]
 pub struct DatagramReceiver {
@@ -146,7 +167,7 @@ impl DatagramReceiver {
         connection: &quinn::Connection,
         decoder: &mut D,
         frame_queue: &Arc<FrameQueue>,
-        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<RecoverySignal>>,
         on_frame: &W,
     ) -> Result<(), ViewerError>
     where
@@ -166,7 +187,7 @@ impl DatagramReceiver {
         connection: &quinn::Connection,
         decoder: &mut D,
         frame_queue: &Arc<FrameQueue>,
-        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<RecoverySignal>>,
     ) -> Result<(), ViewerError> {
         self.receive_loop_inner::<D, fn()>(connection, decoder, frame_queue, loss_tx, None)
             .await
@@ -201,7 +222,7 @@ impl DatagramReceiver {
         connection: &quinn::Connection,
         decoder: &mut D,
         frame_queue: &Arc<FrameQueue>,
-        loss_tx: Option<tokio::sync::mpsc::Sender<u64>>,
+        loss_tx: Option<tokio::sync::mpsc::Sender<RecoverySignal>>,
         on_frame: Option<&W>,
     ) -> Result<(), ViewerError>
     where
@@ -259,7 +280,7 @@ impl DatagramReceiver {
                     );
                 }
                 if let Some(ref tx) = loss_tx {
-                    let _ = tx.try_send(0);
+                    let _ = tx.try_send(RecoverySignal::DecodeBacklog);
                 }
             }
 
@@ -335,7 +356,7 @@ impl DatagramReceiver {
                     Ok(None) => {}
                     Err(_) => {
                         if let Some(ref tx) = loss_tx {
-                            let _ = tx.try_send(0);
+                            let _ = tx.try_send(RecoverySignal::FragmentLoss(1));
                         }
                     }
                 }
@@ -346,7 +367,7 @@ impl DatagramReceiver {
                 let diff = current_drops - last_dropped_frames;
                 last_dropped_frames = current_drops;
                 if let Some(ref tx) = loss_tx {
-                    let _ = tx.try_send(diff);
+                    let _ = tx.try_send(RecoverySignal::FragmentLoss(diff));
                 }
             }
 
@@ -581,7 +602,7 @@ mod tests {
         let decoder = RecordingDecoder::default();
         let mut decoder_handle = decoder.clone();
         let frame_queue = Arc::new(FrameQueue::new(8));
-        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<u64>(64);
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(64);
 
         let recv_task = tokio::spawn(async move {
             let _ = receiver
@@ -593,9 +614,15 @@ mod tests {
                 )
                 .await;
         });
-        // Drain loss/keyframe-request signals in the background so try_send never
-        // blocks the receive loop under test.
-        tokio::spawn(async move { while loss_rx.recv().await.is_some() {} });
+        // Collect every recovery signal the loop sends, so the test can assert on
+        // *which* kind fired — not just drain them.
+        let signals = Arc::new(std::sync::Mutex::new(Vec::<RecoverySignal>::new()));
+        let signals_handle = signals.clone();
+        tokio::spawn(async move {
+            while let Some(signal) = loss_rx.recv().await {
+                signals_handle.lock().unwrap().push(signal);
+            }
+        });
 
         // Frame 1 (keyframe) arrives alone and should decode immediately — no
         // backlog exists yet.
@@ -636,6 +663,24 @@ mod tests {
             skipped_in_backlog > 0,
             "at least some of the stale non-key backlog must be skipped, not decoded \
              in strict arrival order: decoded={decoded_frame_ids:?}"
+        );
+
+        // Not one byte was actually lost on this loopback — every datagram sent
+        // above arrived. The backlog is a purely local, CPU-bound event, so it
+        // must never be reported as FragmentLoss: doing so would tell the host's
+        // ABR loop the network is failing and pull the bitrate down for a problem
+        // more bitrate cannot fix, visibly hurting quality under exactly the
+        // motion (scrolling, video) that causes backlogs in the first place.
+        let recorded_signals = signals.lock().unwrap().clone();
+        assert!(
+            !recorded_signals.is_empty(),
+            "a backlog occurred and must have signalled for a keyframe"
+        );
+        assert!(
+            recorded_signals
+                .iter()
+                .all(|s| matches!(s, RecoverySignal::DecodeBacklog)),
+            "no fragment was actually lost, so no signal may report FragmentLoss: {recorded_signals:?}"
         );
     }
 }

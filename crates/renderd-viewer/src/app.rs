@@ -270,7 +270,8 @@ impl App {
                             "Stream 0 handshake completed with host"
                         );
 
-                        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<u64>(16);
+                        let (loss_tx, mut loss_rx) =
+                            tokio::sync::mpsc::channel::<crate::network::RecoverySignal>(16);
 
                         // VsyncReporter & FeedbackExporter task (#110, #111).
                         tokio::spawn(async move {
@@ -325,8 +326,16 @@ impl App {
                                             }
                                         }
                                     }
-                                    Some(loss_count) = loss_rx.recv() => {
-                                        feedback_exporter.record_frame_loss(loss_count.max(1));
+                                    Some(signal) = loss_rx.recv() => {
+                                        // Only genuine network loss should ever pull the
+                                        // encoder's bitrate down. A decode backlog is a
+                                        // local, CPU-bound event — it still wants a fresh
+                                        // keyframe to resync on, but reporting it as loss
+                                        // would crush quality under motion (scrolling,
+                                        // video) for a problem more bitrate can't fix.
+                                        if let crate::network::RecoverySignal::FragmentLoss(count) = signal {
+                                            feedback_exporter.record_frame_loss(count.max(1));
+                                        }
                                         if last_kf_req.elapsed() >= KF_DEBOUNCE {
                                             last_kf_req = std::time::Instant::now();
                                             let kf_req = feedback_exporter.create_keyframe_request();
