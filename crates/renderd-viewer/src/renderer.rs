@@ -145,13 +145,21 @@ fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
     /// 1.772 << 16
     const B_CB: i32 = 116_130;
 
+    /// 0.5 in 16.16 fixed point — added before the final `>> 16` so the divide
+    /// rounds to the nearest integer instead of always truncating toward zero.
+    /// A plain right-shift is a floor, which biased every reconstructed pixel
+    /// darker by up to one full level on every channel, every frame; harmless in
+    /// isolation, but it compounds with compression noise and makes fine detail
+    /// — scrolling text most of all — read as duller and muddier than the source.
+    const HALF: i32 = 1 << 15;
+
     let luma = i32::from(luma) << 16;
     let chroma_b = i32::from(chroma_b) - 128;
     let chroma_r = i32::from(chroma_r) - 128;
 
-    let red = ((luma + R_CR * chroma_r) >> 16).clamp(0, 255);
-    let green = ((luma - G_CB * chroma_b - G_CR * chroma_r) >> 16).clamp(0, 255);
-    let blue = ((luma + B_CB * chroma_b) >> 16).clamp(0, 255);
+    let red = ((luma + R_CR * chroma_r + HALF) >> 16).clamp(0, 255);
+    let green = ((luma - G_CB * chroma_b - G_CR * chroma_r + HALF) >> 16).clamp(0, 255);
+    let blue = ((luma + B_CB * chroma_b + HALF) >> 16).clamp(0, 255);
 
     #[allow(clippy::cast_sign_loss)]
     let pixel = 0xFF00_0000 | ((red as u32) << 16) | ((green as u32) << 8) | (blue as u32);
