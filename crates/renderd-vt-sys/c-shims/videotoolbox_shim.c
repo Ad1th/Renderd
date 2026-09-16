@@ -89,10 +89,17 @@ OSStatus renderd_VTCompressionSessionCreate(
         VTSessionSetProperty(session, kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_HEVC_Main_AutoLevel);
     }
 
-    // 6. Prefer encode speed over marginal quality: the encoder must finish every
-    //    frame well inside one refresh interval, or latency accumulates. The key is
-    //    macOS 14+; on older systems the property is simply unsupported and ignored.
-    VTSessionSetProperty(session, CFSTR("PrioritizeEncodingSpeedOverQuality"), kCFBooleanTrue);
+    // 6. Prefer quality over marginal encode speed. This was set to prioritize
+    //    speed on the theory that a slower motion search would accumulate latency;
+    //    it does not; measurement traced the actual multi-second lag to the
+    //    viewer's decode-side backlog (see renderd-viewer::network::data) and to
+    //    transport-level bufferbloat, both fixed independently of encode time.
+    //    Apple Silicon's VideoToolbox block runs the hardware encode pipeline in
+    //    well under a millisecond regardless of this hint; what it actually
+    //    changes is how thorough the rate-distortion search is, which is exactly
+    //    what determines how clean fast motion — scrolling text, video — looks at
+    //    a given bitrate. The key is macOS 14+; older systems ignore it.
+    VTSessionSetProperty(session, CFSTR("PrioritizeEncodingSpeedOverQuality"), kCFBooleanFalse);
 
     // 7. Long GOP. Keyframes are large and momentarily blur the picture as the
     //    rate controller absorbs them; loss recovery is handled by on-demand IDR
