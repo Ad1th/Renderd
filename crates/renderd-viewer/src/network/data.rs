@@ -7,11 +7,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use bytes::Bytes;
-use renderd_frame::{FragmentHeader, ReassemblyBuffer, HEADER_SIZE};
+use futures_util::FutureExt as _;
+use renderd_frame::{FragmentHeader, ReassembledFrame, ReassemblyBuffer, HEADER_SIZE};
 
 use crate::decoder::Decoder;
 use crate::error::ViewerError;
 use crate::frame_queue::FrameQueue;
+
+/// Upper bound on how many already-queued datagrams a single drain pass will pull
+/// before yielding back to decode. Not a normal limit — only a safety valve against
+/// an unbounded loop if a peer somehow floods the connection.
+const DRAIN_CAP: usize = 4096;
 
 /// Datagram receiver and sliding-window frame reassembly manager.
 #[derive(Debug)]
@@ -49,6 +55,25 @@ impl DatagramReceiver {
         datagram: &[u8],
         decoder: &mut D,
     ) -> Result<Option<u64>, ViewerError> {
+        match self.reassemble(datagram)? {
+            Some(frame) => {
+                let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+                decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)?;
+                Ok(Some(frame.frame_id))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// Parses and reassembles one raw datagram, without decoding.
+    ///
+    /// Split out from [`Self::process_datagram`] so the receive loop can drain a
+    /// backlog of already-queued datagrams — cheap memory copies — while reserving
+    /// the expensive decode step for frames it actually intends to show.
+    ///
+    /// # Errors
+    /// Returns [`ViewerError::Network`] if header parsing or reassembly fails.
+    fn reassemble(&mut self, datagram: &[u8]) -> Result<Option<ReassembledFrame>, ViewerError> {
         self.received_datagrams.fetch_add(1, Ordering::Relaxed);
 
         if datagram.len() < HEADER_SIZE {
@@ -69,7 +94,6 @@ impl DatagramReceiver {
         match self.window.insert(header, payload) {
             Ok(Some(frame)) => {
                 let frame_count = self.reassembled_frames.fetch_add(1, Ordering::Relaxed) + 1;
-                let pts_ns = u64::from(frame.pts_offset_us) * 1000;
 
                 if frame_count <= 8 {
                     let payload_len = frame.payload.len();
@@ -84,8 +108,7 @@ impl DatagramReceiver {
                     );
                 }
 
-                decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)?;
-                Ok(Some(frame.frame_id))
+                Ok(Some(frame))
             }
             Ok(None) => Ok(None),
             Err(err) => {
@@ -149,6 +172,29 @@ impl DatagramReceiver {
             .await
     }
 
+    /// Runs the receive loop.
+    ///
+    /// # Standing latency
+    ///
+    /// A synchronous software decode that ever runs even slightly slower than the
+    /// incoming frame rate — true of Media Foundation's software H.264/HEVC path
+    /// under sustained motion, where every frame differs a lot and compresses
+    /// worse — used to leave every datagram queued inside `quinn`'s own receive
+    /// buffer and decoded strictly in arrival order. The loop never caught up: it
+    /// kept faithfully decoding older and older frames, and what the viewer showed
+    /// fell further behind the live desktop the longer the stream ran. That is the
+    /// multi-second lag this loop exists to prevent.
+    ///
+    /// Each pass now blocks for the next datagram, then immediately drains
+    /// anything `quinn` already has queued with a non-blocking poll (no separate
+    /// task or channel needed — `read_datagram()` returns a fresh future each
+    /// call, so polling one once and discarding it if not ready costs nothing).
+    /// A drain that finds more than one datagram means arrival has outrun
+    /// consumption; every fragment still gets reassembled to keep the sliding
+    /// window correct, but non-keyframe decodes are skipped until the next
+    /// keyframe arrives — decoding a P-frame whose reference is already stale
+    /// wastes CPU on a frame that only makes the picture worse. A keyframe request
+    /// goes out immediately so that next frame arrives quickly.
     #[allow(clippy::too_many_lines)]
     async fn receive_loop_inner<D, W>(
         &mut self,
@@ -165,69 +211,132 @@ impl DatagramReceiver {
         static RECV_DG_COUNT: AtomicU64 = AtomicU64::new(0);
         static REASM_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
         static DECODED_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
+        static SKIPPED_STALE_COUNT: AtomicU64 = AtomicU64::new(0);
 
         let mut interval_start = std::time::Instant::now();
         let mut interval_datagrams: u64 = 0;
         let mut interval_reassembled: u64 = 0;
         let mut interval_bytes: u64 = 0;
         let mut interval_decoded: u64 = 0;
+        let mut interval_skipped: u64 = 0;
+        let mut interval_backlog_events: u64 = 0;
         let mut last_dropped_frames = self.window.dropped_frames();
 
-        while let Ok(datagram) = connection.read_datagram().await {
-            let dg_len = datagram.len();
-            let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-            interval_datagrams += 1;
-            interval_bytes += dg_len as u64;
+        // Set whenever a backlog forces frames to be skipped; cleared the moment a
+        // keyframe is actually decoded. While set, only keyframes are decoded.
+        let mut awaiting_keyframe = false;
 
-            if dg_count == 1 {
-                tracing::info!(
-                    count = dg_count,
-                    bytes = dg_len,
-                    "DatagramReceiver: first QUIC datagram received from host"
-                );
+        loop {
+            // Block for at least one datagram; this is the only await in the loop,
+            // so the task sleeps entirely between bursts rather than polling.
+            let Ok(first) = connection.read_datagram().await else {
+                break;
+            };
+
+            let mut batch: Vec<Bytes> = Vec::with_capacity(4);
+            batch.push(first);
+
+            // Pull anything already sitting in quinn's receive queue without
+            // waiting. `now_or_never` polls the freshly constructed future exactly
+            // once and gives up instantly if nothing is ready — this is what lets
+            // the loop catch up to a burst instead of draining it one datagram,
+            // and one await, at a time.
+            while batch.len() < DRAIN_CAP {
+                match connection.read_datagram().now_or_never() {
+                    Some(Ok(more)) => batch.push(more),
+                    _ => break,
+                }
             }
 
-            match self.process_datagram(&datagram, decoder) {
-                Ok(Some(frame_id)) => {
-                    let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                    interval_reassembled += 1;
+            let backlog = batch.len() > 1;
+            if backlog {
+                interval_backlog_events += 1;
+                if !awaiting_keyframe {
+                    awaiting_keyframe = true;
+                    tracing::warn!(
+                        queued = batch.len(),
+                        "DatagramReceiver: arrival outran decode — skipping to the next keyframe"
+                    );
+                }
+                if let Some(ref tx) = loss_tx {
+                    let _ = tx.try_send(0);
+                }
+            }
 
-                    if frame_count == 1 {
-                        tracing::info!(
-                            count = frame_count,
-                            frame_id = frame_id,
-                            "DatagramReceiver: first frame reassembled & delivered to decoder"
-                        );
-                    }
+            for datagram in &batch {
+                let dg_len = datagram.len();
+                let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                interval_datagrams += 1;
+                interval_bytes += dg_len as u64;
 
-                    // Drain everything the decoder has ready, not just one frame.
-                    let mut pushed_any = false;
-                    while let Ok(Some(decoded)) = decoder.receive_frame() {
-                        let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                        interval_decoded += 1;
+                if dg_count == 1 {
+                    tracing::info!(
+                        count = dg_count,
+                        bytes = dg_len,
+                        "DatagramReceiver: first QUIC datagram received from host"
+                    );
+                }
 
-                        if dec_count == 1 {
+                match self.reassemble(datagram) {
+                    Ok(Some(frame)) => {
+                        let frame_count = REASM_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                        interval_reassembled += 1;
+
+                        if frame_count == 1 {
                             tracing::info!(
-                                count = dec_count,
-                                frame_id = decoded.frame_id,
-                                width = decoded.width,
-                                height = decoded.height,
-                                "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                                count = frame_count,
+                                frame_id = frame.frame_id,
+                                "DatagramReceiver: first frame reassembled"
                             );
                         }
-                        let _ = frame_queue.push(decoded);
-                        pushed_any = true;
-                    }
-                    if pushed_any {
-                        if let Some(wake) = on_frame {
-                            wake();
+
+                        if awaiting_keyframe && !frame.is_keyframe {
+                            // Its reference frame was never decoded; decoding this
+                            // one would only display corrupted motion. Drop it and
+                            // keep waiting for the keyframe already requested above.
+                            SKIPPED_STALE_COUNT.fetch_add(1, Ordering::Relaxed);
+                            interval_skipped += 1;
+                            continue;
+                        }
+                        awaiting_keyframe = false;
+
+                        let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+                        if let Err(e) =
+                            decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)
+                        {
+                            tracing::warn!("decode_packet failed for frame {}: {e}", frame.frame_id);
+                            continue;
+                        }
+
+                        // Drain everything the decoder has ready, not just one frame.
+                        let mut pushed_any = false;
+                        while let Ok(Some(decoded)) = decoder.receive_frame() {
+                            let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                            interval_decoded += 1;
+
+                            if dec_count == 1 {
+                                tracing::info!(
+                                    count = dec_count,
+                                    frame_id = decoded.frame_id,
+                                    width = decoded.width,
+                                    height = decoded.height,
+                                    "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                                );
+                            }
+                            let _ = frame_queue.push(decoded);
+                            pushed_any = true;
+                        }
+                        if pushed_any {
+                            if let Some(wake) = on_frame {
+                                wake();
+                            }
                         }
                     }
-                }
-                Ok(None) => {}
-                Err(_) => {
-                    if let Some(ref tx) = loss_tx {
-                        let _ = tx.try_send(0);
+                    Ok(None) => {}
+                    Err(_) => {
+                        if let Some(ref tx) = loss_tx {
+                            let _ = tx.try_send(0);
+                        }
                     }
                 }
             }
@@ -258,6 +367,9 @@ impl DatagramReceiver {
                     reasm_fps = format!("{reasm_fps:.1}"),
                     decoded_fps = format!("{decoded_fps:.1}"),
                     recv_bitrate_kbps = format!("{recv_bitrate_kbps:.0}"),
+                    skipped_stale = interval_skipped,
+                    backlog_events = interval_backlog_events,
+                    catching_up = awaiting_keyframe,
                     reasm_pending = self.window.pending_len(),
                     reasm_dropped = self.window.dropped_frames(),
                     frag_dropped = self.dropped_fragments(),
@@ -270,6 +382,8 @@ impl DatagramReceiver {
                 interval_reassembled = 0;
                 interval_bytes = 0;
                 interval_decoded = 0;
+                interval_skipped = 0;
+                interval_backlog_events = 0;
             }
         }
         Ok(())
@@ -297,7 +411,7 @@ impl DatagramReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::decoder::NullDecoder;
+    use crate::decoder::{DecodedFrame, NullDecoder};
     use renderd_frame::{FLAG_FIRST_FRAG, FLAG_KEYFRAME, FLAG_LAST_FRAG};
 
     fn encode_datagram(header: &FragmentHeader, payload: &[u8]) -> Vec<u8> {
@@ -375,5 +489,153 @@ mod tests {
         let res = receiver.process_datagram(&short_pkt, &mut decoder);
         assert!(res.is_err());
         assert_eq!(receiver.dropped_fragments(), 1);
+    }
+
+    /// Test-only decoder that records the id of every frame it is actually asked
+    /// to decode, so a test can assert on *which* frames a backlog skipped.
+    #[derive(Debug, Default, Clone)]
+    struct RecordingDecoder {
+        decoded_ids: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
+        pending: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<DecodedFrame>>>,
+    }
+
+    impl Decoder for RecordingDecoder {
+        fn initialize(&mut self, _codec: &str, _width: u32, _height: u32) -> Result<(), ViewerError> {
+            Ok(())
+        }
+
+        fn decode_packet(
+            &mut self,
+            _packet: &[u8],
+            frame_id: u64,
+            pts_ns: u64,
+        ) -> Result<(), ViewerError> {
+            self.decoded_ids.lock().unwrap().push(frame_id);
+            self.pending.lock().unwrap().push_back(DecodedFrame {
+                frame_id,
+                pts_ns,
+                width: 4,
+                height: 4,
+                format: crate::decoder::PixelFormat::Bgra8,
+                buffer: vec![0u8; 64],
+                decode_duration: std::time::Duration::ZERO,
+            });
+            Ok(())
+        }
+
+        fn receive_frame(&mut self) -> Result<Option<DecodedFrame>, ViewerError> {
+            Ok(self.pending.lock().unwrap().pop_front())
+        }
+
+        fn reset(&mut self) -> Result<(), ViewerError> {
+            Ok(())
+        }
+    }
+
+    /// Builds a loopback QUIC connection pair for a real end-to-end receive-loop test.
+    async fn loopback_pair() -> (quinn::Connection, quinn::Connection) {
+        let cert_gen = rcgen::generate_simple_self_signed(vec!["renderd-test".to_string()]).unwrap();
+        let cert_der = rustls::pki_types::CertificateDer::from(cert_gen.cert.der().to_vec());
+        let key_der =
+            rustls::pki_types::PrivateKeyDer::Pkcs8(cert_gen.key_pair.serialize_der().into());
+
+        let server_tls = renderd_net::ServerTlsConfig::from_cert(vec![cert_der], key_der, None).unwrap();
+        let client_tls = renderd_net::ClientTlsConfig::with_insecure_skip_verify().unwrap();
+
+        let server = renderd_net::QuicServer::bind("127.0.0.1:0".parse().unwrap(), server_tls).unwrap();
+        let addr = server.local_addr().unwrap();
+        let client = renderd_net::QuicClient::bind_ephemeral().unwrap();
+
+        let accept = tokio::spawn(async move { server.accept().await.unwrap() });
+        let client_conn = client.connect(addr, "renderd-test", client_tls).await.unwrap();
+        let server_conn = accept.await.unwrap();
+        (server_conn, client_conn)
+    }
+
+    fn frame_datagram(frame_id: u64, is_keyframe: bool) -> Bytes {
+        let mut flags = renderd_frame::FragmentFlags::new();
+        flags.set_first(true);
+        flags.set_last(true);
+        flags.set_keyframe(is_keyframe);
+        let header = FragmentHeader {
+            frame_id,
+            frag_id: 0,
+            frag_total: 1,
+            flags: flags.bits(),
+            pts_offset_us: 0,
+        };
+        let mut buf = vec![0u8; HEADER_SIZE];
+        header.encode(&mut buf).unwrap();
+        buf.extend_from_slice(&[0xAB; 8]);
+        Bytes::from(buf)
+    }
+
+    /// The regression test for the multi-second lag this module exists to fix:
+    /// once arrival outruns consumption, the receive loop must skip non-keyframe
+    /// backlog rather than faithfully decoding every stale frame in order.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_receive_loop_skips_stale_backlog_until_next_keyframe() {
+        let (host_conn, viewer_conn) = loopback_pair().await;
+
+        let mut receiver = DatagramReceiver::new(4);
+        let decoder = RecordingDecoder::default();
+        let mut decoder_handle = decoder.clone();
+        let frame_queue = Arc::new(FrameQueue::new(8));
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<u64>(64);
+
+        let recv_task = tokio::spawn(async move {
+            let _ = receiver
+                .run_receive_loop_with_loss_signal(
+                    &viewer_conn,
+                    &mut decoder_handle,
+                    &frame_queue,
+                    Some(loss_tx),
+                )
+                .await;
+        });
+        // Drain loss/keyframe-request signals in the background so try_send never
+        // blocks the receive loop under test.
+        tokio::spawn(async move { while loss_rx.recv().await.is_some() {} });
+
+        // Frame 1 (keyframe) arrives alone and should decode immediately — no
+        // backlog exists yet.
+        host_conn
+            .send_datagram(frame_datagram(1, true))
+            .unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+
+        // Frames 2..=14 (non-key) and 15 (key) and 16..=20 (non-key) all land
+        // before the receive loop can drain them one at a time — simulating decode
+        // that has fallen behind real-time arrival.
+        for id in 2..=20u64 {
+            host_conn
+                .send_datagram(frame_datagram(id, id == 15))
+                .unwrap();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        host_conn.close(0u32.into(), b"test done");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
+
+        let decoded_frame_ids = decoder.decoded_ids.lock().unwrap().clone();
+
+        assert!(
+            decoded_frame_ids.contains(&1),
+            "the lone first keyframe must always decode: {decoded_frame_ids:?}"
+        );
+        assert!(
+            decoded_frame_ids.contains(&15),
+            "the keyframe that ends the backlog must decode: {decoded_frame_ids:?}"
+        );
+        assert!(
+            decoded_frame_ids.iter().any(|&id| (16..=20).contains(&id)),
+            "decoding must resume after the keyframe: {decoded_frame_ids:?}"
+        );
+        let skipped_in_backlog = (2..15).filter(|id| !decoded_frame_ids.contains(id)).count();
+        assert!(
+            skipped_in_backlog > 0,
+            "at least some of the stale non-key backlog must be skipped, not decoded \
+             in strict arrival order: decoded={decoded_frame_ids:?}"
+        );
     }
 }
