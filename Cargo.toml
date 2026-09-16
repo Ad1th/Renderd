@@ -43,6 +43,7 @@ renderd-clock     = { path = "crates/renderd-clock" }
 
 # External dependencies
 tokio              = { version = "1", features = ["full"] }
+futures-util       = { version = "0.3", default-features = false }
 quinn              = { version = "0.11" }
 rustls             = { version = "0.23", default-features = false, features = ["tls12"] }
 bytes              = { version = "1" }
