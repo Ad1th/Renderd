@@ -210,12 +210,21 @@ impl DatagramReceiver {
     /// anything `quinn` already has queued with a non-blocking poll (no separate
     /// task or channel needed — `read_datagram()` returns a fresh future each
     /// call, so polling one once and discarding it if not ready costs nothing).
-    /// A drain that finds more than one datagram means arrival has outrun
-    /// consumption; every fragment still gets reassembled to keep the sliding
-    /// window correct, but non-keyframe decodes are skipped until the next
-    /// keyframe arrives — decoding a P-frame whose reference is already stale
-    /// wastes CPU on a frame that only makes the picture worse. A keyframe request
-    /// goes out immediately so that next frame arrives quickly.
+    /// Every fragment in the drained batch gets reassembled before anything is
+    /// decided, and only then does a *whole-frame* count decide whether decode
+    /// has actually fallen behind: raw datagram count cannot be that signal,
+    /// because one frame's fragments — the host bursts all of them, one frame at
+    /// a time, in a single non-yielding send — routinely show up as dozens of
+    /// already-queued datagrams the instant that burst lands, on every frame,
+    /// healthy or not. An earlier version used the raw count anyway, which meant
+    /// every normal frame looked like a backlog and the viewer never decoded
+    /// anything past the first keyframe. More than one *complete frame* out of a
+    /// single drain pass is the real signal: it means decode was still working
+    /// on (or hadn't started) an earlier frame while a whole later one finished
+    /// arriving. When that happens, non-keyframe decodes are skipped until the
+    /// next keyframe — decoding a P-frame whose reference was never decoded
+    /// wastes CPU on a frame that only makes the picture worse — and a keyframe
+    /// request goes out immediately.
     #[allow(clippy::too_many_lines)]
     async fn receive_loop_inner<D, W>(
         &mut self,
@@ -269,21 +278,18 @@ impl DatagramReceiver {
                 }
             }
 
-            let backlog = batch.len() > 1;
-            if backlog {
-                interval_backlog_events += 1;
-                if !awaiting_keyframe {
-                    awaiting_keyframe = true;
-                    tracing::warn!(
-                        queued = batch.len(),
-                        "DatagramReceiver: arrival outran decode — skipping to the next keyframe"
-                    );
-                }
-                if let Some(ref tx) = loss_tx {
-                    let _ = tx.try_send(RecoverySignal::DecodeBacklog);
-                }
-            }
-
+            // Reassemble every datagram in the batch before deciding anything about
+            // backlog. A single frame's fragments routinely show up as dozens of
+            // already-queued datagrams the instant the burst that carries them
+            // lands — the host fires every fragment of one frame in a single
+            // non-yielding burst — so the raw datagram count says nothing about
+            // whether decode has actually fallen behind: it is high on every
+            // healthy frame, not just a stale backlog. What decode falling behind
+            // actually looks like is more than one *whole frame* coming out of a
+            // single drain pass — if consumption were keeping up, waking for one
+            // burst would never let a second frame finish arriving before this
+            // pass got a chance to look.
+            let mut completed: Vec<ReassembledFrame> = Vec::new();
             for datagram in &batch {
                 let dg_len = datagram.len();
                 let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
@@ -310,54 +316,70 @@ impl DatagramReceiver {
                                 "DatagramReceiver: first frame reassembled"
                             );
                         }
-
-                        if awaiting_keyframe && !frame.is_keyframe {
-                            // Its reference frame was never decoded; decoding this
-                            // one would only display corrupted motion. Drop it and
-                            // keep waiting for the keyframe already requested above.
-                            SKIPPED_STALE_COUNT.fetch_add(1, Ordering::Relaxed);
-                            interval_skipped += 1;
-                            continue;
-                        }
-                        awaiting_keyframe = false;
-
-                        let pts_ns = u64::from(frame.pts_offset_us) * 1000;
-                        if let Err(e) =
-                            decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)
-                        {
-                            tracing::warn!("decode_packet failed for frame {}: {e}", frame.frame_id);
-                            continue;
-                        }
-
-                        // Drain everything the decoder has ready, not just one frame.
-                        let mut pushed_any = false;
-                        while let Ok(Some(decoded)) = decoder.receive_frame() {
-                            let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-                            interval_decoded += 1;
-
-                            if dec_count == 1 {
-                                tracing::info!(
-                                    count = dec_count,
-                                    frame_id = decoded.frame_id,
-                                    width = decoded.width,
-                                    height = decoded.height,
-                                    "DatagramReceiver: first decoded frame pushed into FrameQueue"
-                                );
-                            }
-                            let _ = frame_queue.push(decoded);
-                            pushed_any = true;
-                        }
-                        if pushed_any {
-                            if let Some(wake) = on_frame {
-                                wake();
-                            }
-                        }
+                        completed.push(frame);
                     }
                     Ok(None) => {}
                     Err(_) => {
                         if let Some(ref tx) = loss_tx {
                             let _ = tx.try_send(RecoverySignal::FragmentLoss(1));
                         }
+                    }
+                }
+            }
+
+            let backlog = completed.len() > 1;
+            if backlog {
+                interval_backlog_events += 1;
+                if !awaiting_keyframe {
+                    awaiting_keyframe = true;
+                    tracing::warn!(
+                        complete_frames = completed.len(),
+                        "DatagramReceiver: arrival outran decode — skipping to the next keyframe"
+                    );
+                }
+                if let Some(ref tx) = loss_tx {
+                    let _ = tx.try_send(RecoverySignal::DecodeBacklog);
+                }
+            }
+
+            for frame in completed {
+                if awaiting_keyframe && !frame.is_keyframe {
+                    // Its reference frame was never decoded; decoding this one
+                    // would only display corrupted motion. Drop it and keep
+                    // waiting for the keyframe already requested above.
+                    SKIPPED_STALE_COUNT.fetch_add(1, Ordering::Relaxed);
+                    interval_skipped += 1;
+                    continue;
+                }
+                awaiting_keyframe = false;
+
+                let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+                if let Err(e) = decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns) {
+                    tracing::warn!("decode_packet failed for frame {}: {e}", frame.frame_id);
+                    continue;
+                }
+
+                // Drain everything the decoder has ready, not just one frame.
+                let mut pushed_any = false;
+                while let Ok(Some(decoded)) = decoder.receive_frame() {
+                    let dec_count = DECODED_FRAME_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+                    interval_decoded += 1;
+
+                    if dec_count == 1 {
+                        tracing::info!(
+                            count = dec_count,
+                            frame_id = decoded.frame_id,
+                            width = decoded.width,
+                            height = decoded.height,
+                            "DatagramReceiver: first decoded frame pushed into FrameQueue"
+                        );
+                    }
+                    let _ = frame_queue.push(decoded);
+                    pushed_any = true;
+                }
+                if pushed_any {
+                    if let Some(wake) = on_frame {
+                        wake();
                     }
                 }
             }
@@ -589,6 +611,96 @@ mod tests {
         header.encode(&mut buf).unwrap();
         buf.extend_from_slice(&[0xAB; 8]);
         Bytes::from(buf)
+    }
+
+    /// Splits one frame across `frag_total` datagrams — what a real frame looks
+    /// like on the wire (the host bursts dozens of fragments per frame in one
+    /// non-yielding send), unlike [`frame_datagram`]'s single-fragment shortcut.
+    fn frame_fragments(frame_id: u64, is_keyframe: bool, frag_total: u16) -> Vec<Bytes> {
+        (0..frag_total)
+            .map(|frag_id| {
+                let mut flags = renderd_frame::FragmentFlags::new();
+                flags.set_first(frag_id == 0);
+                flags.set_last(frag_id == frag_total - 1);
+                flags.set_keyframe(is_keyframe);
+                let header = FragmentHeader {
+                    frame_id,
+                    frag_id,
+                    frag_total,
+                    flags: flags.bits(),
+                    pts_offset_us: 0,
+                };
+                let mut buf = vec![0u8; HEADER_SIZE];
+                header.encode(&mut buf).unwrap();
+                buf.extend_from_slice(&[0xAB; 4]);
+                Bytes::from(buf)
+            })
+            .collect()
+    }
+
+    /// The bug this guards against: a *single* frame's fragments must never be
+    /// mistaken for a decode backlog.
+    ///
+    /// The host bursts every fragment of one frame in one non-yielding send
+    /// (`FragmentBurst::send_all`), so by the time the receive loop wakes for the
+    /// first fragment and drains what else is already queued, tens of datagrams
+    /// are routinely sitting there — all belonging to the *one* frame currently
+    /// arriving. Treating that raw datagram count as "backlog" (an earlier version
+    /// of this loop did exactly that) meant every single healthy frame looked
+    /// like arrival had outrun decode, so non-keyframes were skipped permanently
+    /// and the viewer never showed anything. The signal has to be how many whole
+    /// *frames* came out of one drain pass, not how many datagrams did.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_single_frame_fragment_burst_is_not_mistaken_for_backlog() {
+        let (host_conn, viewer_conn) = loopback_pair().await;
+
+        let mut receiver = DatagramReceiver::new(4);
+        let decoder = RecordingDecoder::default();
+        let mut decoder_handle = decoder.clone();
+        let frame_queue = Arc::new(FrameQueue::new(8));
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(64);
+
+        let recv_task = tokio::spawn(async move {
+            let _ = receiver
+                .run_receive_loop_with_loss_signal(
+                    &viewer_conn,
+                    &mut decoder_handle,
+                    &frame_queue,
+                    Some(loss_tx),
+                )
+                .await;
+        });
+        let signals = Arc::new(std::sync::Mutex::new(Vec::<RecoverySignal>::new()));
+        let signals_handle = signals.clone();
+        tokio::spawn(async move {
+            while let Some(signal) = loss_rx.recv().await {
+                signals_handle.lock().unwrap().push(signal);
+            }
+        });
+
+        // One keyframe, split into 60 fragments — comparable to the ~73-98
+        // fragments a real 1080p keyframe splits into — sent in one burst with
+        // no gap between fragments, exactly like the real sender.
+        for fragment in frame_fragments(1, true, 60) {
+            host_conn.send_datagram(fragment).unwrap();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+        host_conn.close(0u32.into(), b"test done");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
+
+        let decoded_frame_ids = decoder.decoded_ids.lock().unwrap().clone();
+        assert_eq!(
+            decoded_frame_ids,
+            vec![1],
+            "the single frame must decode normally, not be treated as a backlog"
+        );
+
+        let recorded_signals = signals.lock().unwrap().clone();
+        assert!(
+            recorded_signals.is_empty(),
+            "one frame's fragment burst must never signal a backlog: {recorded_signals:?}"
+        );
     }
 
     /// The regression test for the multi-second lag this module exists to fix:
