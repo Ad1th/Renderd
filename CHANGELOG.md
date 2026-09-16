@@ -9,6 +9,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Pre-release hardening, cross-platform Windows viewer integration, and input forwarding in progress.
 
+### Fixed
+- **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
+  strictly in arrival order with no way to catch up; software decode even slightly slower than
+  real time (routine under sustained motion) meant the backlog never shrank, and the viewer fell
+  further behind the live desktop the longer the stream ran. It now drains whatever `quinn` already
+  has queued after each datagram (non-blocking poll, no extra task) and, once a backlog is found,
+  skips non-keyframe decodes until the next keyframe instead of faithfully decoding stale frames.
+  Added a QUIC-loopback regression test asserting the skip actually happens.
+- **Standing latency (transport bufferbloat).** Congestion control switched from Cubic to BBR —
+  Cubic only backs off on packet loss, so a path that queues instead of dropping (any home router,
+  any Wi-Fi radio) let the send window grow without bound. The datagram queue bound was also
+  shrunk `8 MiB -> 2 MiB`, since at the ABR ceiling the old value could hold over a second of
+  already-stale video before dropping a single byte.
+  ([`renderd-net::transport`](crates/renderd-net/src/transport.rs))
+- **Video quality during motion (false loss signal).** The viewer's decode-backlog recovery signal
+  fed the same counter as genuine network loss, so every local, CPU-bound backlog — common under
+  scrolling, exactly when the software decoder is under the most pressure — was reported to the
+  host as packet loss and pulled the encoder bitrate down for no network reason. Split into
+  `RecoverySignal::DecodeBacklog` (requests a keyframe, never reported as loss) and
+  `RecoverySignal::FragmentLoss` (real reassembly-window drops and parse errors — still counted).
+- **Video quality (encoder speed/quality trade).** `PrioritizeEncodingSpeedOverQuality` was set on
+  the theory that a slower motion search would add latency; measurement traced the actual latency
+  to the two issues above instead. Flipped to prioritize quality — Apple Silicon's hardware encode
+  block runs in well under a millisecond either way, so the setting was only trading away
+  rate-distortion search quality (i.e. how clean fast motion looks) for nothing.
+- **Video quality (rounding bias).** The fixed-point NV12→BGRA conversion in `SoftRenderer` (the
+  only renderer currently wired up) used a plain `>> 16`, which floors instead of rounds — every
+  reconstructed pixel, every frame, was biased up to one level darker on every channel. Added the
+  standard rounding bias before the shift.
+
 ### Changed
 - **Workspace version** bumped from `0.1.0` to `0.9.0-integration` to align `cargo metadata` with the
   CHANGELOG milestone tracking and release tag convention.
