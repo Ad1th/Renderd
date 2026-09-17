@@ -60,7 +60,7 @@ impl Default for HostConfig {
         Self {
             display_id: 0,
             target_fps: 60,
-            max_bitrate_kbps: 30_000,
+            max_bitrate_kbps: 8_000,
             codec: "hevc".to_string(),
             vsync_phase_sync: true,
             extend_display: true,
@@ -164,10 +164,6 @@ pub struct AbrConfig {
     pub min_bitrate_kbps: u32,
 
     /// Maximum allowed encoder bitrate in kbps.
-    ///
-    /// **TODO:** RFC-0002 §13.3 sets the v1.0 maximum at **50,000 kbps** until the
-    /// burst-send path is benchmarked and validated. This default (`100_000`) exceeds
-    /// that limit and must be corrected before the first public release.
     pub max_bitrate_kbps: u32,
 
     /// Bitrate step size for incremental adjustments in kbps.
@@ -180,9 +176,9 @@ pub struct AbrConfig {
 impl Default for AbrConfig {
     fn default() -> Self {
         Self {
-            min_bitrate_kbps: 5_000,
-            max_bitrate_kbps: 60_000,
-            step_kbps: 2_500,
+            min_bitrate_kbps: 2_500,
+            max_bitrate_kbps: 10_000,
+            step_kbps: 1_000,
             loss_threshold: 0.02,
         }
     }
