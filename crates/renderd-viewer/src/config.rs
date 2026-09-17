@@ -1,7 +1,7 @@
 //! Application configuration for the Renderd Viewer client.
 
 use crate::error::ViewerError;
-use renderd_config::{ConfigBuilder, RenderdConfig};
+use renderd_config::{ConfigBuilder, RenderdConfig, ValidateConfig};
 
 /// Viewer application runtime configuration options.
 #[derive(Debug, Clone)]
@@ -52,6 +52,15 @@ impl ViewerAppConfig {
         let config = ConfigBuilder::new()
             .build()
             .map_err(|e| ViewerError::Config(format!("Failed to load config: {e}")))?;
+
+        // The doc comment above has always claimed this can fail on invalid
+        // config, but nothing actually called validate() — a config with, say,
+        // window_width = 0 or an out-of-range quic_mtu loaded successfully and
+        // was used unchecked. main.rs falls back to ViewerAppConfig::default()
+        // on any Err from this function, so surfacing the failure here is safe.
+        config
+            .validate()
+            .map_err(|e| ViewerError::Config(format!("Invalid config: {e}")))?;
 
         Ok(Self {
             window_title: format!("Renderd Viewer v{}", env!("CARGO_PKG_VERSION")),

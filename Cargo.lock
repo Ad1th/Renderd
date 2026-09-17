@@ -2413,6 +2413,7 @@ dependencies = [
  "thiserror 2.0.19",
  "uuid",
  "windows",
+ "zeroize",
 ]
 
 [[package]]
