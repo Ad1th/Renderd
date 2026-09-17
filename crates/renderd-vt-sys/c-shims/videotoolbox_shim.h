@@ -47,6 +47,17 @@ OSStatus renderd_VTCompressionSessionEncodeFrame(
     void *frame_ctx
 );
 
+/// Blocks until every frame already submitted to the session has been encoded
+/// and its output callback has fired.
+///
+/// Must be called before renderd_VTCompressionSessionInvalidate: encoding is
+/// asynchronous, and invalidating (which releases the callback's context) while
+/// a submitted frame's callback has not fired yet is a use-after-free the moment
+/// that callback runs on VideoToolbox's own encode thread.
+OSStatus renderd_VTCompressionSessionCompleteFrames(
+    VTCompressionSessionRef session
+);
+
 /// Invalidates and releases a VTCompressionSessionRef handle.
 void renderd_VTCompressionSessionInvalidate(
     VTCompressionSessionRef session

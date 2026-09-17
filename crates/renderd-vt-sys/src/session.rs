@@ -10,14 +10,14 @@ use std::sync::Arc;
 
 use crate::bindings::{
     renderd_CVPixelBufferCopyBGRA, renderd_CVPixelBufferGetDimensions,
-    renderd_VTCompressionSessionCreate, renderd_VTCompressionSessionEncodeFrame,
-    renderd_VTCompressionSessionInvalidate, renderd_VTCompressionSessionSetBitrate,
-    renderd_VTDecompressionSessionCreate, renderd_VTDecompressionSessionCreateFromNAL,
-    renderd_VTDecompressionSessionDecodeFrame, renderd_VTDecompressionSessionInvalidate,
-    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef, CMVideoCodecType,
-    CVImageBufferRef, OSStatus, RenderD_VTDecompressionContext, VTCompressionSessionRef,
-    VTDecodeInfoFlags, VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264,
-    CODEC_TYPE_HEVC,
+    renderd_VTCompressionSessionCompleteFrames, renderd_VTCompressionSessionCreate,
+    renderd_VTCompressionSessionEncodeFrame, renderd_VTCompressionSessionInvalidate,
+    renderd_VTCompressionSessionSetBitrate, renderd_VTDecompressionSessionCreate,
+    renderd_VTDecompressionSessionCreateFromNAL, renderd_VTDecompressionSessionDecodeFrame,
+    renderd_VTDecompressionSessionInvalidate, renderd_VTDecompressionSessionWaitForAsynchronousFrames,
+    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus,
+    RenderD_VTDecompressionContext, VTCompressionSessionRef, VTDecodeInfoFlags,
+    VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
@@ -260,7 +260,16 @@ impl Drop for CompressionSession {
     fn drop(&mut self) {
         if !self.session.is_null() {
             // SAFETY: self.session is a valid non-null VTCompressionSessionRef handle.
+            // Encoding is asynchronous: a frame submitted via encode_surface/
+            // encode_buffer may still be in flight, with its output callback not
+            // yet fired, when this session is dropped. Invalidating first would
+            // free `_callback_box` (below) while VideoToolbox's own encode
+            // thread could still call into it — a use-after-free the moment
+            // that callback runs. CompleteFrames blocks until every submitted
+            // frame's callback has actually fired, so invalidate below is only
+            // ever reached once nothing can call back into this session again.
             unsafe {
+                renderd_VTCompressionSessionCompleteFrames(self.session);
                 renderd_VTCompressionSessionInvalidate(self.session);
             }
             self.session = std::ptr::null_mut();
@@ -498,7 +507,16 @@ impl Drop for DecompressionSession {
     fn drop(&mut self) {
         if !self.session.is_null() {
             // SAFETY: self.session is a valid non-null VTDecompressionSessionRef handle.
+            // Every decode goes through kVTDecodeFrame_EnableAsynchronousDecompression,
+            // so a packet submitted via decode_frame/decode_frame_with_ctx may still be
+            // decoding, with its output callback not yet fired, when this session is
+            // dropped. Invalidating first would free `_callback_box` (below) while
+            // VideoToolbox could still call into it — the same use-after-free shape as
+            // CompressionSession's drop. Waiting for outstanding frames first (already
+            // exposed as wait_for_async_frames, just not previously called here) closes
+            // that window.
             unsafe {
+                let _ = renderd_VTDecompressionSessionWaitForAsynchronousFrames(self.session);
                 renderd_VTDecompressionSessionInvalidate(self.session);
             }
             self.session = std::ptr::null_mut();
