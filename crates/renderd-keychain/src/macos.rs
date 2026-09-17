@@ -7,6 +7,7 @@ use security_framework::passwords::{
     delete_generic_password, get_generic_password, set_generic_password,
 };
 use uuid::Uuid;
+use zeroize::Zeroize;
 
 use crate::entry::PairingEntry;
 use crate::error::KeychainError;
@@ -28,35 +29,42 @@ impl MacosKeychain {
 
 impl KeychainStore for MacosKeychain {
     fn save_pairing(&self, entry: &PairingEntry) -> Result<(), KeychainError> {
-        let payload = serde_json::to_vec(entry).map_err(|e| {
+        let mut payload = serde_json::to_vec(entry).map_err(|e| {
             KeychainError::Serialization(format!("Failed to serialize pairing entry: {e}"))
         })?;
 
         let peer_account = entry.viewer_id.to_string();
         let _ = delete_generic_password(SERVICE_NAME, &peer_account);
 
-        set_generic_password(SERVICE_NAME, &peer_account, &payload).map_err(|e| {
+        let result = set_generic_password(SERVICE_NAME, &peer_account, &payload).map_err(|e| {
             KeychainError::Platform(format!("Failed to save generic password: {e}"))
-        })?;
+        });
+        // The JSON encoding of PairingEntry embeds the same secret pair_token
+        // bytes; wipe this heap copy too rather than leaving it for the
+        // allocator to hand out unzeroed.
+        payload.zeroize();
+        result?;
 
         Ok(())
     }
 
     fn load_pairing(&self, peer_id: Uuid) -> Result<PairingEntry, KeychainError> {
         let peer_account = peer_id.to_string();
-        let password_bytes = get_generic_password(SERVICE_NAME, &peer_account).map_err(|e| {
-            if e.code() == -25300 {
-                KeychainError::NotFound(peer_account.clone())
-            } else {
-                KeychainError::Platform(format!(
-                    "Failed to read generic password for {peer_account}: {e}"
-                ))
-            }
-        })?;
+        let mut password_bytes =
+            get_generic_password(SERVICE_NAME, &peer_account).map_err(|e| {
+                if e.code() == -25300 {
+                    KeychainError::NotFound(peer_account.clone())
+                } else {
+                    KeychainError::Platform(format!(
+                        "Failed to read generic password for {peer_account}: {e}"
+                    ))
+                }
+            })?;
 
         let entry: PairingEntry = serde_json::from_slice(&password_bytes).map_err(|e| {
             KeychainError::Serialization(format!("Failed to deserialize pairing entry: {e}"))
         })?;
+        password_bytes.zeroize();
 
         Ok(entry)
     }

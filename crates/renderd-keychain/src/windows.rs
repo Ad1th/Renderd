@@ -9,6 +9,7 @@ use windows::Win32::Security::Credentials::{
     CredDeleteW, CredEnumerateW, CredFree, CredReadW, CredWriteW, CREDENTIALW,
     CRED_ENUMERATE_FLAGS, CRED_PERSIST_LOCAL_MACHINE, CRED_TYPE_GENERIC,
 };
+use zeroize::Zeroize;
 
 use crate::entry::PairingEntry;
 use crate::error::KeychainError;
@@ -53,11 +54,18 @@ impl KeychainStore for WindowsCredentialManager {
         };
 
         // SAFETY: CredWriteW takes a pointer to a valid CREDENTIALW structure.
-        unsafe {
+        let result = unsafe {
             CredWriteW(&cred, 0).map_err(|e| {
                 KeychainError::Platform(format!("CredWriteW failed for {target_name_str}: {e}"))
-            })?;
-        }
+            })
+        };
+        // The JSON encoding of PairingEntry embeds the same secret pair_token
+        // bytes as `cred.CredentialBlob` pointed into; wipe this heap copy too
+        // once Windows has its own copy, rather than leaving it for the
+        // allocator to hand out unzeroed. `cred` borrows `payload` and is not
+        // used again after this point.
+        payload.zeroize();
+        result?;
 
         Ok(())
     }
