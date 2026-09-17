@@ -99,7 +99,15 @@ impl AbrEngine {
             AbrState::Panic => {
                 let next = self.current_bitrate.0 / 2;
                 self.current_bitrate = BitrateKbps(next.max(self.min_bitrate.0));
-                request_keyframe = true;
+                // Only force a keyframe on the transition into Panic, not on every
+                // tick we remain in it. `next_state` is level-triggered on loss_rate,
+                // so sustained loss re-enters Panic every call; forcing a fresh IDR
+                // each time injects the largest, least compressible frame the encoder
+                // produces into a link that's already congested, which sustains the
+                // very loss that triggered it. One keyframe per panic episode is enough
+                // to recover from decode desync; requesting another every ~250ms while
+                // the first hasn't even finished draining only feeds the feedback loop.
+                request_keyframe = self.state != AbrState::Panic;
             }
         }
 
@@ -139,5 +147,41 @@ mod tests {
         let decision = engine.update(0.0);
         assert_eq!(decision.state, AbrState::ProbeUp);
         assert_eq!(decision.target_bitrate_kbps, BitrateKbps(12000));
+    }
+
+    /// Sustained loss must force exactly one keyframe on entering Panic, not one
+    /// per tick — a keyframe storm on an already-congested link only feeds the
+    /// loss that triggered it (see engine.rs `update` doc comment).
+    #[test]
+    fn test_panic_forces_keyframe_only_on_entry_not_every_tick() {
+        let mut engine = AbrEngine::new(
+            BitrateKbps(5000),
+            BitrateKbps(50000),
+            BitrateKbps(20000),
+            BitrateKbps(2000),
+            0.02,
+            0.10,
+        );
+
+        let entering = engine.update(0.50);
+        assert_eq!(entering.state, AbrState::Panic);
+        assert!(entering.request_keyframe);
+
+        for _ in 0..10 {
+            let still_panicking = engine.update(0.50);
+            assert_eq!(still_panicking.state, AbrState::Panic);
+            assert!(
+                !still_panicking.request_keyframe,
+                "must not re-request a keyframe while still in Panic"
+            );
+        }
+
+        // Recovering out of Panic and panicking again must force a fresh keyframe.
+        let recovered = engine.update(0.0);
+        assert_ne!(recovered.state, AbrState::Panic);
+
+        let re_entering = engine.update(0.50);
+        assert_eq!(re_entering.state, AbrState::Panic);
+        assert!(re_entering.request_keyframe);
     }
 }
