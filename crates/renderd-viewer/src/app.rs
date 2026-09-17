@@ -333,6 +333,21 @@ impl App {
                                         // keyframe to resync on, but reporting it as loss
                                         // would crush quality under motion (scrolling,
                                         // video) for a problem more bitrate can't fix.
+                                        // A successful decode only feeds the exporter's
+                                        // received_frames/frame_id bookkeeping — it must
+                                        // never fall into the keyframe-request path below,
+                                        // or a healthy stream would ask for a fresh IDR
+                                        // every KF_DEBOUNCE purely because frames keep
+                                        // arriving on this same channel.
+                                        if let crate::network::RecoverySignal::FrameDecoded { frame_id, decode_duration } = signal {
+                                            feedback_exporter.record_frame(
+                                                frame_id,
+                                                decode_duration,
+                                                std::time::Duration::ZERO,
+                                            );
+                                            continue;
+                                        }
+
                                         if let crate::network::RecoverySignal::FragmentLoss(count) = signal {
                                             feedback_exporter.record_frame_loss(count.max(1));
                                         }

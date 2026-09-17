@@ -38,6 +38,19 @@ pub enum RecoverySignal {
     /// A purely local, CPU-bound event; it asks for a keyframe but must never be
     /// reported as loss.
     DecodeBacklog,
+    /// A frame was successfully decoded. This is what actually drives the loss
+    /// rate the host's ABR loop reacts to: `FeedbackExporter::record_frame`
+    /// tracks `frame_id` gaps itself, so without this signal `received_frames`
+    /// never advances, loss rate is computed from `FragmentLoss`/`DecodeBacklog`
+    /// events alone, and the ABR engine has no way to tell "nothing is being
+    /// decoded at all" from "the network is fine" — it just keeps probing the
+    /// bitrate upward while the viewer shows nothing.
+    FrameDecoded {
+        /// Frame sequence identifier of the frame that was just decoded.
+        frame_id: u64,
+        /// Time the hardware decoder spent on this frame.
+        decode_duration: std::time::Duration,
+    },
 }
 
 /// Datagram receiver and sliding-window frame reassembly manager.
@@ -406,6 +419,12 @@ impl DatagramReceiver {
                             height = decoded.height,
                             "DatagramReceiver: first decoded frame pushed into FrameQueue"
                         );
+                    }
+                    if let Some(ref tx) = loss_tx {
+                        let _ = tx.try_send(RecoverySignal::FrameDecoded {
+                            frame_id: decoded.frame_id,
+                            decode_duration: decoded.decode_duration,
+                        });
                     }
                     let _ = frame_queue.push(decoded);
                     pushed_any = true;
@@ -802,9 +821,13 @@ mod tests {
         );
 
         let recorded_signals = signals.lock().unwrap().clone();
+        let non_decode_signals: Vec<_> = recorded_signals
+            .iter()
+            .filter(|s| !matches!(s, RecoverySignal::FrameDecoded { .. }))
+            .collect();
         assert!(
-            recorded_signals.is_empty(),
-            "one frame's fragment burst must never signal a backlog: {recorded_signals:?}"
+            non_decode_signals.is_empty(),
+            "one frame's fragment burst must never signal a backlog: {non_decode_signals:?}"
         );
     }
 
@@ -890,13 +913,15 @@ mod tests {
         // motion (scrolling, video) that causes backlogs in the first place.
         let recorded_signals = signals.lock().unwrap().clone();
         assert!(
-            !recorded_signals.is_empty(),
-            "a backlog occurred and must have signalled for a keyframe"
+            recorded_signals
+                .iter()
+                .any(|s| matches!(s, RecoverySignal::DecodeBacklog)),
+            "a backlog occurred and must have signalled for a keyframe: {recorded_signals:?}"
         );
         assert!(
             recorded_signals
                 .iter()
-                .all(|s| matches!(s, RecoverySignal::DecodeBacklog)),
+                .all(|s| !matches!(s, RecoverySignal::FragmentLoss(_))),
             "no fragment was actually lost, so no signal may report FragmentLoss: {recorded_signals:?}"
         );
     }
