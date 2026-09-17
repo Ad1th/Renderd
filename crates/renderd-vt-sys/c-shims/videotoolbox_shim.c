@@ -219,6 +219,15 @@ OSStatus renderd_VTCompressionSessionEncodeFrame(
     return status;
 }
 
+OSStatus renderd_VTCompressionSessionCompleteFrames(
+    VTCompressionSessionRef session
+) {
+    if (session == NULL) {
+        return kVTInvalidSessionErr;
+    }
+    return VTCompressionSessionCompleteFrames(session, kCMTimeInvalid);
+}
+
 void renderd_VTCompressionSessionInvalidate(
     VTCompressionSessionRef session
 ) {

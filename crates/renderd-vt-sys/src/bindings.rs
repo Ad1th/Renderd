@@ -92,6 +92,12 @@ extern "C" {
         frame_ctx: *mut std::ffi::c_void,
     ) -> OSStatus;
 
+    /// Blocks until every frame already submitted has been encoded and its
+    /// output callback has fired. Must be called before
+    /// `renderd_VTCompressionSessionInvalidate`.
+    pub fn renderd_VTCompressionSessionCompleteFrames(session: VTCompressionSessionRef)
+        -> OSStatus;
+
     /// Invalidates and releases a `VTCompressionSessionRef` handle.
     pub fn renderd_VTCompressionSessionInvalidate(session: VTCompressionSessionRef);
 
