@@ -36,6 +36,7 @@ pub use ui::{
 };
 
 use clap::Parser;
+use renderd_config::ValidateConfig;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
 fn init_logging(log_level: &str) {
@@ -76,6 +77,13 @@ fn main() -> Result<(), HostError> {
     if let Some(mode) = cli.mode {
         config.host.extend_display = mode == cli::DisplayMode::Extend;
     }
+
+    // Validate after CLI overrides, not just the loaded file: a bad --port or
+    // out-of-range flag should be rejected the same as a bad config file value,
+    // not silently used. ValidateConfig existed but nothing called it, so a
+    // config with e.g. codec = "vp9", quic_mtu = 9000, or step_kbps = 0 loaded
+    // successfully and ran unchecked.
+    config.validate()?;
 
     tracing::info!(
         display_id = config.host.display_id,
