@@ -101,6 +101,10 @@ impl std::fmt::Debug for VirtualDisplay {
 
 extern "C" {
     fn dispatch_queue_create(label: *const i8, attr: *const c_void) -> *mut c_void;
+    /// Releases a GCD object created with a `+1` reference (`dispatch_queue_create`
+    /// among them). GCD objects predate ARC-managed dispatch and are still plain
+    /// manually-retained/released objects at the C API level.
+    fn dispatch_release(object: *mut c_void);
 }
 
 /// Reports whether this macOS build exposes the `CGVirtualDisplay` classes.
@@ -166,6 +170,13 @@ impl VirtualDisplay {
                 dispatch_queue_create(c"dev.renderd.virtual-display".as_ptr(), std::ptr::null());
             let queue: Option<&AnyObject> = queue_ptr.cast::<AnyObject>().as_ref();
             let _: () = msg_send![&*descriptor, setQueue: queue];
+            // `queue` is a `retain` property: the setter above took its own
+            // reference, so the +1 this function owns from dispatch_queue_create
+            // must be released here or every virtual display leaks one GCD queue
+            // for the life of the process.
+            if !queue_ptr.is_null() {
+                dispatch_release(queue_ptr);
+            }
 
             let display_alloc: Allocated<AnyObject> = msg_send_id![display_cls, alloc];
             let display: Option<Retained<AnyObject>> =
