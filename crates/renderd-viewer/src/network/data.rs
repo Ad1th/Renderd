@@ -47,6 +47,12 @@ pub struct DatagramReceiver {
     received_datagrams: AtomicU64,
     reassembled_frames: AtomicU64,
     dropped_fragments: AtomicU64,
+    /// Most recent raw wire `pts_offset_us`, for wrap detection. `None` until the
+    /// first frame.
+    last_pts_offset_us: Option<u32>,
+    /// Accumulated whole wrap periods, in microseconds, added to the raw wire
+    /// value to reconstruct an absolute, monotonically increasing timestamp.
+    pts_epoch_us: u64,
 }
 
 impl Default for DatagramReceiver {
@@ -64,7 +70,34 @@ impl DatagramReceiver {
             received_datagrams: AtomicU64::new(0),
             reassembled_frames: AtomicU64::new(0),
             dropped_fragments: AtomicU64::new(0),
+            last_pts_offset_us: None,
+            pts_epoch_us: 0,
         }
+    }
+
+    /// Reconstructs an absolute presentation timestamp, in nanoseconds, from the
+    /// wire's 24-bit wrapping microsecond field.
+    ///
+    /// The field wraps every `MAX_PTS_OFFSET_US + 1` microseconds (~16.777 s).
+    /// Fed to a platform decoder unwrapped, every stream would see a hard
+    /// ~16.7 s backward jump at every wrap boundary, forever, for its whole
+    /// lifetime — decoders that validate or reorder on presentation time
+    /// (Media Foundation's `IMFSample::SetSampleTime` among them) can stall or
+    /// visibly glitch right at that boundary. A wrap is detected by a large
+    /// backward jump in the raw value; ordinary reassembly-window reordering
+    /// moves it by at most a few frames' worth of microseconds, orders of
+    /// magnitude smaller than half the field's range.
+    fn unwrap_pts_ns(&mut self, raw_us: u32) -> u64 {
+        const WRAP_THRESHOLD_US: u32 = renderd_frame::MAX_PTS_OFFSET_US / 2;
+
+        if let Some(last) = self.last_pts_offset_us {
+            if raw_us.saturating_add(WRAP_THRESHOLD_US) < last {
+                self.pts_epoch_us += u64::from(renderd_frame::MAX_PTS_OFFSET_US) + 1;
+            }
+        }
+        self.last_pts_offset_us = Some(raw_us);
+
+        (self.pts_epoch_us + u64::from(raw_us)) * 1000
     }
 
     /// Processes an incoming raw QUIC datagram payload buffer.
@@ -78,7 +111,7 @@ impl DatagramReceiver {
     ) -> Result<Option<u64>, ViewerError> {
         match self.reassemble(datagram)? {
             Some(frame) => {
-                let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+                let pts_ns = self.unwrap_pts_ns(frame.pts_offset_us);
                 decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns)?;
                 Ok(Some(frame.frame_id))
             }
@@ -353,7 +386,7 @@ impl DatagramReceiver {
                 }
                 awaiting_keyframe = false;
 
-                let pts_ns = u64::from(frame.pts_offset_us) * 1000;
+                let pts_ns = self.unwrap_pts_ns(frame.pts_offset_us);
                 if let Err(e) = decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns) {
                     tracing::warn!("decode_packet failed for frame {}: {e}", frame.frame_id);
                     continue;
@@ -532,6 +565,78 @@ mod tests {
         let res = receiver.process_datagram(&short_pkt, &mut decoder);
         assert!(res.is_err());
         assert_eq!(receiver.dropped_fragments(), 1);
+    }
+
+    /// Test-only decoder that records the `pts_ns` it was asked to decode with,
+    /// so a test can assert the reconstructed timeline is monotonically
+    /// increasing across a wire wraparound, not sawtoothing.
+    #[derive(Debug, Default)]
+    struct PtsRecordingDecoder {
+        seen_pts_ns: Vec<u64>,
+    }
+
+    impl Decoder for PtsRecordingDecoder {
+        fn initialize(&mut self, _codec: &str, _width: u32, _height: u32) -> Result<(), ViewerError> {
+            Ok(())
+        }
+        fn decode_packet(&mut self, _packet: &[u8], _frame_id: u64, pts_ns: u64) -> Result<(), ViewerError> {
+            self.seen_pts_ns.push(pts_ns);
+            Ok(())
+        }
+        fn receive_frame(&mut self) -> Result<Option<DecodedFrame>, ViewerError> {
+            Ok(None)
+        }
+        fn reset(&mut self) -> Result<(), ViewerError> {
+            Ok(())
+        }
+    }
+
+    /// The wire's `pts_offset_us` is a 24-bit counter that wraps every ~16.777 s.
+    /// Without unwrapping, a session running past that boundary would feed the
+    /// platform decoder a hard ~16.7 s backward jump at every wrap, forever, for
+    /// the life of the stream. The reconstructed timeline must stay monotonic
+    /// across a wrap.
+    #[test]
+    fn test_pts_reconstructs_monotonic_timeline_across_wraparound() {
+        let mut receiver = DatagramReceiver::new(4);
+        let mut decoder = PtsRecordingDecoder::default();
+        decoder.initialize("hevc", 1920, 1080).unwrap();
+
+        let near_wrap = renderd_frame::MAX_PTS_OFFSET_US - 1_000; // just before wrap
+        let just_wrapped = 500u32; // wire value after wrapping past 0
+
+        for (frame_id, raw_us) in [(1u64, near_wrap), (2, just_wrapped)] {
+            let mut flags = renderd_frame::FragmentFlags::new();
+            flags.set_first(true);
+            flags.set_last(true);
+            flags.set_keyframe(true);
+            let header = FragmentHeader {
+                frame_id,
+                frag_id: 0,
+                frag_total: 1,
+                flags: flags.bits(),
+                pts_offset_us: raw_us,
+            };
+            let mut buf = vec![0u8; HEADER_SIZE];
+            header.encode(&mut buf).unwrap();
+            buf.extend_from_slice(&[0xAB; 4]);
+            receiver.process_datagram(&buf, &mut decoder).unwrap();
+        }
+
+        assert_eq!(decoder.seen_pts_ns.len(), 2);
+        assert!(
+            decoder.seen_pts_ns[1] > decoder.seen_pts_ns[0],
+            "timestamp must keep increasing across a wire wraparound, not jump \
+             backward ~16.7s: got {:?}",
+            decoder.seen_pts_ns
+        );
+        // The gap should be small (a couple thousand microseconds), not a full
+        // ~16.7s backward jump.
+        let gap_ns = decoder.seen_pts_ns[1] - decoder.seen_pts_ns[0];
+        assert!(
+            gap_ns < 100_000_000,
+            "expected a small forward gap across the wrap, got {gap_ns} ns"
+        );
     }
 
     /// Test-only decoder that records the id of every frame it is actually asked
