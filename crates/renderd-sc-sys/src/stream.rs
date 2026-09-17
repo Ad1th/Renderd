@@ -66,6 +66,10 @@ extern "C" {
         qos_class: u32,
         relative_priority: i32,
     ) -> *mut std::ffi::c_void;
+    /// Releases a GCD object created with a `+1` reference (`dispatch_queue_create`
+    /// among them). GCD objects predate ARC-managed dispatch and are still plain
+    /// manually-retained/released objects at the C API level.
+    fn dispatch_release(object: *mut std::ffi::c_void);
     fn CVPixelBufferGetWidth(pixel_buffer: *const std::ffi::c_void) -> usize;
     fn CVPixelBufferGetHeight(pixel_buffer: *const std::ffi::c_void) -> usize;
     fn CVPixelBufferGetPixelFormatType(pixel_buffer: *const std::ffi::c_void) -> u32;
@@ -258,6 +262,14 @@ pub struct ScreenStream {
     config: Retained<SCStreamConfiguration>,
     _delegate: Retained<RenderdStreamOutput>,
     is_running: Arc<AtomicBool>,
+    /// The sample-handler GCD queue, owned for the stream's whole lifetime and
+    /// released in `Drop`. `addStreamOutput:type:sampleHandlerQueue:error:` is
+    /// not documented to retain its queue argument, so releasing right after
+    /// registration would risk the queue being freed while `SCStream` is still
+    /// dispatching captured frames onto it; holding our own reference until the
+    /// stream itself is dropped is correct regardless of what `SCStream` does
+    /// internally.
+    sample_queue: *mut std::ffi::c_void,
 }
 
 #[allow(clippy::non_send_fields_in_send_ty)]
@@ -381,6 +393,7 @@ impl ScreenStream {
             config,
             _delegate: delegate,
             is_running: Arc::new(AtomicBool::new(false)),
+            sample_queue: queue_ptr,
         })
     }
 
@@ -493,6 +506,16 @@ impl ScreenStream {
 impl Drop for ScreenStream {
     fn drop(&mut self) {
         let _ = self.stop();
+        // SAFETY: sample_queue was created by dispatch_queue_create in `new`/
+        // `with_dimensions` and never released before now, and the stream (the
+        // only thing that could still be dispatching onto it) has just been
+        // stopped above.
+        if !self.sample_queue.is_null() {
+            unsafe {
+                dispatch_release(self.sample_queue);
+            }
+            self.sample_queue = std::ptr::null_mut();
+        }
     }
 }
 
