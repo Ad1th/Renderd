@@ -272,7 +272,7 @@ impl MediaFoundationDecoder {
         }
 
         self.configure_input(&transform, subtype)?;
-        let (out_width, out_height) = self.configure_output(&transform)?;
+        let (out_width, out_height) = self.configure_output(&transform, true)?;
 
         let stream_info = transform
             .GetOutputStreamInfo(0)
@@ -380,7 +380,21 @@ impl MediaFoundationDecoder {
     }
 
     /// Picks the first NV12 output type the MFT offers and returns its frame size.
-    unsafe fn configure_output(&self, transform: &IMFTransform) -> Result<(u32, u32), ViewerError> {
+    ///
+    /// `force_size` restates the negotiated frame size onto the candidate before
+    /// accepting it. That is only correct the first time this runs: some
+    /// decoders leave the frame size unset on the type they offer until told
+    /// what to expect. On a later call — [`Self::renegotiate_output`], which
+    /// fires when the MFT itself reports `MF_E_TRANSFORM_STREAM_CHANGE` because
+    /// the *actual* output size changed mid-stream — forcing the old size back
+    /// onto the freshly-offered candidate fights the very change the MFT is
+    /// reporting, and `SetOutputType` can reject the resulting inconsistent
+    /// type outright.
+    unsafe fn configure_output(
+        &self,
+        transform: &IMFTransform,
+        force_size: bool,
+    ) -> Result<(u32, u32), ViewerError> {
         for index in 0..32u32 {
             let Ok(candidate) = transform.GetOutputAvailableType(0, index) else {
                 break;
@@ -392,8 +406,9 @@ impl MediaFoundationDecoder {
                 continue;
             }
 
-            // Restate the frame size; some decoders leave it unset until configured.
-            let _ = candidate.SetUINT64(&MF_MT_FRAME_SIZE, pack_size(self.width, self.height));
+            if force_size {
+                let _ = candidate.SetUINT64(&MF_MT_FRAME_SIZE, pack_size(self.width, self.height));
+            }
             transform
                 .SetOutputType(0, &candidate, 0)
                 .map_err(|e| ViewerError::Decoder(format!("SetOutputType(NV12) failed: {e}")))?;
@@ -415,7 +430,7 @@ impl MediaFoundationDecoder {
             .transform
             .clone()
             .ok_or_else(|| ViewerError::Decoder("transform not initialized".to_string()))?;
-        let (width, height) = self.configure_output(&transform)?;
+        let (width, height) = self.configure_output(&transform, false)?;
         let nv12_size = width.saturating_mul(height) * 3 / 2;
         if let Ok(info) = transform.GetOutputStreamInfo(0) {
             self.output_provides_samples =
@@ -646,11 +661,25 @@ impl MediaFoundationDecoder {
             );
         }
 
+        // width/height must match what was actually copied into `nv12`, not the
+        // negotiated coded size: 1080 is not a multiple of 16, so a real decoder
+        // commonly reports 1920x1088, but the buffer above holds exactly
+        // 1920x1080 worth of bytes (macroblock padding is deliberately cropped
+        // out). Reporting out_width/out_height here — as this used to — makes
+        // every downstream consumer compute y_len/uv_len from the padded size,
+        // see the buffer as too short, and skip rendering entirely: every
+        // 1080p session drew a solid black frame, unconditionally, regardless
+        // of network conditions.
+        #[allow(clippy::cast_possible_truncation)]
+        let width = width as u32;
+        #[allow(clippy::cast_possible_truncation)]
+        let height = height as u32;
+
         Ok(DecodedFrame {
             frame_id,
             pts_ns,
-            width: self.out_width,
-            height: self.out_height,
+            width,
+            height,
             format: PixelFormat::Nv12,
             buffer: nv12,
             decode_duration: start_time.elapsed(),
