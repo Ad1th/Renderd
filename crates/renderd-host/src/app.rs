@@ -301,39 +301,66 @@ impl HostApp {
                                 target_fps,
                             );
 
-                            // Activate VideoToolbox encoder & ScreenCaptureKit capture pipeline (#106)
+                            // Activate VideoToolbox encoder & ScreenCaptureKit capture pipeline (#106).
+                            //
+                            // Either step failing used to just log a warning and fall
+                            // through to streaming anyway. With no encoder session,
+                            // EncodePipeline::encode_surface has a fallback path meant
+                            // for headless test environments that emits a 128-byte
+                            // zeroed "frame" marked as a keyframe — on a real macOS
+                            // build that fallback was reachable in production, and the
+                            // host would ship it to the viewer as if it were real
+                            // video. And if capture itself failed to start, nothing
+                            // ever cleared STREAMING, so every later viewer was
+                            // rejected with "host-busy" until this (broken) connection
+                            // eventually timed out. Neither failure is recoverable for
+                            // this connection, so both now abort the session cleanly
+                            // instead of pretending to stream.
                             let start_bitrate = abr.current_bitrate().0;
-                            if let Err(e) = encode.init(
+                            let pipeline_ready = match encode.init(
                                 cfg.width,
                                 cfg.height,
                                 start_bitrate,
                                 &cfg.selected_codec,
                                 target_fps,
                             ) {
-                                tracing::warn!("Encode pipeline init failed: {e}");
-                            }
-
-                            {
-                                let mut capture_guard =
-                                    capture.lock().expect("CapturePipeline mutex poisoned");
-                                if let Err(e) = capture_guard.start(
-                                    target,
-                                    cfg.width,
-                                    cfg.height,
-                                    target_fps,
-                                    encode.clone(),
-                                ) {
-                                    tracing::error!("Capture pipeline start failed: {e}");
-                                } else {
-                                    tracing::info!(
-                                        ?target,
-                                        width = cfg.width,
-                                        height = cfg.height,
-                                        fps = target_fps,
-                                        bitrate_kbps = start_bitrate,
-                                        "ScreenCaptureKit capture and VideoToolbox encoder active"
-                                    );
+                                Ok(()) => {
+                                    let mut capture_guard =
+                                        capture.lock().expect("CapturePipeline mutex poisoned");
+                                    match capture_guard.start(
+                                        target,
+                                        cfg.width,
+                                        cfg.height,
+                                        target_fps,
+                                        encode.clone(),
+                                    ) {
+                                        Ok(()) => {
+                                            tracing::info!(
+                                                ?target,
+                                                width = cfg.width,
+                                                height = cfg.height,
+                                                fps = target_fps,
+                                                bitrate_kbps = start_bitrate,
+                                                "ScreenCaptureKit capture and VideoToolbox encoder active"
+                                            );
+                                            true
+                                        }
+                                        Err(e) => {
+                                            tracing::error!("Capture pipeline start failed: {e}");
+                                            false
+                                        }
+                                    }
                                 }
+                                Err(e) => {
+                                    tracing::error!("Encode pipeline init failed: {e}");
+                                    false
+                                }
+                            };
+
+                            if !pipeline_ready {
+                                Self::teardown_session(&capture, &encode, &session, &menu_bar);
+                                conn.close(quinn::VarInt::from_u32(1), b"pipeline-init-failed");
+                                return;
                             }
 
                             // Spawn Control stream reader to process VsyncReport & telemetry (#110, #111)
