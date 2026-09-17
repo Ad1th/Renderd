@@ -34,6 +34,24 @@ const MAX_CONSECUTIVE_SEND_ERRORS: u32 = 120;
 /// costs bandwidth; three frames is 50 ms at 60 fps.
 const SKIP_AHEAD_BACKLOG: usize = 3;
 
+/// Chooses which of two frames to keep while draining a channel backlog.
+///
+/// Prefers a keyframe over a later non-key frame: the non-key frame's reference
+/// is a frame that is about to be discarded either way, so it is undecodable
+/// regardless of how fresh it is, while the keyframe is immediately decodable
+/// on its own. Without this, draining straight to "whatever arrived last" could
+/// silently discard an IDR the encoder had just produced in response to a
+/// keyframe request — if a P-frame queued up behind it before the next drain —
+/// leaving `awaiting_keyframe` set and triggering another request that could be
+/// discarded the same way, indefinitely.
+fn prefer_decodable(current: EncodedFrame, fresher: EncodedFrame) -> EncodedFrame {
+    if fresher.is_keyframe || !current.is_keyframe {
+        fresher
+    } else {
+        current
+    }
+}
+
 /// Host datagram burst sender task manager.
 ///
 /// Encapsulates frame fragmentation and transmission over QUIC datagram sockets.
@@ -221,7 +239,7 @@ impl DataSender {
                 let mut skipped = 0u64;
                 while let Ok(fresher) = rx.try_recv() {
                     skipped += 1;
-                    frame = fresher;
+                    frame = prefer_decodable(frame, fresher);
                 }
                 interval_skipped += skipped;
                 if !frame.is_keyframe {
@@ -467,5 +485,50 @@ mod tests {
             let recv = viewer_mock.recv_datagram().await.unwrap();
             assert_eq!(recv, frags[0]);
         });
+    }
+
+    fn frame(id: u64, is_keyframe: bool) -> EncodedFrame {
+        EncodedFrame {
+            frame_id: id,
+            is_keyframe,
+            data: Bytes::from_static(b"x"),
+            pts_ns: 0,
+        }
+    }
+
+    /// A keyframe must never be discarded in favor of a later non-key frame
+    /// while draining a backlog: the regression this guards against let the
+    /// encoder's freshly-produced IDR be silently thrown away if a P-frame
+    /// queued up behind it before the next drain, leaving the sender stuck
+    /// requesting (and potentially discarding) keyframes indefinitely.
+    #[test]
+    fn test_prefer_decodable_keeps_keyframe_over_later_non_key_frame() {
+        let kept = prefer_decodable(frame(5, true), frame(6, false));
+        assert_eq!(kept.frame_id, 5, "the keyframe must be kept, not frame 6");
+        assert!(kept.is_keyframe);
+    }
+
+    #[test]
+    fn test_prefer_decodable_advances_through_non_key_frames() {
+        let kept = prefer_decodable(frame(5, false), frame(6, false));
+        assert_eq!(kept.frame_id, 6, "with no keyframe in play, keep the freshest");
+    }
+
+    #[test]
+    fn test_prefer_decodable_takes_a_later_keyframe_over_an_earlier_one() {
+        let kept = prefer_decodable(frame(5, true), frame(6, true));
+        assert_eq!(kept.frame_id, 6, "the latest keyframe wins over an older one");
+    }
+
+    #[test]
+    fn test_prefer_decodable_non_key_never_overwrites_kept_keyframe() {
+        // Drain three non-key frames after a keyframe: the keyframe must
+        // survive the whole drain, not just a single step of it.
+        let mut kept = frame(1, true);
+        for id in 2..=4 {
+            kept = prefer_decodable(kept, frame(id, false));
+        }
+        assert_eq!(kept.frame_id, 1);
+        assert!(kept.is_keyframe);
     }
 }
