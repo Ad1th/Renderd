@@ -139,6 +139,8 @@ impl FeedbackExporter {
             loss_rate,
             jitter_us: 150,
             last_frame_id: self.last_frame_id,
+            queue_delay_us: 0,
+            receive_rate_kbps: 0,
         })
     }
 
