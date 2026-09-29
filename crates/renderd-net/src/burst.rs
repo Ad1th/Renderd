@@ -17,6 +17,19 @@ impl FragmentBurst {
         connection.max_datagram_size()
     }
 
+    /// Bytes of application datagrams `quinn` is holding for `connection` that have
+    /// not been packetized yet.
+    ///
+    /// This is the host's own send queue: BBR paces datagrams onto the wire at its
+    /// estimate of the path rate, and whatever the encoder produces faster than that
+    /// waits here. Divided by the send rate it is how stale the next frame will be
+    /// before it even leaves the machine.
+    #[must_use]
+    pub fn queued_bytes(connection: &Connection) -> usize {
+        crate::transport::DATAGRAM_BUFFER_BYTES
+            .saturating_sub(connection.datagram_send_buffer_space())
+    }
+
     /// Sends a slice of fragment byte payloads over a QUIC connection in a non-yielding loop.
     ///
     /// Returns the total number of fragments successfully queued into the datagram output buffer.
