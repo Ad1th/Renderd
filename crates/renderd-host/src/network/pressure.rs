@@ -14,7 +14,7 @@
 //! encoder. The encoder sees a lower frame rate, the stream stays decodable, and
 //! the next frame that does go out is fresh rather than stale.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -55,6 +55,7 @@ pub struct LinkPressure {
     connection: Mutex<Option<quinn::Connection>>,
     skipping: AtomicBool,
     skipped: AtomicU64,
+    sent_kbps: AtomicU32,
 }
 
 impl LinkPressure {
@@ -78,6 +79,26 @@ impl LinkPressure {
             *guard = None;
         }
         self.skipping.store(false, Ordering::Relaxed);
+        self.sent_kbps.store(0, Ordering::Relaxed);
+    }
+
+    /// Records the video bitrate the sender actually put on the wire over its
+    /// last measurement interval.
+    pub fn set_sent_kbps(&self, kbps: u32) {
+        self.sent_kbps.store(kbps, Ordering::Relaxed);
+    }
+
+    /// The video bitrate actually sent over the last measurement interval.
+    #[must_use]
+    pub fn sent_kbps(&self) -> u32 {
+        self.sent_kbps.load(Ordering::Relaxed)
+    }
+
+    /// Returns `true` if the encoder is producing well under `target_kbps` — a
+    /// still desktop — so a clean link says nothing about spare capacity.
+    #[must_use]
+    pub fn is_app_limited(&self, target_kbps: u32) -> bool {
+        u64::from(self.sent_kbps()) * 10 < u64::from(target_kbps) * 6
     }
 
     /// Bytes waiting in the send queue right now, or 0 with no session attached.
@@ -153,5 +174,19 @@ mod tests {
         }
         assert_eq!(link.skipped_frames(), 0);
         assert_eq!(link.queued_bytes(), 0);
+    }
+
+    #[test]
+    fn test_app_limited_below_sixty_percent_of_target() {
+        let link = LinkPressure::new();
+        link.set_sent_kbps(5_000);
+        assert!(!link.is_app_limited(8_000));
+        link.set_sent_kbps(4_000);
+        assert!(link.is_app_limited(8_000));
+        link.detach();
+        assert!(
+            link.is_app_limited(8_000),
+            "no measurement yet counts as idle"
+        );
     }
 }
