@@ -104,7 +104,7 @@ fn test_converges_below_a_6_mbps_bottleneck() {
         utilisation * 100.0
     );
 
-    assert!(p95_delay < 100.0, "steady-state p95 queue {p95_delay:.0} ms");
+    assert!(p95_delay < 60.0, "steady-state p95 queue {p95_delay:.0} ms");
     assert!(
         utilisation > 0.75,
         "link only {:.0}% used",
