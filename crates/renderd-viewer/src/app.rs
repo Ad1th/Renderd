@@ -200,6 +200,7 @@ impl App {
         let state_conn = self.state.clone();
         let viewer_id = uuid::Uuid::new_v4();
         let offered_codecs = self.config.codec_choice.codecs();
+        let (window_width, window_height) = (self.config.window_width, self.config.window_height);
 
         // Hand the app's decoder to the receive task rather than constructing a second
         // one there. Two decoders meant a whole extra hardware decode device was created
@@ -250,9 +251,12 @@ impl App {
 
                 tracing::info!(peer = %conn.remote_address(), "QUIC connection established with host");
 
+                // The host sizes its virtual display from this and its encoded picture
+                // from this plus its bitrate ceiling, so report the size the viewer
+                // will actually show rather than a fixed 1920x1080.
                 let display = renderd_proto::generated::renderd::DisplayInfo {
-                    width: 1920,
-                    height: 1080,
+                    width: window_width,
+                    height: window_height,
                     refresh_rate: 60.0,
                     vrr_supported: false,
                 };
