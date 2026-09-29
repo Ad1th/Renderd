@@ -51,7 +51,7 @@ require_auth = true
 
 [abr]
 # Minimum allowed encoder bitrate in kbps
-min_bitrate_kbps = 2500
+min_bitrate_kbps = 1500
 
 # Maximum allowed encoder bitrate in kbps. Set this to roughly what your link
 # sustains: it also picks the streamed resolution (see host.max_stream_height).
