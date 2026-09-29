@@ -12,6 +12,7 @@ use bytes::Bytes;
 use crossbeam_channel::{bounded, Receiver, Sender};
 
 use crate::error::HostError;
+use crate::network::LinkPressure;
 
 /// Number of encoded frames the ring buffer holds before the newest is dropped.
 ///
@@ -196,6 +197,7 @@ pub struct EncodePipeline {
     dropped_frames: Arc<AtomicU64>,
     encoder_skipped: Arc<AtomicU64>,
     current_bitrate_kbps: AtomicU32,
+    link: Arc<LinkPressure>,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -230,6 +232,7 @@ impl EncodePipeline {
             dropped_frames: Arc::new(AtomicU64::new(0)),
             encoder_skipped: Arc::new(AtomicU64::new(0)),
             current_bitrate_kbps: AtomicU32::new(0),
+            link: Arc::new(LinkPressure::new()),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
         }
@@ -400,6 +403,7 @@ impl EncodePipeline {
 
     /// Releases the hardware encoder session, if any.
     pub fn shutdown(&self) {
+        self.link.detach();
         #[cfg(target_os = "macos")]
         if let Ok(mut guard) = self.session.lock() {
             *guard = None;
@@ -420,6 +424,13 @@ impl EncodePipeline {
         surface: &renderd_vt_sys::IoSurface,
         pts_ns: i64,
     ) -> Result<(), HostError> {
+        // Shed a deep send queue here, before encoding, where skipping a frame
+        // costs nothing: the encoder just sees a lower frame rate. A pending
+        // keyframe request stays pending until a frame is actually encoded.
+        if self.link.should_skip_frame(self.current_bitrate()) {
+            return Ok(());
+        }
+
         let force_kf = self.keyframes.take(self.current_bitrate());
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
 
@@ -491,6 +502,12 @@ impl EncodePipeline {
     /// deferred until that one has drained (see [`KeyframeGate`]).
     pub fn force_keyframe(&self) {
         self.keyframes.request();
+    }
+
+    /// The send-queue backpressure shared with the session's network sender.
+    #[must_use]
+    pub const fn link(&self) -> &Arc<LinkPressure> {
+        &self.link
     }
 
     /// Returns `true` if a keyframe request is waiting on the [`KeyframeGate`].
