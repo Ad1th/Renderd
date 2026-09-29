@@ -298,6 +298,7 @@ impl DataSender {
                             avg_frame_kb,
                             skipped = interval_skipped,
                             queue_depth,
+                            send_queue_kb = FragmentBurst::queued_bytes(connection) / 1024,
                             payload_size = Self::payload_size_for(connection),
                             rtt_ms = format!("{:.2}", connection.rtt().as_secs_f64() * 1000.0),
                             last_frame_id = frame_id,

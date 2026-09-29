@@ -399,6 +399,10 @@ impl HostApp {
                                 }
                             });
 
+                            // Let capture see this session's send queue, so it can skip
+                            // frames before they are encoded when the link falls behind.
+                            encode.link().attach(conn.clone());
+
                             // Spawn DataSender task to transmit encoded ring buffer frames over QUIC datagrams (#107)
                             let data_sender = DataSender::new();
                             let data_conn = conn.clone();
