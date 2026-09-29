@@ -17,6 +17,7 @@ use renderd_net::{FragmentBurst, NetError};
 
 use crate::encode::EncodedFrame;
 use crate::error::HostError;
+use crate::network::LinkPressure;
 
 /// Fallback fragment payload size used before the path MTU is known
 /// (1200-byte minimum QUIC datagram, minus QUIC framing and the 16-byte header).
@@ -210,6 +211,7 @@ impl DataSender {
         rx: &Receiver<EncodedFrame>,
         shutdown: &AtomicBool,
         request_keyframe: &(dyn Fn() + Sync),
+        link: &LinkPressure,
     ) {
         /// Wake-up interval used only to re-check the shutdown flag while idle.
         const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
@@ -228,7 +230,25 @@ impl DataSender {
         while !shutdown.load(Ordering::Relaxed) {
             let mut frame = match rx.recv_timeout(IDLE_POLL) {
                 Ok(frame) => frame,
-                Err(crossbeam_channel::RecvTimeoutError::Timeout) => continue,
+                Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    // Nothing to send (a still desktop). The per-second metrics
+                    // below only run after a send, so publish the idle rate here
+                    // or the ABR loop would keep seeing the last busy second and
+                    // probe the bitrate up on a link carrying nothing.
+                    let elapsed = interval_start.elapsed();
+                    if elapsed >= std::time::Duration::from_secs(1) {
+                        let kbps = interval_bytes.saturating_mul(8)
+                            / u64::try_from(elapsed.as_millis())
+                                .unwrap_or(u64::MAX)
+                                .max(1);
+                        link.set_sent_kbps(u32::try_from(kbps).unwrap_or(u32::MAX));
+                        interval_start = std::time::Instant::now();
+                        interval_frames = 0;
+                        interval_bytes = 0;
+                        interval_skipped = 0;
+                    }
+                    continue;
+                }
                 Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
             };
 
@@ -288,6 +308,8 @@ impl DataSender {
                         #[allow(clippy::cast_precision_loss)]
                         let instantaneous_bitrate_kbps =
                             ((interval_bytes as f64) * 8.0 / 1000.0) / elapsed_sec;
+                        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+                        link.set_sent_kbps(instantaneous_bitrate_kbps.round() as u32);
                         let avg_frame_kb = interval_bytes
                             .checked_div(interval_frames)
                             .map_or(0, |b| b / 1024);
@@ -349,10 +371,11 @@ impl DataSender {
         rx: Receiver<EncodedFrame>,
         shutdown: Arc<AtomicBool>,
         request_keyframe: Arc<dyn Fn() + Send + Sync>,
+        link: Arc<LinkPressure>,
     ) {
         let sender = Self::new();
         if let Err(e) = tokio::task::spawn_blocking(move || {
-            sender.run_blocking(&connection, &rx, &shutdown, &*request_keyframe);
+            sender.run_blocking(&connection, &rx, &shutdown, &*request_keyframe, &link);
         })
         .await
         {

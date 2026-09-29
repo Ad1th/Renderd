@@ -412,9 +412,16 @@ impl HostApp {
                             let encode_for_sender = encode.clone();
                             let request_keyframe: Arc<dyn Fn() + Send + Sync> =
                                 Arc::new(move || encode_for_sender.force_keyframe());
+                            let link_for_sender = Arc::clone(encode.link());
                             tokio::spawn(async move {
                                 data_sender
-                                    .run_loop(data_conn, encode_rx, sender_shutdown, request_keyframe)
+                                    .run_loop(
+                                        data_conn,
+                                        encode_rx,
+                                        sender_shutdown,
+                                        request_keyframe,
+                                        link_for_sender,
+                                    )
                                     .await;
                             });
 
