@@ -269,7 +269,8 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 |---|---|---|
 | `--host <ADDR>` | — | Connect straight to this address, skipping discovery. A bare IP uses port 4433. |
 | `--codec <auto\|h264\|hevc>` | `auto` | `auto` offers H.264 first on Windows, HEVC first elsewhere. Pin one if the other misbehaves. |
-| `--decoder <mf\|d3d12>` | `mf` | `mf` uses a Media Foundation decoder MFT. `d3d12` is a development path that does not yet supply DXVA picture parameters. |
+| `--decoder <mf\|d3d12>` | `mf` | `mf` uses a Media Foundation decoder MFT, on the GPU (DXVA through D3D11) when `viewer.hw_accel` is on and the MFT supports it. `d3d12` is a development path that does not yet supply DXVA picture parameters. |
+| `--renderer <auto\|soft>` | `auto` | `auto` presents on the GPU through a D3D11 flip-model swap chain and falls back to the CPU renderer if that fails. `soft` forces the CPU renderer. |
 | `--fullscreen` | off | Start borderless fullscreen. |
 | `--width`, `--height` | 1920×1080 | Initial window size. |
 | `--log-level <LEVEL>` | `info` | `trace`, `debug`, `info`, `warn`, `error`. |
