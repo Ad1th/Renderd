@@ -19,6 +19,35 @@ use crate::frame_queue::FrameQueue;
 /// an unbounded loop if a peer somehow floods the connection.
 const DRAIN_CAP: usize = 4096;
 
+/// Capture-time span of the frames completed in one drain pass above which
+/// decode counts as having fallen behind.
+///
+/// Frames routinely complete together without decode being behind at all: on
+/// a slow link a small P-frame lands right behind a large one that was still
+/// serialising, and Wi-Fi delivers in aggregated bursts. Decoding a few extra
+/// P-frames costs a millisecond or two each on a hardware decoder; skipping
+/// them costs a keyframe, which is 100-400 KB and 130-500 ms of a 6 Mbps link.
+/// So only a pass holding more than this much video is a real backlog.
+const BACKLOG_SPAN_NS: u64 = 150_000_000;
+
+/// Frames in one drain pass that count as a backlog regardless of their
+/// timestamps, in case a stream carries no usable ones.
+const BACKLOG_FRAMES: usize = 8;
+
+/// Whether the frames completed in one drain pass show decode falling behind.
+///
+/// `pts_ns` are the completed frames' capture timestamps in arrival order.
+#[must_use]
+pub fn is_decode_backlog(pts_ns: &[u64]) -> bool {
+    if pts_ns.len() > BACKLOG_FRAMES {
+        return true;
+    }
+    let (Some(min), Some(max)) = (pts_ns.iter().min(), pts_ns.iter().max()) else {
+        return false;
+    };
+    max - min > BACKLOG_SPAN_NS
+}
+
 /// What the receive loop is telling the control-plane feedback task.
 ///
 /// The two cases must stay distinct: both want an immediate keyframe, but only one
@@ -274,13 +303,16 @@ impl DatagramReceiver {
     /// already-queued datagrams the instant that burst lands, on every frame,
     /// healthy or not. An earlier version used the raw count anyway, which meant
     /// every normal frame looked like a backlog and the viewer never decoded
-    /// anything past the first keyframe. More than one *complete frame* out of a
-    /// single drain pass is the real signal: it means decode was still working
-    /// on (or hadn't started) an earlier frame while a whole later one finished
-    /// arriving. When that happens, non-keyframe decodes are skipped until the
-    /// next keyframe — decoding a P-frame whose reference was never decoded
-    /// wastes CPU on a frame that only makes the picture worse — and a keyframe
-    /// request goes out immediately.
+    /// anything past the first keyframe. Whole frames are the unit that matters,
+    /// and how much *video time* one pass completes is the real signal (see
+    /// [`is_decode_backlog`]): two or three frames landing together is ordinary
+    /// on a slow or wireless link and they are simply decoded, the presenter
+    /// showing only the newest; a pass spanning more than 150 ms of capture
+    /// time means decode really has fallen behind. When that happens,
+    /// non-keyframe decodes are skipped until the next keyframe — decoding a
+    /// P-frame whose reference was never decoded wastes CPU on a frame that
+    /// only makes the picture worse — and a keyframe request goes out
+    /// immediately.
     #[allow(clippy::too_many_lines)]
     async fn receive_loop_inner<D, W>(
         &mut self,
@@ -392,7 +424,8 @@ impl DatagramReceiver {
                 }
             }
 
-            let backlog = completed.len() > 1;
+            let completed_pts: Vec<u64> = completed.iter().map(|&(_, pts)| pts).collect();
+            let backlog = is_decode_backlog(&completed_pts);
             if backlog {
                 interval_backlog_events += 1;
                 if !awaiting_keyframe {
@@ -758,6 +791,8 @@ mod tests {
         (server_conn, client_conn)
     }
 
+    /// One single-fragment frame captured at `frame_id` × 16.667 ms, as a 60 fps
+    /// stream would stamp it.
     fn frame_datagram(frame_id: u64, is_keyframe: bool) -> Bytes {
         let mut flags = renderd_frame::FragmentFlags::new();
         flags.set_first(true);
@@ -768,7 +803,7 @@ mod tests {
             frag_id: 0,
             frag_total: 1,
             flags: flags.bits(),
-            pts_offset_us: 0,
+            pts_offset_us: u32::try_from(frame_id * 16_667).unwrap(),
         };
         let mut buf = vec![0u8; HEADER_SIZE];
         header.encode(&mut buf).unwrap();
@@ -872,6 +907,69 @@ mod tests {
         assert!(
             non_decode_signals.is_empty(),
             "one frame's fragment burst must never signal a backlog: {non_decode_signals:?}"
+        );
+    }
+
+    #[test]
+    fn test_backlog_is_measured_in_video_time() {
+        let at = |ms: u64| ms * 1_000_000;
+        assert!(!is_decode_backlog(&[]));
+        assert!(!is_decode_backlog(&[at(0)]));
+        // Two or three frames bunched by the network: not a backlog.
+        assert!(!is_decode_backlog(&[at(0), at(17), at(33)]));
+        assert!(!is_decode_backlog(&[at(0), at(150)]));
+        assert!(is_decode_backlog(&[at(0), at(151)]));
+        // Too many frames counts even without usable timestamps.
+        assert!(is_decode_backlog(&[0; BACKLOG_FRAMES + 1]));
+        assert!(!is_decode_backlog(&[0; BACKLOG_FRAMES]));
+    }
+
+    /// Frames that merely arrive together — a small P-frame right behind a large
+    /// one on a slow link — must all be decoded, and must not cost a keyframe.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_receive_loop_decodes_a_short_bunch_without_a_keyframe_request() {
+        let (host_conn, viewer_conn) = loopback_pair().await;
+
+        let mut receiver = DatagramReceiver::new(4);
+        let decoder = RecordingDecoder::default();
+        let mut decoder_handle = decoder.clone();
+        let frame_queue = Arc::new(FrameQueue::new(8));
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(64);
+
+        let recv_task = tokio::spawn(async move {
+            let _ = receiver
+                .run_receive_loop_with_loss_signal(
+                    &viewer_conn,
+                    &mut decoder_handle,
+                    &frame_queue,
+                    Some(loss_tx),
+                )
+                .await;
+        });
+        let signals = Arc::new(std::sync::Mutex::new(Vec::<RecoverySignal>::new()));
+        let signals_handle = signals.clone();
+        tokio::spawn(async move {
+            while let Some(signal) = loss_rx.recv().await {
+                signals_handle.lock().unwrap().push(signal);
+            }
+        });
+
+        host_conn.send_datagram(frame_datagram(1, true)).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        for id in 2..=4u64 {
+            host_conn.send_datagram(frame_datagram(id, false)).unwrap();
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        host_conn.close(0u32.into(), b"test done");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
+
+        assert_eq!(*decoder.decoded_ids.lock().unwrap(), vec![1, 2, 3, 4]);
+        let recorded = signals.lock().unwrap().clone();
+        assert!(
+            !recorded
+                .iter()
+                .any(|s| matches!(s, RecoverySignal::DecodeBacklog)),
+            "a three-frame bunch is not a backlog: {recorded:?}"
         );
     }
 
