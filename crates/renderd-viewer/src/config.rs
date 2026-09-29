@@ -26,6 +26,8 @@ pub struct ViewerAppConfig {
     pub decoder_backend: crate::cli::DecoderBackend,
     /// Codec preference to advertise during the handshake.
     pub codec_choice: crate::cli::CodecChoice,
+    /// Presentation path: GPU where available, or forced software.
+    pub renderer_choice: crate::cli::RendererChoice,
 }
 
 impl Default for ViewerAppConfig {
@@ -39,6 +41,7 @@ impl Default for ViewerAppConfig {
             manual_host: None,
             decoder_backend: crate::cli::DecoderBackend::Mf,
             codec_choice: crate::cli::CodecChoice::Auto,
+            renderer_choice: crate::cli::RendererChoice::Auto,
         }
     }
 }
@@ -70,6 +73,7 @@ impl ViewerAppConfig {
             manual_host: None,
             decoder_backend: crate::cli::DecoderBackend::Mf,
             codec_choice: crate::cli::CodecChoice::Auto,
+            renderer_choice: crate::cli::RendererChoice::Auto,
             config,
         })
     }

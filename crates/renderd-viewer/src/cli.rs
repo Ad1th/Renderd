@@ -48,6 +48,24 @@ pub struct ViewerCli {
     /// parameters this build does not yet supply — it is kept only for development.
     #[arg(long, value_name = "BACKEND", default_value = "mf")]
     pub decoder: DecoderBackend,
+
+    /// How decoded frames reach the screen on Windows.
+    ///
+    /// `auto` (default) presents on the GPU through a D3D11 flip-model swap chain
+    /// whenever a D3D11 device is available, falling back to `soft` if it fails.
+    /// `soft` forces the CPU renderer.
+    #[arg(long, value_name = "RENDERER", default_value = "auto")]
+    pub renderer: RendererChoice,
+}
+
+/// Presentation path override.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RendererChoice {
+    /// GPU presentation where available, software otherwise.
+    #[default]
+    Auto,
+    /// Always use the CPU renderer.
+    Soft,
 }
 
 /// Codec preference override.
@@ -154,6 +172,14 @@ mod tests {
     fn test_codec_choice_pins_a_single_codec() {
         assert_eq!(CodecChoice::H264.codecs(), vec!["h264".to_string()]);
         assert_eq!(CodecChoice::Hevc.codecs(), vec!["hevc".to_string()]);
+    }
+
+    #[test]
+    fn test_renderer_choice_defaults_to_auto_and_can_be_forced_soft() {
+        let cli = ViewerCli::parse_from(["renderd-viewer"]);
+        assert_eq!(cli.renderer, RendererChoice::Auto);
+        let cli = ViewerCli::parse_from(["renderd-viewer", "--renderer", "soft"]);
+        assert_eq!(cli.renderer, RendererChoice::Soft);
     }
 
     #[test]
