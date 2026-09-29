@@ -184,7 +184,7 @@ pub struct AbrConfig {
 impl Default for AbrConfig {
     fn default() -> Self {
         Self {
-            min_bitrate_kbps: 2_500,
+            min_bitrate_kbps: 1_500,
             max_bitrate_kbps: 10_000,
             step_kbps: 1_000,
             loss_threshold: 0.02,
