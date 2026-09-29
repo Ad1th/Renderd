@@ -28,6 +28,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   25 ms. Skipping there costs no keyframe: the encoder just sees a lower frame rate, and the next
   frame out is fresh instead of queued behind stale ones. `send_queue_kb` and `capture_skipped`
   are reported in host metrics. ([`renderd-host::network::pressure`](crates/renderd-host/src/network/pressure.rs))
+- **Delay-based bitrate control.** The ABR loop reacted to packet loss alone, which on a path
+  that queues instead of dropping is the last symptom to appear. The viewer now estimates one-way
+  queuing delay from frame capture timestamps (transit above its 10 s minimum, no clock sync
+  needed), measures real RFC 3550 jitter, and reports both with its receive rate in
+  `ReactiveStats`. The host combines them with its own send-queue depth: delay over 40 ms backs
+  off 15% (capped at 95% of the receive rate), over 250 ms halves; probing needs delay under
+  20 ms, grows 8% at a time, and pauses while the encoder is app-limited. Delay-driven panics no
+  longer request a keyframe. A closed-loop simulation against a 6 Mbps bottleneck holds a
+  ~40 ms steady queue at 98% link use and recovers from a 6 → 3 Mbps drop in 0.5 s.
+  ([`renderd-abr`](crates/renderd-abr/src/engine.rs), [`viewer::abr::delay`](crates/renderd-viewer/src/abr/delay.rs))
 
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
