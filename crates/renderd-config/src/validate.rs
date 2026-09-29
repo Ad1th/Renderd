@@ -14,33 +14,7 @@ pub trait ValidateConfig {
 
 impl ValidateConfig for RenderdConfig {
     fn validate(&self) -> Result<(), ConfigError> {
-        // Validate Host configuration
-        if self.host.target_fps < 1 || self.host.target_fps > 240 {
-            return Err(ConfigError::ValidationError {
-                field: "host.target_fps",
-                reason: format!(
-                    "target_fps must be between 1 and 240 fps, got {}",
-                    self.host.target_fps
-                ),
-            });
-        }
-
-        if self.host.max_bitrate_kbps < 1_000 || self.host.max_bitrate_kbps > 200_000 {
-            return Err(ConfigError::ValidationError {
-                field: "host.max_bitrate_kbps",
-                reason: format!(
-                    "max_bitrate_kbps must be between 1,000 and 200,000 kbps, got {}",
-                    self.host.max_bitrate_kbps
-                ),
-            });
-        }
-
-        if self.host.codec != "hevc" && self.host.codec != "h264" {
-            return Err(ConfigError::ValidationError {
-                field: "host.codec",
-                reason: format!("codec must be 'hevc' or 'h264', got '{}'", self.host.codec),
-            });
-        }
+        validate_host(&self.host)?;
 
         // Validate Viewer configuration
         if self.viewer.window_width < 640 {
@@ -123,6 +97,48 @@ impl ValidateConfig for RenderdConfig {
     }
 }
 
+/// Range and sanity checks for the `[host]` section.
+fn validate_host(host: &crate::schema::HostConfig) -> Result<(), ConfigError> {
+    if host.target_fps < 1 || host.target_fps > 240 {
+        return Err(ConfigError::ValidationError {
+            field: "host.target_fps",
+            reason: format!(
+                "target_fps must be between 1 and 240 fps, got {}",
+                host.target_fps
+            ),
+        });
+    }
+
+    if host.max_bitrate_kbps < 1_000 || host.max_bitrate_kbps > 200_000 {
+        return Err(ConfigError::ValidationError {
+            field: "host.max_bitrate_kbps",
+            reason: format!(
+                "max_bitrate_kbps must be between 1,000 and 200,000 kbps, got {}",
+                host.max_bitrate_kbps
+            ),
+        });
+    }
+
+    if host.codec != "hevc" && host.codec != "h264" {
+        return Err(ConfigError::ValidationError {
+            field: "host.codec",
+            reason: format!("codec must be 'hevc' or 'h264', got '{}'", host.codec),
+        });
+    }
+
+    if host.max_stream_height != 0 && !(360..=4320).contains(&host.max_stream_height) {
+        return Err(ConfigError::ValidationError {
+            field: "host.max_stream_height",
+            reason: format!(
+                "max_stream_height must be 0 (automatic) or between 360 and 4320, got {}",
+                host.max_stream_height
+            ),
+        });
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -133,6 +149,19 @@ mod tests {
     fn test_valid_default_config() {
         let config = RenderdConfig::default();
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_max_stream_height_bounds() {
+        let mut config = RenderdConfig::default();
+        for ok in [0, 360, 900, 4320] {
+            config.host.max_stream_height = ok;
+            assert!(config.validate().is_ok(), "{ok} should be accepted");
+        }
+        for bad in [1, 359, 4321] {
+            config.host.max_stream_height = bad;
+            assert!(config.validate().is_err(), "{bad} should be rejected");
+        }
     }
 
     #[test]
