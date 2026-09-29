@@ -11,11 +11,20 @@
 //! and accept the Annex-B stream directly, so this path trades some copy overhead for
 //! actually being able to decode what the host sends.
 //!
-//! # Choices that favour working over fast
+//! # Hardware decode through the synchronous MFT
 //!
-//! - **Software MFTs only** (`MFT_ENUM_FLAG_SYNCMFT`). Hardware MFTs are asynchronous
-//!   and require the full event-driven model; the synchronous software decoders are
-//!   present on every install and are comfortably fast enough for 1080p.
+//! - **Synchronous MFTs only** (`MFT_ENUM_FLAG_SYNCMFT`). Vendor hardware MFTs are
+//!   asynchronous and require the full event-driven model. But the stock Microsoft
+//!   H.264 and HEVC decoders are synchronous *and* D3D11-aware: handed a DXGI device
+//!   manager (see [`MediaFoundationDecoder::with_d3d11`]) they decode on the GPU
+//!   through DXVA and output D3D11 textures. Without one they decode on the CPU,
+//!   which was the only mode before and costs several milliseconds a frame at
+//!   1080p, plus a copy and a CPU colour conversion downstream.
+//! - **GPU frames when a GPU presenter is showing them.** In hardware mode each
+//!   decoded frame is handed out as a [`GpuSurface`] — the decoder's own output
+//!   texture slice, never copied — unless the shared [`D3d11Context`] says the
+//!   presenter fell back to software, in which case the frame is read back into
+//!   system memory as before.
 //! - **H.264 is preferred by the viewer.** The Microsoft H.264 decoder ships with every
 //!   Windows 10 and later install. HEVC needs the HEVC Video Extensions from the Store,
 //!   so it is offered second and simply fails to initialize when absent.
@@ -24,6 +33,8 @@
 use crate::decoder::PixelFormat;
 use crate::decoder::{DecodedFrame, Decoder};
 use crate::error::ViewerError;
+#[cfg(target_os = "windows")]
+use crate::gpu::{D3d11Context, GpuSurface};
 use std::collections::VecDeque;
 use std::time::Instant;
 
@@ -70,6 +81,12 @@ pub struct MediaFoundationDecoder {
     output_provides_samples: bool,
     #[cfg(target_os = "windows")]
     output_buffer_size: u32,
+    /// Device to decode on, if hardware decode was requested.
+    #[cfg(target_os = "windows")]
+    d3d: Option<std::sync::Arc<D3d11Context>>,
+    /// Whether the current transform accepted the device and decodes on the GPU.
+    #[cfg(target_os = "windows")]
+    hardware: bool,
 }
 
 // SAFETY: The `Decoder` trait requires `Send + Sync`, but windows-rs does not mark the
@@ -114,6 +131,33 @@ impl MediaFoundationDecoder {
             output_provides_samples: false,
             #[cfg(target_os = "windows")]
             output_buffer_size: 0,
+            #[cfg(target_os = "windows")]
+            d3d: None,
+            #[cfg(target_os = "windows")]
+            hardware: false,
+        }
+    }
+
+    /// Creates a decoder that decodes on `d3d`'s GPU when the decoder MFT
+    /// supports it, and in software otherwise.
+    #[cfg(target_os = "windows")]
+    #[must_use]
+    pub fn with_d3d11(d3d: std::sync::Arc<D3d11Context>) -> Self {
+        let mut decoder = Self::new();
+        decoder.d3d = Some(d3d);
+        decoder
+    }
+
+    /// Whether the current session decodes on the GPU.
+    #[must_use]
+    pub const fn is_hardware(&self) -> bool {
+        #[cfg(target_os = "windows")]
+        {
+            self.hardware
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            false
         }
     }
 
@@ -266,6 +310,13 @@ impl MediaFoundationDecoder {
 
         let transform = self.enumerate_decoder(subtype)?;
 
+        // Offer the GPU before any media type is set: the decoder picks its
+        // output allocation (system memory or D3D11 textures) from this.
+        self.hardware = self
+            .d3d
+            .as_ref()
+            .is_some_and(|d3d| Self::enable_d3d11(&transform, d3d));
+
         // Ask for low latency where the MFT honours it; failure is not fatal.
         if let Ok(attributes) = transform.GetAttributes() {
             let _ = attributes.SetUINT32(&MF_LOW_LATENCY, 1);
@@ -293,6 +344,7 @@ impl MediaFoundationDecoder {
         tracing::info!(
             provides_samples = self.output_provides_samples,
             output_buffer_size = self.output_buffer_size,
+            hardware = self.hardware,
             "Media Foundation decoder MFT ready"
         );
 
@@ -302,7 +354,47 @@ impl MediaFoundationDecoder {
         Ok(())
     }
 
-    /// Finds a synchronous software decoder MFT for `subtype` producing NV12.
+    /// Hands the decoder MFT the shared D3D11 device so it decodes on the GPU.
+    ///
+    /// Returns `false`, leaving the MFT in software mode, if it is not
+    /// D3D11-aware or refuses the device.
+    unsafe fn enable_d3d11(transform: &IMFTransform, d3d: &D3d11Context) -> bool {
+        use windows::core::Interface;
+        use windows::Win32::Media::MediaFoundation::{
+            MFT_MESSAGE_SET_D3D_MANAGER, MF_SA_D3D11_AWARE, MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT,
+        };
+
+        let aware = transform
+            .GetAttributes()
+            .ok()
+            .and_then(|attributes| attributes.GetUINT32(&MF_SA_D3D11_AWARE).ok())
+            .unwrap_or(0)
+            != 0;
+        if !aware {
+            tracing::info!("Decoder MFT is not D3D11-aware; decoding in software");
+            return false;
+        }
+
+        if let Err(e) = transform.ProcessMessage(
+            MFT_MESSAGE_SET_D3D_MANAGER,
+            d3d.device_manager.as_raw() as usize,
+        ) {
+            tracing::warn!("Decoder MFT refused the D3D11 device ({e}); decoding in software");
+            return false;
+        }
+
+        // Frames are held downstream until presented (the frame queue, the frame
+        // on screen), so ask for surfaces beyond the decoder's own reference set;
+        // otherwise its pool can run dry while we hold them.
+        if let Ok(attributes) = transform.GetOutputStreamAttributes(0) {
+            let _ = attributes.SetUINT32(&MF_SA_MINIMUM_OUTPUT_SAMPLE_COUNT, 8);
+        }
+
+        tracing::info!("Decoder MFT decoding on the GPU (D3D11 / DXVA)");
+        true
+    }
+
+    /// Finds a synchronous decoder MFT for `subtype` producing NV12.
     unsafe fn enumerate_decoder(
         &self,
         subtype: windows::core::GUID,
@@ -574,7 +666,56 @@ impl MediaFoundationDecoder {
         }
     }
 
-    /// Copies an NV12 `IMFSample` into a tightly packed [`DecodedFrame`].
+    /// Wraps a hardware-decoded sample's texture as a [`GpuSurface`] frame.
+    ///
+    /// Returns `None` if the sample is not backed by a D3D11 texture after all.
+    unsafe fn gpu_frame(
+        &self,
+        sample: &IMFSample,
+        frame_id: u64,
+        pts_ns: u64,
+        start_time: Instant,
+    ) -> Result<Option<DecodedFrame>, ViewerError> {
+        use windows::core::Interface;
+        use windows::Win32::Graphics::Direct3D11::ID3D11Texture2D;
+        use windows::Win32::Media::MediaFoundation::IMFDXGIBuffer;
+
+        let buffer = sample
+            .GetBufferByIndex(0)
+            .map_err(|e| ViewerError::Decoder(format!("GetBufferByIndex: {e}")))?;
+        let Ok(dxgi) = buffer.cast::<IMFDXGIBuffer>() else {
+            return Ok(None);
+        };
+        let mut raw = std::ptr::null_mut();
+        dxgi.GetResource(&ID3D11Texture2D::IID, &mut raw)
+            .map_err(|e| ViewerError::Decoder(format!("IMFDXGIBuffer::GetResource: {e}")))?;
+        if raw.is_null() {
+            return Ok(None);
+        }
+        // SAFETY: GetResource returned an owned, AddRef'd ID3D11Texture2D pointer.
+        let texture = ID3D11Texture2D::from_raw(raw);
+        let array_index = dxgi
+            .GetSubresourceIndex()
+            .map_err(|e| ViewerError::Decoder(format!("GetSubresourceIndex: {e}")))?;
+
+        Ok(Some(DecodedFrame {
+            frame_id,
+            pts_ns,
+            width: self.width.min(self.out_width),
+            height: self.height.min(self.out_height),
+            format: PixelFormat::Nv12,
+            buffer: Vec::new(),
+            decode_duration: start_time.elapsed(),
+            gpu: Some(GpuSurface {
+                texture,
+                array_index,
+                _sample: sample.clone(),
+            }),
+        }))
+    }
+
+    /// Turns a decoded NV12 `IMFSample` into a [`DecodedFrame`]: on the GPU when a
+    /// GPU presenter will show it, otherwise tightly packed in system memory.
     unsafe fn sample_to_frame(
         &self,
         sample: &IMFSample,
@@ -582,6 +723,12 @@ impl MediaFoundationDecoder {
         pts_ns: u64,
         start_time: Instant,
     ) -> Result<DecodedFrame, ViewerError> {
+        if self.hardware && self.d3d.as_ref().is_some_and(|d3d| d3d.gpu_frames()) {
+            if let Some(frame) = self.gpu_frame(sample, frame_id, pts_ns, start_time)? {
+                return Ok(frame);
+            }
+        }
+
         let buffer = sample
             .ConvertToContiguousBuffer()
             .map_err(|e| ViewerError::Decoder(format!("ConvertToContiguousBuffer: {e}")))?;
@@ -683,6 +830,7 @@ impl MediaFoundationDecoder {
             format: PixelFormat::Nv12,
             buffer: nv12,
             decode_duration: start_time.elapsed(),
+            gpu: None,
         })
     }
 }

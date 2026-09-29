@@ -85,6 +85,7 @@ impl D3D12Renderer {
             format: PixelFormat::Nv12,
             buffer,
             decode_duration: Duration::from_micros(500),
+            gpu: None,
         }
     }
 }

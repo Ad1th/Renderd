@@ -1209,6 +1209,7 @@ impl D3D12Decoder {
             format: PixelFormat::Nv12,
             buffer: nv12,
             decode_duration,
+            gpu: None,
         })
     }
 }
