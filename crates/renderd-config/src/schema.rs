@@ -49,6 +49,13 @@ pub struct HostConfig {
     /// API is unavailable) the host mirrors the display selected by `display_id`.
     #[serde(default = "default_extend_display")]
     pub extend_display: bool,
+
+    /// Tallest video the host will encode, in pixels; the width follows the
+    /// display's aspect ratio. `0` (the default) picks it automatically from
+    /// `abr.max_bitrate_kbps`, so a slow link streams a scaled-down picture at
+    /// full frame rate instead of a full-size one that cannot fit.
+    #[serde(default)]
+    pub max_stream_height: u32,
 }
 
 const fn default_extend_display() -> bool {
@@ -64,6 +71,7 @@ impl Default for HostConfig {
             codec: "hevc".to_string(),
             vsync_phase_sync: true,
             extend_display: true,
+            max_stream_height: 0,
         }
     }
 }
