@@ -48,6 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   still said start 30 / ceiling 60 / floor 5 Mbps, now matches the code defaults and a test
   keeps them in sync. The viewer reports its configured window size instead of a fixed
   1920×1080. README gains a slow-link section.
+- **Arrival bunching no longer costs a keyframe.** The viewer treated any drain pass that
+  completed more than one frame as a decode backlog, skipping every P-frame and requesting an
+  IDR. On a slow or wireless link frames complete together routinely (a small frame right behind
+  a large one), so each bunch cost 100–400 KB of keyframe and delayed the next frames enough to
+  bunch them again. A pass is now a backlog only if it spans more than 150 ms of capture time.
 
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
