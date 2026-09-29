@@ -237,6 +237,7 @@ impl HostApp {
 
         let session = self.session.clone();
         let host_cfg = self.config.host.clone();
+        let abr_ceiling_kbps = self.config.abr.max_bitrate_kbps;
         let menu_bar = self.ui.menu_bar.clone();
         let capture = self.capture.clone();
         let encode = self.encode.clone();
@@ -274,10 +275,10 @@ impl HostApp {
                 tokio::spawn(async move {
                     let clock = clock.clone();
                     match dispatcher
-                        .handle_connection(&conn, &host_cfg, &session)
+                        .handle_connection(&conn, &host_cfg, abr_ceiling_kbps, &session)
                         .await
                     {
-                        Ok((_hello, cfg, mut _send_stream, mut recv_stream)) => {
+                        Ok((hello, cfg, mut _send_stream, mut recv_stream)) => {
                             // Transition session state to STREAMING once connected
                             if let Err(e) = session.begin_streaming() {
                                 tracing::warn!(
@@ -294,10 +295,14 @@ impl HostApp {
                             // exact size of the viewer's monitor and capture that. The
                             // handle must outlive the session — dropping it removes the
                             // display — so it is held until the connection closes.
+                            let (display_width, display_height) = hello
+                                .display
+                                .as_ref()
+                                .map_or((cfg.width, cfg.height), |d| (d.width, d.height));
                             let (target, _virtual_display) = Self::select_capture_target(
                                 &host_cfg,
-                                cfg.width,
-                                cfg.height,
+                                display_width,
+                                display_height,
                                 target_fps,
                             );
 

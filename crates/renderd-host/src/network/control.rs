@@ -39,6 +39,7 @@ impl ControlDispatcher {
         &self,
         connection: &quinn::Connection,
         host_config: &HostConfig,
+        abr_ceiling_kbps: u32,
         session: &HostSession,
     ) -> Result<
         (
@@ -120,10 +121,18 @@ impl ControlDispatcher {
         // just drops every other frame after paying to encode and ship it.
         let frame_rate = negotiate_frame_rate(host_config.target_fps, display.refresh_rate);
 
+        let (stream_width, stream_height) = negotiate_stream_size(
+            display,
+            frame_rate,
+            &selected_codec,
+            abr_ceiling_kbps,
+            host_config.max_stream_height,
+        );
+
         let session_config = SessionConfig {
             selected_codec: selected_codec.clone(),
-            width: display.width,
-            height: display.height,
+            width: stream_width,
+            height: stream_height,
             frame_rate,
             initial_bitrate_kbps: host_config.max_bitrate_kbps,
             codec_extra_data: vec![],
@@ -158,6 +167,40 @@ impl ControlDispatcher {
 
 /// Picks the stream frame rate: the host target, capped at the viewer's refresh rate
 /// when the viewer reports one.
+/// Picks the encoded picture size for `display` at `frame_rate`.
+///
+/// The virtual display matches the viewer's monitor; the *encoded* picture is
+/// sized to what the bitrate ceiling can feed (see [`crate::scale`]), and that
+/// is what the viewer's decoder is configured for.
+fn negotiate_stream_size(
+    display: &DisplayInfo,
+    frame_rate: f32,
+    codec: &str,
+    abr_ceiling_kbps: u32,
+    max_stream_height: u32,
+) -> (u32, u32) {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let fps = frame_rate.round().max(1.0) as u32;
+    let stream = crate::scale::stream_size(
+        display.width,
+        display.height,
+        fps,
+        codec,
+        abr_ceiling_kbps,
+        max_stream_height,
+    );
+    let native = (display.width, display.height);
+    if stream != native {
+        tracing::info!(
+            ?native,
+            ?stream,
+            ceiling_kbps = abr_ceiling_kbps,
+            "Scaling the stream to fit the bitrate ceiling"
+        );
+    }
+    stream
+}
+
 #[allow(clippy::cast_precision_loss)]
 fn negotiate_frame_rate(host_target_fps: u32, viewer_refresh_hz: f32) -> f32 {
     let host = host_target_fps.max(1) as f32;
@@ -172,6 +215,28 @@ fn negotiate_frame_rate(host_target_fps: u32, viewer_refresh_hz: f32) -> f32 {
 mod tests {
     use super::*;
     use renderd_net::MockConnection;
+
+    #[test]
+    fn test_stream_size_follows_the_ceiling() {
+        let display = DisplayInfo {
+            width: 1920,
+            height: 1080,
+            refresh_rate: 60.0,
+            vrr_supported: false,
+        };
+        assert_eq!(
+            negotiate_stream_size(&display, 60.0, "hevc", 10_000, 0),
+            (1920, 1080)
+        );
+        assert_eq!(
+            negotiate_stream_size(&display, 60.0, "hevc", 6_000, 0),
+            (1600, 900)
+        );
+        assert_eq!(
+            negotiate_stream_size(&display, 60.0, "hevc", 6_000, 1080),
+            (1920, 1080)
+        );
+    }
 
     #[test]
     fn test_frame_rate_capped_by_viewer_refresh() {
