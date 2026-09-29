@@ -170,6 +170,7 @@ impl AbrManager {
             frames_dropped = stats.frames_dropped,
             target_kbps = decision.target_bitrate_kbps.0,
             encoder_skipped = pipeline.encoder_skipped_frames(),
+            capture_skipped = pipeline.link().skipped_frames(),
             "VIEWER TELEMETRY"
         );
 

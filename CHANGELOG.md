@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ([`renderd-host::encode`](crates/renderd-host/src/encode.rs))
 - **Periodic keyframe interval** raised from 5 s to 20 s. A mid-stream 1080p IDR is ~130 ms of
   link time at 6 Mbps, so a healthy stream no longer hitches every five seconds.
+- **Send-queue backpressure.** While `quinn`'s datagram send queue holds more than 50 ms of
+  video at the current bitrate, captured frames are skipped *before* encoding, resuming below
+  25 ms. Skipping there costs no keyframe: the encoder just sees a lower frame rate, and the next
+  frame out is fresh instead of queued behind stale ones. `send_queue_kb` and `capture_skipped`
+  are reported in host metrics. ([`renderd-host::network::pressure`](crates/renderd-host/src/network/pressure.rs))
 
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
