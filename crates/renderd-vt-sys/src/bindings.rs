@@ -75,6 +75,7 @@ extern "C" {
         callback: RenderD_VTOutputCallback,
         callback_ctx: *mut std::ffi::c_void,
         session_out: *mut VTCompressionSessionRef,
+        low_latency_out: *mut bool,
     ) -> OSStatus;
 
     /// Dynamically updates the target average bitrate for an active compression session.
