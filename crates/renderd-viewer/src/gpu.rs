@@ -52,7 +52,8 @@ mod windows_impl {
         D3D_DRIVER_TYPE_HARDWARE, D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_11_1,
     };
     use windows::Win32::Graphics::Direct3D11::{
-        D3D11CreateDevice, ID3D11Multithread, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
+        D3D11CreateDevice, ID3D11Device, ID3D11DeviceContext, ID3D11Multithread,
+        ID3D11VideoContext, ID3D11VideoDevice, D3D11_CREATE_DEVICE_BGRA_SUPPORT,
         D3D11_CREATE_DEVICE_VIDEO_SUPPORT, D3D11_SDK_VERSION,
     };
     use windows::Win32::Graphics::Dxgi::IDXGIDevice1;
@@ -63,6 +64,10 @@ mod windows_impl {
     /// One D3D11 device shared by the hardware decoder and the presenter.
     #[derive(Debug)]
     pub struct D3d11Context {
+        pub(crate) device: ID3D11Device,
+        pub(crate) context: ID3D11DeviceContext,
+        pub(crate) video_device: ID3D11VideoDevice,
+        pub(crate) video_context: ID3D11VideoContext,
         pub(crate) device_manager: IMFDXGIDeviceManager,
         gpu_frames: AtomicBool,
     }
@@ -88,6 +93,7 @@ mod windows_impl {
             // SAFETY: plain D3D11/MF object creation with valid out-pointers.
             unsafe {
                 let mut device = None;
+                let mut context = None;
                 D3D11CreateDevice(
                     None,
                     D3D_DRIVER_TYPE_HARDWARE,
@@ -97,11 +103,13 @@ mod windows_impl {
                     D3D11_SDK_VERSION,
                     Some(&mut device),
                     None,
-                    None,
+                    Some(&mut context),
                 )
                 .map_err(|e| err("D3D11CreateDevice", e))?;
                 let device = device
                     .ok_or_else(|| ViewerError::Renderer("D3D11CreateDevice: no device".into()))?;
+                let context = context
+                    .ok_or_else(|| ViewerError::Renderer("D3D11CreateDevice: no context".into()))?;
                 // The decoder (on a tokio worker) and the presenter (on the UI
                 // thread) share the immediate context.
                 let multithread: ID3D11Multithread =
@@ -113,6 +121,11 @@ mod windows_impl {
                 if let Ok(dxgi) = device.cast::<IDXGIDevice1>() {
                     let _ = dxgi.SetMaximumFrameLatency(1);
                 }
+
+                let video_device: ID3D11VideoDevice =
+                    device.cast().map_err(|e| err("ID3D11VideoDevice", e))?;
+                let video_context: ID3D11VideoContext =
+                    context.cast().map_err(|e| err("ID3D11VideoContext", e))?;
 
                 let mut reset_token = 0u32;
                 let mut manager = None;
@@ -126,6 +139,10 @@ mod windows_impl {
                     .map_err(|e| err("IMFDXGIDeviceManager::ResetDevice", e))?;
 
                 Ok(Arc::new(Self {
+                    device,
+                    context,
+                    video_device,
+                    video_context,
                     device_manager,
                     gpu_frames: AtomicBool::new(false),
                 }))
