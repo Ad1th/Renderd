@@ -33,6 +33,9 @@ pub struct DecodedFrame {
     pub buffer: Vec<u8>,
     /// Time spent by hardware decoder to decode this frame.
     pub decode_duration: Duration,
+    /// The frame's pixels on the GPU, when the decoder kept them there. `buffer`
+    /// is then empty and only a GPU presenter can show the frame.
+    pub gpu: Option<crate::gpu::GpuSurface>,
 }
 
 /// Trait abstraction for hardware video decoders (e.g. Windows Media Foundation / D3D11VA / NVDEC).
@@ -174,6 +177,7 @@ impl Decoder for NullDecoder {
             format: PixelFormat::Bgra8,
             buffer,
             decode_duration: Duration::from_millis(1),
+            gpu: None,
         });
         Ok(())
     }

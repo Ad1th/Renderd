@@ -16,6 +16,7 @@ pub mod decoder;
 pub mod discovery;
 pub mod error;
 pub mod frame_queue;
+pub mod gpu;
 pub mod network;
 pub mod pairing;
 pub mod platform;

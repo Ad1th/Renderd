@@ -67,9 +67,7 @@ impl App {
         let decoder: Box<dyn Decoder> = Box::new(crate::decode::VideoToolboxDecoder::new());
         #[cfg(target_os = "windows")]
         let decoder: Box<dyn Decoder> = match config.decoder_backend {
-            crate::cli::DecoderBackend::Mf => {
-                Box::new(crate::decode::MediaFoundationDecoder::new())
-            }
+            crate::cli::DecoderBackend::Mf => Box::new(Self::media_foundation_decoder(&config)),
             crate::cli::DecoderBackend::D3d12 => Box::new(crate::decode::D3D12Decoder::new()),
         };
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
@@ -84,6 +82,25 @@ impl App {
             frame_queue: Arc::new(FrameQueue::new(3)),
             discovery: DiscoveryManager::new(),
             tray: SystemTrayManager::new(),
+        }
+    }
+
+    /// The Media Foundation decoder, decoding on the GPU unless
+    /// `viewer.hw_accel` is off or no D3D11 device can be created.
+    #[cfg(target_os = "windows")]
+    fn media_foundation_decoder(config: &ViewerAppConfig) -> crate::decode::MediaFoundationDecoder {
+        use crate::decode::MediaFoundationDecoder;
+
+        if !config.config.viewer.hw_accel {
+            tracing::info!("viewer.hw_accel is off; decoding in software");
+            return MediaFoundationDecoder::new();
+        }
+        match crate::gpu::D3d11Context::new() {
+            Ok(d3d) => MediaFoundationDecoder::with_d3d11(d3d),
+            Err(e) => {
+                tracing::warn!("No D3D11 device for hardware decode ({e}); decoding in software");
+                MediaFoundationDecoder::new()
+            }
         }
     }
 
