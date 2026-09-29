@@ -299,6 +299,23 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
    every CoreMedia call in the encode and decode paths. They are off by default because
    they write to unbuffered stderr on every frame.
 
+#### On a slow or shared link
+
+Renderd adapts on its own. The bitrate backs off as soon as queuing delay builds, and
+frames are skipped at capture rather than queued. You can still help it on a link you
+know is slow:
+
+1. **Tell it the ceiling.** Set `abr.max_bitrate_kbps` to roughly what the link sustains,
+   e.g. `6000` for a link that tops out around 6 Mbps. With `host.max_stream_height = 0`
+   (the default) this also picks the streamed resolution: 1080p60 of desktop text needs
+   about 10 Mbps, so a 6 Mbps ceiling streams 900p60 instead of a 1080p picture that
+   cannot fit.
+2. **Read the lag off the logs.** Each second the host logs `HOST METRICS` with
+   `send_queue_kb` (video waiting on the host), and every half-second `VIEWER TELEMETRY`
+   with `capture_skipped` and `encoder_skipped`. A `send_queue_kb` that stays high means
+   the link is the bottleneck. Run the host with `--log-level debug` to see the ABR
+   decisions with the viewer's measured `queue_delay_ms`.
+
 ---
 
 ## Documentation Index
