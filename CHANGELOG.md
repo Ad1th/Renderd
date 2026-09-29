@@ -38,6 +38,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   longer request a keyframe. A closed-loop simulation against a 6 Mbps bottleneck holds a
   ~40 ms steady queue at 98% link use and recovers from a 6 → 3 Mbps drop in 0.5 s.
   ([`renderd-abr`](crates/renderd-abr/src/engine.rs), [`viewer::abr::delay`](crates/renderd-viewer/src/abr/delay.rs))
+- **Stream resolution follows the bitrate ceiling.** 1080p60 of desktop text needs ~10 Mbps; at
+  6 Mbps the encoder overshot to 7.7–8.5 Mbps and dropped a quarter of its frames, while 900p60
+  held the target cleanly. The host now picks the tallest standard height whose pixel rate
+  `abr.max_bitrate_kbps` can feed (~0.069 bits per pixel per frame), overridable with the new
+  `host.max_stream_height`. The virtual display keeps the viewer's native size; only the
+  encoded picture is scaled. ([`renderd-host::scale`](crates/renderd-host/src/scale.rs))
+- **Low-bandwidth defaults.** ABR floor lowered to 1.5 Mbps. The shipped host template, which
+  still said start 30 / ceiling 60 / floor 5 Mbps, now matches the code defaults and a test
+  keeps them in sync. The viewer reports its configured window size instead of a fixed
+  1920×1080. README gains a slow-link section.
 
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
