@@ -6,6 +6,7 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -17,6 +18,148 @@ use crate::error::HostError;
 /// The sender drains this in microseconds per frame, so the buffer only fills if the
 /// sender thread is descheduled; eight frames is ~130 ms of slack at 60 fps.
 pub const RING_CAPACITY: usize = 8;
+
+/// Shortest spacing between two keyframes the pipeline will produce on request.
+pub const MIN_KEYFRAME_SPACING: Duration = Duration::from_millis(200);
+
+/// Longest a keyframe request is ever deferred, however slow the link.
+pub const MAX_KEYFRAME_SPACING: Duration = Duration::from_millis(1_500);
+
+/// Sentinel for "no keyframe issued yet" in [`KeyframeGate::last_issued_us`].
+const NEVER: u64 = u64::MAX;
+
+/// [`MIN_KEYFRAME_SPACING`] in microseconds, the gate's clock unit.
+const MIN_KEYFRAME_SPACING_US: u64 = 200_000;
+
+/// Paces keyframe requests to what the link can actually carry.
+///
+/// Keyframe requests arrive from several places at once — the viewer after loss,
+/// the ABR loop on entering Panic, the sender after skipping frames, the encoder
+/// callback after a ring overflow — and each used to turn straight into an IDR.
+/// On a fast LAN that is harmless. On a 6 Mbps link a mid-stream 1080p IDR is
+/// ~100 KB, about 130 ms of link time, and the first one of a session is closer
+/// to 400 KB: a second IDR requested while the first is still draining lands in
+/// the same queue, delays every frame behind it, and the resulting lateness
+/// looks like more loss, which requests more keyframes.
+///
+/// The gate keeps requests pending until the previous keyframe has had time to
+/// drain — twice its own transmit time at the current bitrate, clamped to
+/// [`MIN_KEYFRAME_SPACING`]..=[`MAX_KEYFRAME_SPACING`] — and then honours them
+/// all with a single IDR. A request is never lost, only deferred.
+#[derive(Debug)]
+pub struct KeyframeGate {
+    epoch: Instant,
+    pending: AtomicBool,
+    /// When the last keyframe was issued, in microseconds since `epoch`.
+    last_issued_us: AtomicU64,
+    /// Encoded size of the last keyframe, used to size the next cooldown.
+    last_size_bytes: AtomicU64,
+}
+
+impl Default for KeyframeGate {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl KeyframeGate {
+    /// Creates a gate with no request pending and no keyframe history.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            epoch: Instant::now(),
+            pending: AtomicBool::new(false),
+            last_issued_us: AtomicU64::new(NEVER),
+            last_size_bytes: AtomicU64::new(0),
+        }
+    }
+
+    /// Asks for a keyframe as soon as the link allows one.
+    pub fn request(&self) {
+        self.pending.store(true, Ordering::SeqCst);
+    }
+
+    /// Forgets keyframe history and arms a request, so a new session's first
+    /// frame is an IDR with no cooldown in its way.
+    pub fn reset(&self) {
+        self.last_issued_us.store(NEVER, Ordering::SeqCst);
+        self.last_size_bytes.store(0, Ordering::SeqCst);
+        self.pending.store(true, Ordering::SeqCst);
+    }
+
+    /// Returns `true` if a request is pending, whether or not it may fire yet.
+    #[must_use]
+    pub fn is_pending(&self) -> bool {
+        self.pending.load(Ordering::SeqCst)
+    }
+
+    /// Returns `true` if the frame being encoded now should be a keyframe, and
+    /// consumes the pending request if so.
+    pub fn take(&self, bitrate_kbps: u32) -> bool {
+        self.take_at(Instant::now(), bitrate_kbps)
+    }
+
+    /// [`Self::take`] at an explicit instant, for deterministic tests.
+    pub fn take_at(&self, now: Instant, bitrate_kbps: u32) -> bool {
+        if !self.pending.load(Ordering::SeqCst) {
+            return false;
+        }
+        let now_us = self.micros_since_epoch(now);
+        let last = self.last_issued_us.load(Ordering::SeqCst);
+        if last != NEVER {
+            let cooldown =
+                Self::cooldown(self.last_size_bytes.load(Ordering::SeqCst), bitrate_kbps);
+            let cooldown_us = u64::try_from(cooldown.as_micros()).unwrap_or(u64::MAX);
+            if now_us.saturating_sub(last) < cooldown_us {
+                return false;
+            }
+        }
+        if !self.pending.swap(false, Ordering::SeqCst) {
+            return false;
+        }
+        // Stamp the issue time now rather than when the encoder hands the IDR
+        // back, so a second request in the few milliseconds of encode latency
+        // cannot slip through the gate behind it.
+        self.last_issued_us.store(now_us, Ordering::SeqCst);
+        true
+    }
+
+    /// Records the encoded size of a keyframe that just came out of the encoder.
+    ///
+    /// Keyframes the encoder inserts on its own (the periodic GOP boundary) are
+    /// recorded too, so they also hold back an immediately following request.
+    pub fn record_keyframe(&self, size_bytes: usize) {
+        self.record_keyframe_at(Instant::now(), size_bytes);
+    }
+
+    /// [`Self::record_keyframe`] at an explicit instant, for deterministic tests.
+    pub fn record_keyframe_at(&self, now: Instant, size_bytes: usize) {
+        self.last_size_bytes
+            .store(size_bytes as u64, Ordering::SeqCst);
+        let now_us = self.micros_since_epoch(now);
+        let last = self.last_issued_us.load(Ordering::SeqCst);
+        // An IDR the gate itself issued was already stamped in `take_at`; only
+        // move the stamp forward for keyframes it did not know about.
+        if last == NEVER || now_us.saturating_sub(last) > MIN_KEYFRAME_SPACING_US {
+            self.last_issued_us.store(now_us, Ordering::SeqCst);
+        }
+    }
+
+    /// Minimum spacing after a keyframe of `size_bytes` at `bitrate_kbps`: twice
+    /// its transmit time, so the link has drained it and carried a few frames
+    /// after it before the next one is queued.
+    #[must_use]
+    pub fn cooldown(size_bytes: u64, bitrate_kbps: u32) -> Duration {
+        let kbps = u64::from(bitrate_kbps.max(1));
+        // bytes * 8 bits / kbps = milliseconds of link time; doubled.
+        let ms = size_bytes.saturating_mul(16) / kbps;
+        Duration::from_millis(ms).clamp(MIN_KEYFRAME_SPACING, MAX_KEYFRAME_SPACING)
+    }
+
+    fn micros_since_epoch(&self, now: Instant) -> u64 {
+        u64::try_from(now.saturating_duration_since(self.epoch).as_micros()).unwrap_or(NEVER - 1)
+    }
+}
 
 /// Encoded video frame payload emitted by the hardware encoder into the ring buffer.
 #[derive(Debug, Clone)]
@@ -41,15 +184,15 @@ pub struct EncodedFrame {
 /// Every non-key frame references the frame before it. If a frame is dropped anywhere
 /// between encoder and decoder, every subsequent frame decodes against the wrong
 /// reference and the picture smears until the next keyframe. So whenever this
-/// pipeline has to drop an encoded frame it also arms [`force_keyframe`], making the
-/// very next encode an IDR that resynchronises the decoder within one frame interval.
+/// pipeline has to drop an encoded frame it also calls [`force_keyframe`], and the
+/// [`KeyframeGate`] turns that into an IDR as soon as the link has room for one.
 ///
 /// [`force_keyframe`]: EncodePipeline::force_keyframe
 pub struct EncodePipeline {
     tx: Sender<EncodedFrame>,
     rx: Receiver<EncodedFrame>,
     frame_counter: AtomicU64,
-    force_keyframe_flag: Arc<AtomicBool>,
+    keyframes: Arc<KeyframeGate>,
     dropped_frames: Arc<AtomicU64>,
     current_bitrate_kbps: AtomicU32,
     #[cfg(target_os = "macos")]
@@ -60,7 +203,7 @@ impl std::fmt::Debug for EncodePipeline {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EncodePipeline")
             .field("frame_counter", &self.frame_counter)
-            .field("force_keyframe_flag", &self.force_keyframe_flag)
+            .field("keyframes", &self.keyframes)
             .field("dropped_frames", &self.dropped_frames)
             .field("current_bitrate_kbps", &self.current_bitrate_kbps)
             .finish_non_exhaustive()
@@ -82,7 +225,7 @@ impl EncodePipeline {
             tx,
             rx,
             frame_counter: AtomicU64::new(1),
-            force_keyframe_flag: Arc::new(AtomicBool::new(false)),
+            keyframes: Arc::new(KeyframeGate::new()),
             dropped_frames: Arc::new(AtomicU64::new(0)),
             current_bitrate_kbps: AtomicU32::new(0),
             #[cfg(target_os = "macos")]
@@ -119,7 +262,7 @@ impl EncodePipeline {
         // Discard anything a previous session left queued so the new viewer's first
         // frame is this session's keyframe, not a stale P-frame from the last one.
         while self.rx.try_recv().is_ok() {}
-        self.force_keyframe_flag.store(true, Ordering::SeqCst);
+        self.keyframes.reset();
 
         #[cfg(target_os = "macos")]
         {
@@ -134,7 +277,7 @@ impl EncodePipeline {
             };
 
             let tx = self.tx.clone();
-            let force_keyframe = Arc::clone(&self.force_keyframe_flag);
+            let keyframes = Arc::clone(&self.keyframes);
             let dropped = Arc::clone(&self.dropped_frames);
 
             let width_i32 = i32::try_from(width).map_err(|_| {
@@ -191,6 +334,10 @@ impl EncodePipeline {
                         );
                     }
 
+                    if is_kf {
+                        keyframes.record_keyframe(nal_bytes.len());
+                    }
+
                     let frame = EncodedFrame {
                         frame_id,
                         is_keyframe: is_kf,
@@ -199,10 +346,10 @@ impl EncodePipeline {
                     };
                     if tx.try_send(frame).is_err() {
                         // The sender is behind. Dropping this frame breaks the reference
-                        // chain, so resynchronise with an IDR on the next encode rather
-                        // than shipping P-frames the decoder will render as smear.
+                        // chain, so resynchronise with an IDR rather than shipping
+                        // P-frames the decoder will render as smear.
                         dropped.fetch_add(1, Ordering::Relaxed);
-                        force_keyframe.store(true, Ordering::SeqCst);
+                        keyframes.request();
                     }
                 },
             )
@@ -252,7 +399,7 @@ impl EncodePipeline {
         surface: &renderd_vt_sys::IoSurface,
         pts_ns: i64,
     ) -> Result<(), HostError> {
-        let force_kf = self.force_keyframe_flag.swap(false, Ordering::SeqCst);
+        let force_kf = self.keyframes.take(self.current_bitrate());
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
 
         let guard = self
@@ -267,9 +414,9 @@ impl EncodePipeline {
                     HostError::Initialization(format!("VideoToolbox encode_surface failed: {e}"))
                 });
             drop(guard);
-            if res.is_err() {
-                // The frame never reached the encoder; make sure the next one is an IDR.
-                self.force_keyframe_flag.store(true, Ordering::SeqCst);
+            if res.is_err() && force_kf {
+                // The IDR never reached the encoder; keep the request alive.
+                self.keyframes.request();
             }
             res?;
         } else {
@@ -296,26 +443,39 @@ impl EncodePipeline {
     ///
     /// Never returns an error; the `Result` is retained for API compatibility.
     pub fn push_frame(&self, data: Bytes, pts_ns: i64) -> Result<(), HostError> {
-        let force_kf = self.force_keyframe_flag.swap(false, Ordering::SeqCst);
+        let force_kf = self.keyframes.take(self.current_bitrate());
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
+        let is_keyframe = force_kf || frame_id == 1;
+        if is_keyframe {
+            self.keyframes.record_keyframe(data.len());
+        }
 
         let frame = EncodedFrame {
             frame_id,
-            is_keyframe: force_kf || frame_id == 1,
+            is_keyframe,
             data,
             pts_ns,
         };
 
         if self.tx.try_send(frame).is_err() {
             self.dropped_frames.fetch_add(1, Ordering::Relaxed);
-            self.force_keyframe_flag.store(true, Ordering::SeqCst);
+            self.keyframes.request();
         }
         Ok(())
     }
 
-    /// Requests an immediate IDR keyframe for the next encoded frame.
+    /// Requests an IDR keyframe as soon as the link has room for one.
+    ///
+    /// Usually that is the next encoded frame; right after another keyframe it is
+    /// deferred until that one has drained (see [`KeyframeGate`]).
     pub fn force_keyframe(&self) {
-        self.force_keyframe_flag.store(true, Ordering::SeqCst);
+        self.keyframes.request();
+    }
+
+    /// Returns `true` if a keyframe request is waiting on the [`KeyframeGate`].
+    #[must_use]
+    pub fn keyframe_pending(&self) -> bool {
+        self.keyframes.is_pending()
     }
 
     /// Dynamically updates the target bitrate in kilobits per second.
@@ -419,12 +579,89 @@ mod tests {
         }
         assert!(receiver.try_recv().is_err());
 
-        // ...and the frame after the drop is forced to be a keyframe so the decoder
-        // can resynchronise.
-        pipeline
-            .push_frame(Bytes::from_static(b"after-drop"), 1_000)
-            .unwrap();
-        assert!(receiver.try_recv().unwrap().is_keyframe);
+        // ...and the drop leaves a keyframe request pending so the decoder can
+        // resynchronise once the gate allows it.
+        assert!(pipeline.keyframe_pending());
+    }
+
+    #[test]
+    fn test_min_spacing_constants_agree() {
+        assert_eq!(
+            u128::from(MIN_KEYFRAME_SPACING_US),
+            MIN_KEYFRAME_SPACING.as_micros()
+        );
+    }
+
+    #[test]
+    fn test_gate_fires_immediately_without_history() {
+        let gate = KeyframeGate::new();
+        assert!(!gate.take(6_000), "nothing requested yet");
+        gate.request();
+        assert!(gate.take(6_000));
+        assert!(!gate.is_pending(), "a taken request is consumed");
+    }
+
+    #[test]
+    fn test_gate_defers_a_request_until_the_last_keyframe_drained() {
+        let gate = KeyframeGate::new();
+        let t0 = Instant::now();
+        gate.request();
+        assert!(gate.take_at(t0, 6_000));
+        // 100 KB at 6 Mbps is ~133 ms of link time; the gate waits twice that.
+        gate.record_keyframe_at(t0 + Duration::from_millis(5), 100_000);
+
+        gate.request();
+        assert!(!gate.take_at(t0 + Duration::from_millis(100), 6_000));
+        assert!(!gate.take_at(t0 + Duration::from_millis(250), 6_000));
+        assert!(gate.is_pending(), "a deferred request is never dropped");
+        assert!(gate.take_at(t0 + Duration::from_millis(270), 6_000));
+    }
+
+    #[test]
+    fn test_gate_coalesces_a_burst_of_requests_into_one_keyframe() {
+        let gate = KeyframeGate::new();
+        let t0 = Instant::now();
+        gate.request();
+        assert!(gate.take_at(t0, 6_000));
+        gate.record_keyframe_at(t0, 100_000);
+        for ms in (10..260).step_by(10) {
+            gate.request();
+            assert!(!gate.take_at(t0 + Duration::from_millis(ms), 6_000));
+        }
+        assert!(gate.take_at(t0 + Duration::from_millis(300), 6_000));
+        assert!(!gate.take_at(t0 + Duration::from_millis(310), 6_000));
+    }
+
+    #[test]
+    fn test_gate_counts_encoder_inserted_keyframes() {
+        let gate = KeyframeGate::new();
+        let t0 = Instant::now();
+        // A periodic GOP keyframe the gate did not issue.
+        gate.record_keyframe_at(t0, 100_000);
+        gate.request();
+        assert!(!gate.take_at(t0 + Duration::from_millis(50), 6_000));
+    }
+
+    #[test]
+    fn test_gate_reset_clears_the_cooldown() {
+        let gate = KeyframeGate::new();
+        let t0 = Instant::now();
+        gate.request();
+        assert!(gate.take_at(t0, 6_000));
+        gate.record_keyframe_at(t0, 400_000);
+        gate.reset();
+        assert!(gate.take_at(t0 + Duration::from_millis(1), 6_000));
+    }
+
+    #[test]
+    fn test_gate_cooldown_scales_with_link_and_is_clamped() {
+        assert_eq!(KeyframeGate::cooldown(100_000, 6_000).as_millis(), 266);
+        assert_eq!(
+            KeyframeGate::cooldown(100_000, 60_000),
+            MIN_KEYFRAME_SPACING
+        );
+        assert_eq!(KeyframeGate::cooldown(400_000, 1_500), MAX_KEYFRAME_SPACING);
+        assert_eq!(KeyframeGate::cooldown(100_000, 0), MAX_KEYFRAME_SPACING);
     }
 
     #[test]
