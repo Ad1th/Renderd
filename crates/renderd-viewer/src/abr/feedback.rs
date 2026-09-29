@@ -6,6 +6,8 @@
 use renderd_proto::{KeyframeRequest, PeriodicStats, ReactiveStats};
 use std::time::{Duration, Instant};
 
+use crate::abr::DelayTracker;
+
 /// Telemetry metrics collector and dual-timescale feedback exporter.
 #[derive(Debug)]
 pub struct FeedbackExporter {
@@ -26,6 +28,8 @@ pub struct FeedbackExporter {
     frames_displayed: u64,
     frames_dropped: u64,
     receive_bandwidth_kbps: f32,
+
+    delay: DelayTracker,
 }
 
 impl Default for FeedbackExporter {
@@ -57,6 +61,8 @@ impl FeedbackExporter {
             frames_displayed: 0,
             frames_dropped: 0,
             receive_bandwidth_kbps: 20_000.0,
+
+            delay: DelayTracker::new(),
         }
     }
 
@@ -88,6 +94,12 @@ impl FeedbackExporter {
 
         self.total_render_time += render_duration;
         self.render_sample_count += 1;
+    }
+
+    /// Records a whole frame's arrival for the queuing-delay and receive-rate
+    /// estimate.
+    pub fn record_arrival(&mut self, pts_ns: u64, bytes: usize, arrival: Instant) {
+        self.delay.on_frame(pts_ns, bytes, arrival);
     }
 
     /// Records explicit frame loss event.
@@ -124,7 +136,13 @@ impl FeedbackExporter {
             return None;
         }
 
+        let elapsed = now.duration_since(self.last_reactive_time);
         self.last_reactive_time = now;
+        let delay = self.delay.take_report(elapsed);
+        if delay.receive_rate_kbps > 0 {
+            #[allow(clippy::cast_precision_loss)]
+            self.update_bandwidth(delay.receive_rate_kbps as f32);
+        }
         let total = self.received_frames + self.lost_frames;
         let loss_rate = if total > 0 {
             u32::try_from(self.lost_frames).map_or(0.0, |lost| (lost as f32) / (total as f32))
@@ -137,10 +155,10 @@ impl FeedbackExporter {
 
         Some(ReactiveStats {
             loss_rate,
-            jitter_us: 150,
+            jitter_us: delay.jitter_us,
             last_frame_id: self.last_frame_id,
-            queue_delay_us: 0,
-            receive_rate_kbps: 0,
+            queue_delay_us: delay.queue_delay_us,
+            receive_rate_kbps: delay.receive_rate_kbps,
         })
     }
 
@@ -218,5 +236,40 @@ mod tests {
         let p_stats = periodic.unwrap();
         assert_eq!(p_stats.decode_time_us, 400);
         assert_eq!(p_stats.render_time_us, 100);
+    }
+
+    #[test]
+    fn test_reactive_stats_carry_queue_delay_and_rate() {
+        let mut exporter = FeedbackExporter::new();
+        exporter.set_intervals(Duration::from_millis(10), Duration::from_secs(60));
+        let start = Instant::now();
+        // Ten clean frames establish the no-queue baseline...
+        for i in 0..10u64 {
+            let t = Duration::from_millis(i);
+            exporter.record_arrival(u64::try_from(t.as_nanos()).unwrap(), 1_000, start + t);
+        }
+        // ...then one frame that waited 70 ms in a queue.
+        let t = Duration::from_millis(10);
+        exporter.record_arrival(
+            u64::try_from(t.as_nanos()).unwrap(),
+            1_000,
+            start + t + Duration::from_millis(70),
+        );
+        thread::sleep(Duration::from_millis(15));
+        let stats = exporter.maybe_export_reactive().unwrap();
+        assert_eq!(
+            stats.queue_delay_us, 0,
+            "interval minimum is the clean frames"
+        );
+        assert!(stats.receive_rate_kbps > 0);
+
+        exporter.record_arrival(
+            u64::try_from(Duration::from_millis(20).as_nanos()).unwrap(),
+            1_000,
+            start + Duration::from_millis(90),
+        );
+        thread::sleep(Duration::from_millis(15));
+        let stats = exporter.maybe_export_reactive().unwrap();
+        assert_eq!(stats.queue_delay_us, 70_000);
     }
 }
