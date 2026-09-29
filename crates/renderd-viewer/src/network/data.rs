@@ -38,6 +38,16 @@ pub enum RecoverySignal {
     /// A purely local, CPU-bound event; it asks for a keyframe but must never be
     /// reported as loss.
     DecodeBacklog,
+    /// A whole frame finished arriving. Feeds the one-way queuing-delay and
+    /// receive-rate estimate; it says nothing about loss.
+    FrameArrived {
+        /// Host capture timestamp of the frame, reconstructed to absolute nanoseconds.
+        pts_ns: u64,
+        /// Encoded size of the frame.
+        bytes: usize,
+        /// When the datagram batch that completed the frame was read.
+        arrival: std::time::Instant,
+    },
     /// A frame was successfully decoded. This is what actually drives the loss
     /// rate the host's ABR loop reacts to: `FeedbackExporter::record_frame`
     /// tracks `frame_id` gaps itself, so without this signal `received_frames`
@@ -311,6 +321,7 @@ impl DatagramReceiver {
 
             let mut batch: Vec<Bytes> = Vec::with_capacity(4);
             batch.push(first);
+            let batch_arrival = std::time::Instant::now();
 
             // Pull anything already sitting in quinn's receive queue without
             // waiting. `now_or_never` polls the freshly constructed future exactly
@@ -335,7 +346,7 @@ impl DatagramReceiver {
             // single drain pass — if consumption were keeping up, waking for one
             // burst would never let a second frame finish arriving before this
             // pass got a chance to look.
-            let mut completed: Vec<ReassembledFrame> = Vec::new();
+            let mut completed: Vec<(ReassembledFrame, u64)> = Vec::new();
             for datagram in &batch {
                 let dg_len = datagram.len();
                 let dg_count = RECV_DG_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
@@ -362,7 +373,15 @@ impl DatagramReceiver {
                                 "DatagramReceiver: first frame reassembled"
                             );
                         }
-                        completed.push(frame);
+                        let pts_ns = self.unwrap_pts_ns(frame.pts_offset_us);
+                        if let Some(ref tx) = loss_tx {
+                            let _ = tx.try_send(RecoverySignal::FrameArrived {
+                                pts_ns,
+                                bytes: frame.payload.len(),
+                                arrival: batch_arrival,
+                            });
+                        }
+                        completed.push((frame, pts_ns));
                     }
                     Ok(None) => {}
                     Err(_) => {
@@ -388,7 +407,7 @@ impl DatagramReceiver {
                 }
             }
 
-            for frame in completed {
+            for (frame, pts_ns) in completed {
                 if awaiting_keyframe && !frame.is_keyframe {
                     // Its reference frame was never decoded; decoding this one
                     // would only display corrupted motion. Drop it and keep
@@ -399,7 +418,6 @@ impl DatagramReceiver {
                 }
                 awaiting_keyframe = false;
 
-                let pts_ns = self.unwrap_pts_ns(frame.pts_offset_us);
                 if let Err(e) = decoder.decode_packet(&frame.payload, frame.frame_id, pts_ns) {
                     tracing::warn!("decode_packet failed for frame {}: {e}", frame.frame_id);
                     continue;
@@ -844,7 +862,12 @@ mod tests {
         let recorded_signals = signals.lock().unwrap().clone();
         let non_decode_signals: Vec<_> = recorded_signals
             .iter()
-            .filter(|s| !matches!(s, RecoverySignal::FrameDecoded { .. }))
+            .filter(|s| {
+                !matches!(
+                    s,
+                    RecoverySignal::FrameDecoded { .. } | RecoverySignal::FrameArrived { .. }
+                )
+            })
             .collect();
         assert!(
             non_decode_signals.is_empty(),
