@@ -194,6 +194,7 @@ pub struct EncodePipeline {
     frame_counter: AtomicU64,
     keyframes: Arc<KeyframeGate>,
     dropped_frames: Arc<AtomicU64>,
+    encoder_skipped: Arc<AtomicU64>,
     current_bitrate_kbps: AtomicU32,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
@@ -227,6 +228,7 @@ impl EncodePipeline {
             frame_counter: AtomicU64::new(1),
             keyframes: Arc::new(KeyframeGate::new()),
             dropped_frames: Arc::new(AtomicU64::new(0)),
+            encoder_skipped: Arc::new(AtomicU64::new(0)),
             current_bitrate_kbps: AtomicU32::new(0),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
@@ -276,10 +278,6 @@ impl EncodePipeline {
                 VideoCodec::Hevc
             };
 
-            let tx = self.tx.clone();
-            let keyframes = Arc::clone(&self.keyframes);
-            let dropped = Arc::clone(&self.dropped_frames);
-
             let width_i32 = i32::try_from(width).map_err(|_| {
                 HostError::Initialization("Width exceeds i32 max bounds".to_string())
             })?;
@@ -287,71 +285,13 @@ impl EncodePipeline {
                 HostError::Initialization("Height exceeds i32 max bounds".to_string())
             })?;
 
-            let count_atomic = std::sync::Arc::new(AtomicU64::new(0));
-
             let session = CompressionSession::with_frame_rate(
                 width_i32,
                 height_i32,
                 vt_codec,
                 bitrate_kbps,
                 frame_rate.max(1),
-                #[allow(unsafe_code)]
-                move |err, _flags, sample_buf| {
-                    if err.code() != 0 || sample_buf.is_null() {
-                        if err.code() != 0 {
-                            tracing::warn!(
-                                status = err.code(),
-                                "VideoToolbox encode callback reported an error"
-                            );
-                        }
-                        return;
-                    }
-                    // SAFETY: sample_buf is a valid CMSampleBufferRef delivered by VideoToolbox encoder.
-                    let Ok((nal_bytes, is_kf)) =
-                        (unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) })
-                    else {
-                        return;
-                    };
-                    if nal_bytes.is_empty() {
-                        return;
-                    }
-                    let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
-                    // Recover the capture timestamp VideoToolbox carried through the
-                    // encode. Without this every frame ships pts_ns = 0 and the viewer
-                    // has no presentation timing at all.
-                    // SAFETY: sample_buf was checked non-null above and is a valid
-                    // CMSampleBufferRef owned by the VideoToolbox callback.
-                    let pts_ns =
-                        unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
-                            .unwrap_or(0);
-                    if frame_id <= 3 {
-                        tracing::info!(
-                            frame_id,
-                            is_keyframe = is_kf,
-                            pts_ns,
-                            data_len = nal_bytes.len(),
-                            "Host Encoder: extracted VideoToolbox NAL units"
-                        );
-                    }
-
-                    if is_kf {
-                        keyframes.record_keyframe(nal_bytes.len());
-                    }
-
-                    let frame = EncodedFrame {
-                        frame_id,
-                        is_keyframe: is_kf,
-                        data: Bytes::from(nal_bytes),
-                        pts_ns,
-                    };
-                    if tx.try_send(frame).is_err() {
-                        // The sender is behind. Dropping this frame breaks the reference
-                        // chain, so resynchronise with an IDR rather than shipping
-                        // P-frames the decoder will render as smear.
-                        dropped.fetch_add(1, Ordering::Relaxed);
-                        keyframes.request();
-                    }
-                },
+                self.output_handler(),
             )
             .map_err(|e| {
                 HostError::Initialization(format!("VTCompressionSession init failed: {e}"))
@@ -375,6 +315,87 @@ impl EncodePipeline {
             .store(bitrate_kbps, Ordering::Relaxed);
         tracing::info!(codec = %codec_lower, width, height, bitrate_kbps, frame_rate, "Encoder configured");
         Ok(())
+    }
+
+    /// Builds the `VideoToolbox` output callback that feeds encoded frames into
+    /// the ring buffer.
+    #[cfg(target_os = "macos")]
+    fn output_handler(
+        &self,
+    ) -> impl Fn(
+        renderd_vt_sys::VtError,
+        renderd_vt_sys::bindings::VTEncodeInfoFlags,
+        renderd_vt_sys::bindings::CMSampleBufferRef,
+    ) + Send
+           + Sync
+           + 'static {
+        let tx = self.tx.clone();
+        let keyframes = Arc::clone(&self.keyframes);
+        let dropped = Arc::clone(&self.dropped_frames);
+        let encoder_skipped = Arc::clone(&self.encoder_skipped);
+        let count_atomic = Arc::new(AtomicU64::new(0));
+
+        #[allow(unsafe_code)]
+        move |err, flags, sample_buf| {
+            if err.code() != 0 || sample_buf.is_null() {
+                if err.code() == 0 && flags & renderd_vt_sys::ENCODE_INFO_FRAME_DROPPED != 0 {
+                    // The low-latency rate controller had no budget for this
+                    // frame. The encoder keeps its reference chain intact, so
+                    // this is a lower frame rate, not a break in the stream.
+                    encoder_skipped.fetch_add(1, Ordering::Relaxed);
+                } else if err.code() != 0 {
+                    tracing::warn!(
+                        status = err.code(),
+                        "VideoToolbox encode callback reported an error"
+                    );
+                }
+                return;
+            }
+            // SAFETY: sample_buf is a valid CMSampleBufferRef delivered by VideoToolbox encoder.
+            let Ok((nal_bytes, is_kf)) =
+                (unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) })
+            else {
+                return;
+            };
+            if nal_bytes.is_empty() {
+                return;
+            }
+            let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
+            // Recover the capture timestamp VideoToolbox carried through the
+            // encode. Without this every frame ships pts_ns = 0 and the viewer
+            // has no presentation timing at all.
+            // SAFETY: sample_buf was checked non-null above and is a valid
+            // CMSampleBufferRef owned by the VideoToolbox callback.
+            let pts_ns = unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
+                .unwrap_or(0);
+            if frame_id <= 3 {
+                tracing::info!(
+                    frame_id,
+                    is_keyframe = is_kf,
+                    pts_ns,
+                    data_len = nal_bytes.len(),
+                    "Host Encoder: extracted VideoToolbox NAL units"
+                );
+            }
+
+            if is_kf {
+                keyframes.record_keyframe(nal_bytes.len());
+            }
+
+            let frame = EncodedFrame {
+                frame_id,
+                is_keyframe: is_kf,
+                data: Bytes::from(nal_bytes),
+                pts_ns,
+            };
+            if tx.try_send(frame).is_err() {
+                // The sender is behind. Dropping this frame breaks the reference
+                // chain, so resynchronise with an IDR rather than shipping
+                // P-frames the decoder will render as smear.
+                dropped.fetch_add(1, Ordering::Relaxed);
+                keyframes.request();
+            }
+        }
     }
 
     /// Releases the hardware encoder session, if any.
@@ -525,6 +546,12 @@ impl EncodePipeline {
     #[must_use]
     pub fn receiver(&self) -> Receiver<EncodedFrame> {
         self.rx.clone()
+    }
+
+    /// Returns the number of frames the encoder itself skipped for lack of bit budget.
+    #[must_use]
+    pub fn encoder_skipped_frames(&self) -> u64 {
+        self.encoder_skipped.load(Ordering::Relaxed)
     }
 
     /// Returns the number of encoded frames dropped because the ring buffer was full.
