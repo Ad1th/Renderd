@@ -19,6 +19,10 @@ pub type OSStatus = i32;
 /// Bitfield flags passed to `VideoToolbox` output callback.
 pub type VTEncodeInfoFlags = u32;
 
+/// `kVTEncodeInfo_FrameDropped`: the encoder deliberately skipped this frame,
+/// typically because the rate controller had no budget left for it.
+pub const ENCODE_INFO_FRAME_DROPPED: VTEncodeInfoFlags = 1 << 1;
+
 /// Four-character code for video codec type (`hvc1` or `avc1`).
 pub type CMVideoCodecType = u32;
 
@@ -75,6 +79,7 @@ extern "C" {
         callback: RenderD_VTOutputCallback,
         callback_ctx: *mut std::ffi::c_void,
         session_out: *mut VTCompressionSessionRef,
+        low_latency_out: *mut bool,
     ) -> OSStatus;
 
     /// Dynamically updates the target average bitrate for an active compression session.

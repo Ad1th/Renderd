@@ -14,10 +14,11 @@ use crate::bindings::{
     renderd_VTCompressionSessionEncodeFrame, renderd_VTCompressionSessionInvalidate,
     renderd_VTCompressionSessionSetBitrate, renderd_VTDecompressionSessionCreate,
     renderd_VTDecompressionSessionCreateFromNAL, renderd_VTDecompressionSessionDecodeFrame,
-    renderd_VTDecompressionSessionInvalidate, renderd_VTDecompressionSessionWaitForAsynchronousFrames,
-    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus,
-    RenderD_VTDecompressionContext, VTCompressionSessionRef, VTDecodeInfoFlags,
-    VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
+    renderd_VTDecompressionSessionInvalidate,
+    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef, CMVideoCodecType,
+    CVImageBufferRef, OSStatus, RenderD_VTDecompressionContext, VTCompressionSessionRef,
+    VTDecodeInfoFlags, VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264,
+    CODEC_TYPE_HEVC,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
@@ -89,11 +90,14 @@ extern "C" {
 /// Encapsulates hardware-accelerated H.265/H.264 encoding configured for:
 /// - `RealTime` encoding mode enabled
 /// - Frame reordering disabled (B-frames disabled, 0-frame latency)
-/// - `MaxKeyFrameIntervalDuration` set to 0.5 seconds
+/// - The low-latency rate controller, where the encoder offers it (see
+///   [`CompressionSession::is_low_latency`])
+/// - `MaxKeyFrameIntervalDuration` set to 20 seconds
 ///
 /// Implements [`Drop`] to invalidate and release the underlying session handle.
 pub struct CompressionSession {
     session: VTCompressionSessionRef,
+    low_latency: bool,
     _callback_box: Box<CallbackBox>,
 }
 
@@ -139,9 +143,11 @@ impl CompressionSession {
             .cast::<std::ffi::c_void>();
 
         let mut session: VTCompressionSessionRef = std::ptr::null_mut();
+        let mut low_latency = false;
 
         // SAFETY: renderd_VTCompressionSessionCreate initializes the session pointer,
-        // registers vt_output_callback with raw_cb_ctx, and returns OSStatus.
+        // registers vt_output_callback with raw_cb_ctx, writes the low-latency flag,
+        // and returns OSStatus.
         let status = unsafe {
             renderd_VTCompressionSessionCreate(
                 width,
@@ -152,6 +158,7 @@ impl CompressionSession {
                 vt_output_callback,
                 raw_cb_ctx,
                 &mut session,
+                &mut low_latency,
             )
         };
 
@@ -161,8 +168,19 @@ impl CompressionSession {
 
         Ok(Self {
             session,
+            low_latency,
             _callback_box: cb_box,
         })
+    }
+
+    /// Returns `true` if the encoder is running `VideoToolbox`'s low-latency rate
+    /// controller, which holds each frame close to its per-frame bit budget.
+    ///
+    /// `false` means the encoder refused it and the session uses the default
+    /// controller, whose frame sizes are only bounded over roughly a second.
+    #[must_use]
+    pub const fn is_low_latency(&self) -> bool {
+        self.low_latency
     }
 
     /// Dynamically adjusts target average bitrate in kilobits per second.
@@ -685,6 +703,23 @@ mod tests {
     fn test_codec_fourcc() {
         assert_eq!(VideoCodec::Hevc.to_fourcc(), CODEC_TYPE_HEVC);
         assert_eq!(VideoCodec::H264.to_fourcc(), CODEC_TYPE_H264);
+    }
+
+    /// Apple Silicon encoders accept the low-latency rate controller for both
+    /// codecs; this pins that the specification is actually requested and not
+    /// silently dropped on the fallback path.
+    #[test]
+    #[ignore = "Requires hardware VideoToolbox GPU acceleration (unavailable in virtualized CI)"]
+    fn test_session_uses_low_latency_rate_control() {
+        for codec in [VideoCodec::H264, VideoCodec::Hevc] {
+            let session =
+                CompressionSession::with_frame_rate(1920, 1080, codec, 6_000, 60, |_, _, _| {})
+                    .expect("hardware encoder session");
+            assert!(
+                session.is_low_latency(),
+                "{codec:?} session fell back to the default rate controller"
+            );
+        }
     }
 
     #[test]

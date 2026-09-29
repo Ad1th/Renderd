@@ -36,9 +36,8 @@ impl KeychainStore for MacosKeychain {
         let peer_account = entry.viewer_id.to_string();
         let _ = delete_generic_password(SERVICE_NAME, &peer_account);
 
-        let result = set_generic_password(SERVICE_NAME, &peer_account, &payload).map_err(|e| {
-            KeychainError::Platform(format!("Failed to save generic password: {e}"))
-        });
+        let result = set_generic_password(SERVICE_NAME, &peer_account, &payload)
+            .map_err(|e| KeychainError::Platform(format!("Failed to save generic password: {e}")));
         // The JSON encoding of PairingEntry embeds the same secret pair_token
         // bytes; wipe this heap copy too rather than leaving it for the
         // allocator to hand out unzeroed.

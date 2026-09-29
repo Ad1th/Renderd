@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Pre-release hardening, cross-platform Windows viewer integration, and input forwarding in progress.
 
+### Performance (low-bandwidth responsiveness)
+- **Encoder frame budget.** The `VideoToolbox` session now asks for the low-latency rate
+  controller, falling back to the default one if the encoder refuses it. Measured on an M3 at
+  6 Mbps with a text-heavy 1080p60 desktop: the largest P-frame went from ~420 KB to ~250 KB, and
+  the modelled worst-case queue on a 6 Mbps link from ~1.8 s to ~1.1 s. Frames the controller
+  skips for lack of budget are counted and reported (`encoder_skipped`).
+  ([`renderd-vt-sys` shim](crates/renderd-vt-sys/c-shims/videotoolbox_shim.c))
+- **Keyframe pacing.** Keyframe requests from the viewer, the ABR loop, the sender and the
+  encoder ring now go through a `KeyframeGate` that holds each request until the previous IDR has
+  drained (twice its transmit time at the current bitrate, 200 ms..1.5 s), then honours them all
+  with a single IDR. This ends keyframe storms on slow links.
+  ([`renderd-host::encode`](crates/renderd-host/src/encode.rs))
+- **Periodic keyframe interval** raised from 5 s to 20 s. A mid-stream 1080p IDR is ~130 ms of
+  link time at 6 Mbps, so a healthy stream no longer hitches every five seconds.
+
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
   strictly in arrival order with no way to catch up; software decode even slightly slower than

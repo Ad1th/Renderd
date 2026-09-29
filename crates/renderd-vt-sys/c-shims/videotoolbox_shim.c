@@ -33,28 +33,75 @@ OSStatus renderd_VTCompressionSessionCreate(
     uint32_t expected_fps,
     RenderD_VTOutputCallback callback,
     void *callback_ctx,
-    VTCompressionSessionRef *session_out
+    VTCompressionSessionRef *session_out,
+    bool *low_latency_out
 ) {
+    if (low_latency_out != NULL) {
+        *low_latency_out = false;
+    }
     if (session_out == NULL || callback == NULL || width <= 0 || height <= 0) {
         return kVTParameterErr;
     }
 
-    VTCompressionSessionRef session = NULL;
-    OSStatus status = VTCompressionSessionCreate(
+    // Ask for VideoToolbox's low-latency rate controller first. The default
+    // controller budgets bits over a window of about a second, so a single frame
+    // (a keyframe, the first frame of a scroll) can come out several times its
+    // share and then sit in the network queue for hundreds of milliseconds on a
+    // slow link. The low-latency controller holds every frame close to its
+    // per-frame budget instead, which is what a live desktop over a 5-10 Mbps
+    // path needs. Encoders that do not offer it refuse the specification, so
+    // fall back to the default controller rather than failing the session.
+    const void *spec_keys[] = { kVTVideoEncoderSpecification_EnableLowLatencyRateControl };
+    const void *spec_values[] = { kCFBooleanTrue };
+    CFDictionaryRef low_latency_spec = CFDictionaryCreate(
         kCFAllocatorDefault,
-        width,
-        height,
-        codec_type,
-        NULL,
-        NULL,
-        kCFAllocatorDefault,
-        (VTCompressionOutputCallback)callback,
-        callback_ctx,
-        &session
+        spec_keys,
+        spec_values,
+        1,
+        &kCFTypeDictionaryKeyCallBacks,
+        &kCFTypeDictionaryValueCallBacks
     );
+
+    VTCompressionSessionRef session = NULL;
+    OSStatus status = kVTParameterErr;
+    if (low_latency_spec != NULL) {
+        status = VTCompressionSessionCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            codec_type,
+            low_latency_spec,
+            NULL,
+            kCFAllocatorDefault,
+            (VTCompressionOutputCallback)callback,
+            callback_ctx,
+            &session
+        );
+        CFRelease(low_latency_spec);
+    }
+
+    bool low_latency = (status == noErr && session != NULL);
+    if (!low_latency) {
+        session = NULL;
+        status = VTCompressionSessionCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            codec_type,
+            NULL,
+            NULL,
+            kCFAllocatorDefault,
+            (VTCompressionOutputCallback)callback,
+            callback_ctx,
+            &session
+        );
+    }
 
     if (status != noErr || session == NULL) {
         return status;
+    }
+    if (low_latency_out != NULL) {
+        *low_latency_out = low_latency;
     }
 
     // 1. Enable RealTime mode for ultra-low latency streaming
@@ -104,8 +151,11 @@ OSStatus renderd_VTCompressionSessionCreate(
     // 7. Long GOP. Keyframes are large and momentarily blur the picture as the
     //    rate controller absorbs them; loss recovery is handled by on-demand IDR
     //    requests from the viewer, so periodic keyframes only need to bound how
-    //    long a viewer that missed a request stays corrupt.
-    double max_keyframe_interval_sec = 5.0;
+    //    long a viewer that missed a request stays corrupt. Measured on an M3 at
+    //    6 Mbps, a mid-stream 1080p desktop IDR is ~100 KB, about 130 ms of link
+    //    time: at a 5 s interval that was a visible hitch every five seconds on
+    //    a slow path for no benefit while the stream was healthy.
+    double max_keyframe_interval_sec = 20.0;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
         kCFNumberFloat64Type,

@@ -433,7 +433,8 @@ impl App {
     /// Pops the freshest decoded frame and presents it, dropping any stale backlog.
     fn present_next_frame(&mut self) {
         static PRESENTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        static WINDOW_PRESENTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static WINDOW_PRESENTED: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         static WINDOW_START: std::sync::Mutex<Option<std::time::Instant>> =
             std::sync::Mutex::new(None);
 
@@ -464,10 +465,8 @@ impl App {
                     total_presented = count,
                     stale_dropped = self.frame_queue.stale_dropped(),
                     last_frame_id = frame.frame_id,
-                    decode_ms =
-                        format!("{:.2}", frame.decode_duration.as_secs_f64() * 1000.0),
-                    render_ms =
-                        format!("{:.2}", render_start.elapsed().as_secs_f64() * 1000.0),
+                    decode_ms = format!("{:.2}", frame.decode_duration.as_secs_f64() * 1000.0),
+                    render_ms = format!("{:.2}", render_start.elapsed().as_secs_f64() * 1000.0),
                     "VIEWER METRICS: presentation"
                 );
                 *guard = Some(std::time::Instant::now());
@@ -534,12 +533,7 @@ impl ApplicationHandler<WakeReason> for App {
         }
     }
 
-    fn window_event(
-        &mut self,
-        event_loop: &ActiveEventLoop,
-        _id: WindowId,
-        event: WindowEvent,
-    ) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => {
                 tracing::info!("Close requested by user; shutting down viewer app");
