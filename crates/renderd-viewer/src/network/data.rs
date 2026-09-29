@@ -595,10 +595,20 @@ mod tests {
     }
 
     impl Decoder for PtsRecordingDecoder {
-        fn initialize(&mut self, _codec: &str, _width: u32, _height: u32) -> Result<(), ViewerError> {
+        fn initialize(
+            &mut self,
+            _codec: &str,
+            _width: u32,
+            _height: u32,
+        ) -> Result<(), ViewerError> {
             Ok(())
         }
-        fn decode_packet(&mut self, _packet: &[u8], _frame_id: u64, pts_ns: u64) -> Result<(), ViewerError> {
+        fn decode_packet(
+            &mut self,
+            _packet: &[u8],
+            _frame_id: u64,
+            pts_ns: u64,
+        ) -> Result<(), ViewerError> {
             self.seen_pts_ns.push(pts_ns);
             Ok(())
         }
@@ -667,7 +677,12 @@ mod tests {
     }
 
     impl Decoder for RecordingDecoder {
-        fn initialize(&mut self, _codec: &str, _width: u32, _height: u32) -> Result<(), ViewerError> {
+        fn initialize(
+            &mut self,
+            _codec: &str,
+            _width: u32,
+            _height: u32,
+        ) -> Result<(), ViewerError> {
             Ok(())
         }
 
@@ -701,20 +716,26 @@ mod tests {
 
     /// Builds a loopback QUIC connection pair for a real end-to-end receive-loop test.
     async fn loopback_pair() -> (quinn::Connection, quinn::Connection) {
-        let cert_gen = rcgen::generate_simple_self_signed(vec!["renderd-test".to_string()]).unwrap();
+        let cert_gen =
+            rcgen::generate_simple_self_signed(vec!["renderd-test".to_string()]).unwrap();
         let cert_der = rustls::pki_types::CertificateDer::from(cert_gen.cert.der().to_vec());
         let key_der =
             rustls::pki_types::PrivateKeyDer::Pkcs8(cert_gen.key_pair.serialize_der().into());
 
-        let server_tls = renderd_net::ServerTlsConfig::from_cert(vec![cert_der], key_der, None).unwrap();
+        let server_tls =
+            renderd_net::ServerTlsConfig::from_cert(vec![cert_der], key_der, None).unwrap();
         let client_tls = renderd_net::ClientTlsConfig::with_insecure_skip_verify().unwrap();
 
-        let server = renderd_net::QuicServer::bind("127.0.0.1:0".parse().unwrap(), server_tls).unwrap();
+        let server =
+            renderd_net::QuicServer::bind("127.0.0.1:0".parse().unwrap(), server_tls).unwrap();
         let addr = server.local_addr().unwrap();
         let client = renderd_net::QuicClient::bind_ephemeral().unwrap();
 
         let accept = tokio::spawn(async move { server.accept().await.unwrap() });
-        let client_conn = client.connect(addr, "renderd-test", client_tls).await.unwrap();
+        let client_conn = client
+            .connect(addr, "renderd-test", client_tls)
+            .await
+            .unwrap();
         let server_conn = accept.await.unwrap();
         (server_conn, client_conn)
     }
@@ -866,9 +887,7 @@ mod tests {
 
         // Frame 1 (keyframe) arrives alone and should decode immediately — no
         // backlog exists yet.
-        host_conn
-            .send_datagram(frame_datagram(1, true))
-            .unwrap();
+        host_conn.send_datagram(frame_datagram(1, true)).unwrap();
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
 
         // Frames 2..=14 (non-key) and 15 (key) and 16..=20 (non-key) all land

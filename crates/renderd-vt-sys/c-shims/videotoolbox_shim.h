@@ -21,6 +21,9 @@ typedef void (*RenderD_VTOutputCallback)(
 );
 
 /// Creates a hardware-accelerated VTCompressionSession configured for low-latency streaming.
+///
+/// `low_latency_out`, if non-NULL, is set to true when the encoder accepted the
+/// low-latency rate controller and false when it fell back to the default one.
 OSStatus renderd_VTCompressionSessionCreate(
     int32_t width,
     int32_t height,
@@ -29,7 +32,8 @@ OSStatus renderd_VTCompressionSessionCreate(
     uint32_t expected_fps,
     RenderD_VTOutputCallback callback,
     void *callback_ctx,
-    VTCompressionSessionRef *session_out
+    VTCompressionSessionRef *session_out,
+    bool *low_latency_out
 );
 
 /// Dynamically updates the target average bitrate for an active compression session.
