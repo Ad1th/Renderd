@@ -105,11 +105,17 @@ pub struct ReactiveStats {
     /// Frame loss rate (0.0 to 1.0)
     #[prost(float, tag = "1")]
     pub loss_rate: f32,
-    /// Fragment arrival jitter in microseconds
+    /// Frame arrival jitter in microseconds (RFC 3550 estimator)
     #[prost(uint32, tag = "2")]
     pub jitter_us: u32,
     #[prost(uint64, tag = "3")]
     pub last_frame_id: u64,
+    /// One-way queuing delay: arrival delay above its recent minimum
+    #[prost(uint32, tag = "4")]
+    pub queue_delay_us: u32,
+    /// Video payload received over the report interval
+    #[prost(uint32, tag = "5")]
+    pub receive_rate_kbps: u32,
 }
 /// Viewer -> Host: Long-term periodic telemetry (every 500 ms)
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

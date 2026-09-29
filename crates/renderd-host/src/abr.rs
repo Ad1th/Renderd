@@ -222,6 +222,7 @@ mod tests {
             loss_rate: 0.10,
             jitter_us: 100,
             last_frame_id: 1,
+            ..Default::default()
         };
 
         let decision = manager.on_reactive_stats(&stats, &pipeline).unwrap();
