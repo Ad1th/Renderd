@@ -133,7 +133,12 @@ fn convert_nv12_1to1(
         // with no partner to pair it with.
         if let [last] = pairs.into_remainder() {
             let uv_offset = uv_row_base + col;
-            nv12_to_bgra(y_row[col], uv_plane[uv_offset], uv_plane[uv_offset + 1], last);
+            nv12_to_bgra(
+                y_row[col],
+                uv_plane[uv_offset],
+                uv_plane[uv_offset + 1],
+                last,
+            );
         }
     }
 }
@@ -209,8 +214,7 @@ fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
     let chroma_r = i32::from(chroma_r) - 128;
 
     let red = ((luma + YUV_R_CR * chroma_r + YUV_HALF) >> 16).clamp(0, 255);
-    let green =
-        ((luma - YUV_G_CB * chroma_b - YUV_G_CR * chroma_r + YUV_HALF) >> 16).clamp(0, 255);
+    let green = ((luma - YUV_G_CB * chroma_b - YUV_G_CR * chroma_r + YUV_HALF) >> 16).clamp(0, 255);
     let blue = ((luma + YUV_B_CB * chroma_b + YUV_HALF) >> 16).clamp(0, 255);
 
     #[allow(clippy::cast_sign_loss)]
@@ -228,7 +232,14 @@ fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
 /// multiplications from what is the hottest loop in the software render path —
 /// roughly half the multiply work for the same two pixels.
 #[inline]
-fn nv12_pair_to_bgra(luma0: u8, luma1: u8, chroma_b: u8, chroma_r: u8, out0: &mut u32, out1: &mut u32) {
+fn nv12_pair_to_bgra(
+    luma0: u8,
+    luma1: u8,
+    chroma_b: u8,
+    chroma_r: u8,
+    out0: &mut u32,
+    out1: &mut u32,
+) {
     let chroma_b = i32::from(chroma_b) - 128;
     let chroma_r = i32::from(chroma_r) - 128;
 
@@ -431,10 +442,7 @@ impl Renderer for SoftRenderer {
                         // BGRA bytes in memory are [B, G, R, A]; read little-endian and
                         // the u32 is already 0xAARRGGBB, exactly softbuffer's layout.
                         // One tight, auto-vectorised loop instead of four shifts per pixel.
-                        for (d, s) in dest[..num_src_pixels]
-                            .iter_mut()
-                            .zip(src.chunks_exact(4))
-                        {
+                        for (d, s) in dest[..num_src_pixels].iter_mut().zip(src.chunks_exact(4)) {
                             *d = u32::from_le_bytes([s[0], s[1], s[2], s[3]]);
                         }
                     } else {
@@ -456,7 +464,12 @@ impl Renderer for SoftRenderer {
 
                     if is_1to1 {
                         convert_nv12_1to1(
-                            y_plane, uv_plane, uv_width, frame_w as usize, frame_h as usize, dest,
+                            y_plane,
+                            uv_plane,
+                            uv_width,
+                            frame_w as usize,
+                            frame_h as usize,
+                            dest,
                         );
                     } else {
                         scale_nv12(
@@ -468,9 +481,7 @@ impl Renderer for SoftRenderer {
             }
         }
 
-        let count = SOFT_RENDER_LOG_COUNT
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            + 1;
+        let count = SOFT_RENDER_LOG_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
         if count <= 3 || count % 600 == 0 {
             tracing::info!(
                 count = count,

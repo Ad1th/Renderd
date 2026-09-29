@@ -156,12 +156,17 @@ impl EncodePipeline {
                 move |err, _flags, sample_buf| {
                     if err.code() != 0 || sample_buf.is_null() {
                         if err.code() != 0 {
-                            tracing::warn!(status = err.code(), "VideoToolbox encode callback reported an error");
+                            tracing::warn!(
+                                status = err.code(),
+                                "VideoToolbox encode callback reported an error"
+                            );
                         }
                         return;
                     }
                     // SAFETY: sample_buf is a valid CMSampleBufferRef delivered by VideoToolbox encoder.
-                    let Ok((nal_bytes, is_kf)) = (unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) }) else {
+                    let Ok((nal_bytes, is_kf)) =
+                        (unsafe { renderd_vt_sys::sample_buffer_extract_nals(sample_buf) })
+                    else {
                         return;
                     };
                     if nal_bytes.is_empty() {
@@ -173,8 +178,9 @@ impl EncodePipeline {
                     // has no presentation timing at all.
                     // SAFETY: sample_buf was checked non-null above and is a valid
                     // CMSampleBufferRef owned by the VideoToolbox callback.
-                    let pts_ns = unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
-                        .unwrap_or(0);
+                    let pts_ns =
+                        unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
+                            .unwrap_or(0);
                     if frame_id <= 3 {
                         tracing::info!(
                             frame_id,
@@ -216,7 +222,8 @@ impl EncodePipeline {
             let _ = (width, height, bitrate_kbps, frame_rate);
         }
 
-        self.current_bitrate_kbps.store(bitrate_kbps, Ordering::Relaxed);
+        self.current_bitrate_kbps
+            .store(bitrate_kbps, Ordering::Relaxed);
         tracing::info!(codec = %codec_lower, width, height, bitrate_kbps, frame_rate, "Encoder configured");
         Ok(())
     }
@@ -319,7 +326,11 @@ impl EncodePipeline {
     ///
     /// Returns [`HostError::Initialization`] if updating the hardware session property fails.
     pub fn set_bitrate(&self, bitrate_kbps: u32) -> Result<(), HostError> {
-        if self.current_bitrate_kbps.swap(bitrate_kbps, Ordering::Relaxed) == bitrate_kbps {
+        if self
+            .current_bitrate_kbps
+            .swap(bitrate_kbps, Ordering::Relaxed)
+            == bitrate_kbps
+        {
             return Ok(());
         }
 

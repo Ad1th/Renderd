@@ -127,7 +127,10 @@ impl VirtualDisplay {
     /// returns nil, or CoreGraphics rejects the requested mode.
     pub fn create(name: &str, config: VirtualDisplayConfig) -> Result<Self, VirtualDisplayError> {
         if config.width == 0 || config.height == 0 {
-            return Err(VirtualDisplayError::InvalidSize(config.width, config.height));
+            return Err(VirtualDisplayError::InvalidSize(
+                config.width,
+                config.height,
+            ));
         }
 
         let (Some(descriptor_cls), Some(display_cls), Some(settings_cls), Some(mode_cls)) = (
@@ -141,8 +144,16 @@ impl VirtualDisplay {
 
         // Physical size drives the DPI macOS assumes. Aim for a typical desktop panel
         // density (~110 ppi of *logical* pixels) so the UI scale looks natural.
-        let logical_w = if config.hidpi { config.width / 2 } else { config.width };
-        let logical_h = if config.hidpi { config.height / 2 } else { config.height };
+        let logical_w = if config.hidpi {
+            config.width / 2
+        } else {
+            config.width
+        };
+        let logical_h = if config.hidpi {
+            config.height / 2
+        } else {
+            config.height
+        };
         let mm_w = f64::from(logical_w) / 110.0 * 25.4;
         let mm_h = f64::from(logical_h) / 110.0 * 25.4;
 
