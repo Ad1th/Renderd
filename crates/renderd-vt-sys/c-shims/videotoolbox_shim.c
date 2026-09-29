@@ -151,8 +151,11 @@ OSStatus renderd_VTCompressionSessionCreate(
     // 7. Long GOP. Keyframes are large and momentarily blur the picture as the
     //    rate controller absorbs them; loss recovery is handled by on-demand IDR
     //    requests from the viewer, so periodic keyframes only need to bound how
-    //    long a viewer that missed a request stays corrupt.
-    double max_keyframe_interval_sec = 5.0;
+    //    long a viewer that missed a request stays corrupt. Measured on an M3 at
+    //    6 Mbps, a mid-stream 1080p desktop IDR is ~100 KB, about 130 ms of link
+    //    time: at a 5 s interval that was a visible hitch every five seconds on
+    //    a slow path for no benefit while the stream was healthy.
+    double max_keyframe_interval_sec = 20.0;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
         kCFNumberFloat64Type,
