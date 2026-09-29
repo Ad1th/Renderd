@@ -511,13 +511,19 @@ mod tests {
     #[test]
     fn test_prefer_decodable_advances_through_non_key_frames() {
         let kept = prefer_decodable(frame(5, false), frame(6, false));
-        assert_eq!(kept.frame_id, 6, "with no keyframe in play, keep the freshest");
+        assert_eq!(
+            kept.frame_id, 6,
+            "with no keyframe in play, keep the freshest"
+        );
     }
 
     #[test]
     fn test_prefer_decodable_takes_a_later_keyframe_over_an_earlier_one() {
         let kept = prefer_decodable(frame(5, true), frame(6, true));
-        assert_eq!(kept.frame_id, 6, "the latest keyframe wins over an older one");
+        assert_eq!(
+            kept.frame_id, 6,
+            "the latest keyframe wins over an older one"
+        );
     }
 
     #[test]

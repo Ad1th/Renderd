@@ -14,10 +14,11 @@ use crate::bindings::{
     renderd_VTCompressionSessionEncodeFrame, renderd_VTCompressionSessionInvalidate,
     renderd_VTCompressionSessionSetBitrate, renderd_VTDecompressionSessionCreate,
     renderd_VTDecompressionSessionCreateFromNAL, renderd_VTDecompressionSessionDecodeFrame,
-    renderd_VTDecompressionSessionInvalidate, renderd_VTDecompressionSessionWaitForAsynchronousFrames,
-    CMSampleBufferRef, CMVideoCodecType, CVImageBufferRef, OSStatus,
-    RenderD_VTDecompressionContext, VTCompressionSessionRef, VTDecodeInfoFlags,
-    VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264, CODEC_TYPE_HEVC,
+    renderd_VTDecompressionSessionInvalidate,
+    renderd_VTDecompressionSessionWaitForAsynchronousFrames, CMSampleBufferRef, CMVideoCodecType,
+    CVImageBufferRef, OSStatus, RenderD_VTDecompressionContext, VTCompressionSessionRef,
+    VTDecodeInfoFlags, VTDecompressionSessionRef, VTEncodeInfoFlags, CODEC_TYPE_H264,
+    CODEC_TYPE_HEVC,
 };
 use crate::error::VtError;
 use crate::surface::IoSurface;
