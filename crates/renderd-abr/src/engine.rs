@@ -21,7 +21,7 @@ use renderd_proto::types::BitrateKbps;
 use crate::state::AbrState;
 
 /// Queuing delay above which the engine backs off.
-pub const DELAY_BACKOFF_MS: f64 = 60.0;
+pub const DELAY_BACKOFF_MS: f64 = 40.0;
 
 /// Queuing delay above which the engine halves the bitrate outright.
 pub const DELAY_PANIC_MS: f64 = 250.0;
