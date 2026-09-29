@@ -210,6 +210,8 @@ impl EncodePipeline {
                 HostError::Initialization(format!("VTCompressionSession init failed: {e}"))
             })?;
 
+            log_rate_controller(&session, &codec_lower);
+
             let mut guard = self
                 .session
                 .lock()
@@ -369,6 +371,23 @@ impl EncodePipeline {
     #[must_use]
     pub fn dropped_frames(&self) -> u64 {
         self.dropped_frames.load(Ordering::Relaxed)
+    }
+}
+
+/// Reports which `VideoToolbox` rate controller `session` ended up with.
+///
+/// A session that silently fell back to the default controller behaves very
+/// differently on a slow link, so that case is logged at WARN.
+#[cfg(target_os = "macos")]
+fn log_rate_controller(session: &renderd_vt_sys::CompressionSession, codec: &str) {
+    if session.is_low_latency() {
+        tracing::info!(codec, "VideoToolbox low-latency rate control enabled");
+    } else {
+        tracing::warn!(
+            codec,
+            "VideoToolbox refused low-latency rate control; frame sizes are only \
+             bounded per second, so expect bursts on slow links"
+        );
     }
 }
 
