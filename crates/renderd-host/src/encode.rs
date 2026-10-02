@@ -425,15 +425,19 @@ impl EncodePipeline {
 
             log_rate_controller(&session, &params.codec);
 
-            let old = {
-                let mut guard = self.session.lock().map_err(|_| {
-                    HostError::Initialization("EncodePipeline mutex poisoned".into())
-                })?;
-                guard.replace(session)
-            };
-            // Outside the lock: dropping waits for the old session's last frames,
-            // and capture must not stall on the lock meanwhile.
-            drop(old);
+            let mut guard = self
+                .session
+                .lock()
+                .map_err(|_| HostError::Initialization("EncodePipeline mutex poisoned".into()))?;
+            // Drain the old session before the new one encodes anything. Frame ids
+            // are handed out as frames come out of the encoder, so a last frame of
+            // the old size finishing after the new size's first keyframe would get
+            // the later id, and the viewer would decode it against the wrong
+            // picture. Dropping waits for its in-flight frames — a few
+            // milliseconds, during which capture waits on this lock.
+            drop(guard.take());
+            *guard = Some(session);
+            drop(guard);
         }
 
         #[cfg(not(target_os = "macos"))]
