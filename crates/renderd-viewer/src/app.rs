@@ -57,6 +57,12 @@ pub struct App {
     frame_queue: Arc<FrameQueue>,
     discovery: DiscoveryManager,
     tray: SystemTrayManager,
+    /// The D3D11 device shared by the hardware decoder and the GPU presenter,
+    /// and whether `renderer` is currently that presenter.
+    #[cfg(target_os = "windows")]
+    gpu: Option<std::sync::Arc<crate::gpu::D3d11Context>>,
+    #[cfg(target_os = "windows")]
+    gpu_presenter: bool,
 }
 
 impl App {
@@ -66,12 +72,30 @@ impl App {
         #[cfg(target_os = "macos")]
         let decoder: Box<dyn Decoder> = Box::new(crate::decode::VideoToolboxDecoder::new());
         #[cfg(target_os = "windows")]
+        let gpu = Self::d3d11_context(&config);
+        #[cfg(target_os = "windows")]
         let decoder: Box<dyn Decoder> = match config.decoder_backend {
-            crate::cli::DecoderBackend::Mf => {
-                Box::new(crate::decode::MediaFoundationDecoder::new())
-            }
+            crate::cli::DecoderBackend::Mf => Box::new(
+                gpu.clone()
+                    .map_or_else(crate::decode::MediaFoundationDecoder::new, |d3d| {
+                        crate::decode::MediaFoundationDecoder::with_d3d11(d3d)
+                    }),
+            ),
             crate::cli::DecoderBackend::D3d12 => Box::new(crate::decode::D3D12Decoder::new()),
         };
+        #[cfg(target_os = "windows")]
+        let gpu_presenter =
+            gpu.is_some() && config.renderer_choice == crate::cli::RendererChoice::Auto;
+        #[cfg(target_os = "windows")]
+        let renderer: Box<dyn Renderer> = match gpu.clone() {
+            Some(d3d) if gpu_presenter => Box::new(crate::render::D3d11Presenter::new(
+                d3d,
+                config.config.viewer.vsync,
+            )),
+            _ => Box::new(SoftRenderer::new()),
+        };
+        #[cfg(not(target_os = "windows"))]
+        let renderer: Box<dyn Renderer> = Box::new(SoftRenderer::new());
         #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let decoder: Box<dyn Decoder> = Box::new(NullDecoder::new());
 
@@ -79,12 +103,94 @@ impl App {
             config,
             state: AppState::new(),
             window_system: None,
-            renderer: Box::new(SoftRenderer::new()),
+            renderer,
             decoder,
             frame_queue: Arc::new(FrameQueue::new(3)),
             discovery: DiscoveryManager::new(),
             tray: SystemTrayManager::new(),
+            #[cfg(target_os = "windows")]
+            gpu,
+            #[cfg(target_os = "windows")]
+            gpu_presenter,
         }
+    }
+
+    /// The D3D11 device for hardware decode and GPU presentation, unless
+    /// `viewer.hw_accel` is off or no device can be created.
+    #[cfg(target_os = "windows")]
+    fn d3d11_context(config: &ViewerAppConfig) -> Option<std::sync::Arc<crate::gpu::D3d11Context>> {
+        if !config.config.viewer.hw_accel {
+            tracing::info!("viewer.hw_accel is off; decoding and presenting in software");
+            return None;
+        }
+        match crate::gpu::D3d11Context::new() {
+            Ok(d3d) => Some(d3d),
+            Err(e) => {
+                tracing::warn!("No D3D11 device ({e}); decoding and presenting in software");
+                None
+            }
+        }
+    }
+
+    /// Replaces a failed GPU presenter with the software renderer, and tells the
+    /// decoder to hand out frames in system memory from now on.
+    #[cfg(target_os = "windows")]
+    fn fall_back_to_soft_renderer(&mut self, reason: &ViewerError) {
+        if !self.gpu_presenter {
+            return;
+        }
+        tracing::warn!("GPU presenter failed ({reason}); falling back to the software renderer");
+        self.gpu_presenter = false;
+        if let Some(ref d3d) = self.gpu {
+            d3d.set_gpu_frames(false);
+        }
+        let _ = self.renderer.shutdown();
+        self.renderer = Box::new(SoftRenderer::new());
+        if let Some(ref ws) = self.window_system {
+            let viewport = ws.viewport_size();
+            if let Err(e) = self
+                .renderer
+                .attach_window(ws.window().clone())
+                .and_then(|()| self.renderer.initialize(viewport))
+            {
+                tracing::error!("Software renderer also failed to start: {e}");
+            }
+        }
+    }
+
+    /// Records that the renderer started, or falls back if it did not.
+    #[cfg_attr(
+        not(target_os = "windows"),
+        allow(clippy::unused_self, clippy::needless_pass_by_ref_mut)
+    )]
+    fn on_renderer_started(&mut self, result: Result<(), ViewerError>) {
+        match result {
+            Ok(()) =>
+            {
+                #[cfg(target_os = "windows")]
+                if self.gpu_presenter {
+                    if let Some(ref d3d) = self.gpu {
+                        d3d.set_gpu_frames(true);
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!("Failed to start renderer: {e}");
+                #[cfg(target_os = "windows")]
+                self.fall_back_to_soft_renderer(&e);
+            }
+        }
+    }
+
+    /// Handles a render or present failure.
+    #[cfg_attr(
+        not(target_os = "windows"),
+        allow(clippy::unused_self, clippy::needless_pass_by_ref_mut)
+    )]
+    fn on_render_error(&mut self, e: &ViewerError) {
+        tracing::error!("Error rendering frame: {e}");
+        #[cfg(target_os = "windows")]
+        self.fall_back_to_soft_renderer(e);
     }
 
     /// Sets a custom graphics renderer implementation.
@@ -451,12 +557,12 @@ impl App {
         };
 
         let render_start = std::time::Instant::now();
-        if let Err(e) = self.renderer.render_frame(&frame) {
-            tracing::error!("Error rendering frame: {e}");
-            return;
-        }
-        if let Err(e) = self.renderer.present() {
-            tracing::error!("Error presenting frame: {e}");
+        if let Err(e) = self
+            .renderer
+            .render_frame(&frame)
+            .and_then(|()| self.renderer.present())
+        {
+            self.on_render_error(&e);
             return;
         }
         let count = PRESENTED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
@@ -498,19 +604,20 @@ impl ApplicationHandler<WakeReason> for App {
         ) {
             Ok(ws) => {
                 let viewport = ws.viewport_size();
-                if let Err(e) = self.renderer.attach_window(ws.window().clone()) {
-                    tracing::error!("Failed to attach window to renderer: {e}");
-                }
-                if let Err(e) = self.renderer.initialize(viewport) {
-                    tracing::error!("Failed to initialize renderer: {e}");
-                } else {
+                let window = ws.window().clone();
+                self.window_system = Some(ws);
+                let started = self
+                    .renderer
+                    .attach_window(window)
+                    .and_then(|()| self.renderer.initialize(viewport));
+                if started.is_ok() {
                     tracing::info!(
                         width = viewport.width,
                         height = viewport.height,
                         "Renderer initialized successfully"
                     );
                 }
-                self.window_system = Some(ws);
+                self.on_renderer_started(started);
             }
             Err(e) => {
                 tracing::error!("Failed to create window system: {e}");

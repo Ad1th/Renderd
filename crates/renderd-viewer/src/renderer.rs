@@ -779,6 +779,7 @@ mod tests {
             format: PixelFormat::Bgra8,
             buffer: vec![255u8; 40000],
             decode_duration: std::time::Duration::from_millis(1),
+            gpu: None,
         };
 
         assert!(renderer.render_frame(&frame).is_err());

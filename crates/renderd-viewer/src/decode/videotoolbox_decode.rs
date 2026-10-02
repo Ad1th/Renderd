@@ -209,6 +209,7 @@ impl Decoder for VideoToolboxDecoder {
                                 format: crate::decoder::PixelFormat::Bgra8,
                                 buffer,
                                 decode_duration: std::time::Duration::from_millis(1),
+                                gpu: None,
                             };
 
                             if let Ok(mut q) = queue.lock() {
