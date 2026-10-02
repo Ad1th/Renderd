@@ -437,46 +437,61 @@ impl App {
                                         }
                                     }
                                     Some(signal) = loss_rx.recv() => {
-                                        // Only genuine network loss should ever pull the
-                                        // encoder's bitrate down. A decode backlog is a
+                                        use crate::network::RecoverySignal;
+                                        // Only genuine network loss should ever count
+                                        // toward the loss rate. A decode backlog is a
                                         // local, CPU-bound event — it still wants a fresh
                                         // keyframe to resync on, but reporting it as loss
-                                        // would crush quality under motion (scrolling,
-                                        // video) for a problem more bitrate can't fix.
-                                        // A successful decode only feeds the exporter's
-                                        // received_frames/frame_id bookkeeping — it must
-                                        // never fall into the keyframe-request path below,
-                                        // or a healthy stream would ask for a fresh IDR
-                                        // every KF_DEBOUNCE purely because frames keep
-                                        // arriving on this same channel.
-                                        if let crate::network::RecoverySignal::FrameArrived { pts_ns, bytes, arrival } = signal {
-                                            feedback_exporter.record_arrival(pts_ns, bytes, arrival);
-                                            continue;
-                                        }
-                                        if let crate::network::RecoverySignal::FrameDecoded { frame_id, decode_duration } = signal {
-                                            feedback_exporter.record_frame(
-                                                frame_id,
-                                                decode_duration,
-                                                std::time::Duration::ZERO,
-                                            );
-                                            continue;
-                                        }
-
-                                        if let crate::network::RecoverySignal::FragmentLoss(count) = signal {
-                                            feedback_exporter.record_frame_loss(count.max(1));
-                                        }
-                                        if last_kf_req.elapsed() >= KF_DEBOUNCE {
-                                            last_kf_req = std::time::Instant::now();
-                                            let kf_req = feedback_exporter.create_keyframe_request();
-                                            let env = Envelope {
-                                                payload: Some(Payload::KeyframeRequest(kf_req)),
-                                            };
-                                            if send_control(&mut send_stream, &env).await.is_err() {
-                                                break;
+                                        // would crush quality under motion for a problem
+                                        // more bitrate can't fix.
+                                        match signal {
+                                            RecoverySignal::FrameArrived { pts_ns, bytes, arrival } => {
+                                                feedback_exporter.record_arrival(pts_ns, bytes, arrival);
                                             }
-                                            tracing::info!(
-                                                "Sent KeyframeRequest over Stream 0 due to frame loss"
-                                            );
+                                            RecoverySignal::FrameDecoded { frame_id, decode_duration } => {
+                                                feedback_exporter.record_frame(
+                                                    frame_id,
+                                                    decode_duration,
+                                                    std::time::Duration::ZERO,
+                                                );
+                                            }
+                                            RecoverySignal::FragmentLoss(count) => {
+                                                feedback_exporter.record_frame_loss(count.max(1));
+                                            }
+                                            // Sent the moment the loss is seen: every
+                                            // millisecond here is a millisecond the frames
+                                            // behind the lost one wait.
+                                            RecoverySignal::Nack(requests) => {
+                                                use renderd_proto::generated::renderd::{FrameNack, Nack};
+                                                let nack = Nack {
+                                                    frames: requests
+                                                        .into_iter()
+                                                        .map(|r| FrameNack {
+                                                            frame_id: r.frame_id,
+                                                            frag_ids: r.frag_ids.into_iter().map(u32::from).collect(),
+                                                        })
+                                                        .collect(),
+                                                };
+                                                let env = Envelope { payload: Some(Payload::Nack(nack)) };
+                                                if send_control(&mut send_stream, &env).await.is_err() {
+                                                    break;
+                                                }
+                                            }
+                                            RecoverySignal::KeyframeNeeded | RecoverySignal::DecodeBacklog => {
+                                                if last_kf_req.elapsed() >= KF_DEBOUNCE {
+                                                    last_kf_req = std::time::Instant::now();
+                                                    let kf_req = feedback_exporter.create_keyframe_request();
+                                                    let env = Envelope {
+                                                        payload: Some(Payload::KeyframeRequest(kf_req)),
+                                                    };
+                                                    if send_control(&mut send_stream, &env).await.is_err() {
+                                                        break;
+                                                    }
+                                                    tracing::info!(
+                                                        "Sent KeyframeRequest over Stream 0: a reference frame could not be recovered"
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -487,7 +502,7 @@ impl App {
                         state_conn.set_connection_state(crate::state::ConnectionState::Connected);
                         let _ = frame_proxy.send_event(WakeReason::ConnectionChanged);
 
-                        let mut receiver = DatagramReceiver::new(4);
+                        let mut receiver = DatagramReceiver::new();
 
                         if let Err(e) = decoder.reset() {
                             tracing::warn!("Decoder reset error: {e}");
