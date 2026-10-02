@@ -518,18 +518,12 @@ impl ApplicationHandler<WakeReason> for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WakeReason) {
-        match event {
-            WakeReason::Frame => {
-                if let Some(ref ws) = self.window_system {
-                    ws.window().request_redraw();
-                }
-            }
-            WakeReason::ConnectionChanged => {
-                tracing::debug!(state = ?self.state.connection_state(), "connection state changed");
-                if let Some(ref ws) = self.window_system {
-                    ws.window().request_redraw();
-                }
-            }
+        if event == WakeReason::ConnectionChanged {
+            tracing::debug!(state = ?self.state.connection_state(), "connection state changed");
+        }
+        // A new frame or a new connection state: either way there is something to draw.
+        if let Some(ref ws) = self.window_system {
+            ws.window().request_redraw();
         }
     }
 
