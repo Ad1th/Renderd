@@ -29,7 +29,7 @@ use crate::capture::{CapturePipeline, CaptureTarget};
 use crate::clock::ClockController;
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
-use crate::network::{ControlDispatcher, DataSender, NetworkManager};
+use crate::network::{ControlDispatcher, DataSender, NetworkManager, RetransmitCache};
 use crate::session::HostSession;
 use crate::ui::UiManager;
 
@@ -368,10 +368,16 @@ impl HostApp {
                                 return;
                             }
 
+                            // Every datagram this session sends, held briefly so the
+                            // viewer can ask for lost ones instead of a keyframe.
+                            let retransmits = Arc::new(RetransmitCache::new());
+
                             // Spawn Control stream reader to process VsyncReport & telemetry (#110, #111)
                             let capture_for_ctrl = capture.clone();
                             let abr_for_ctrl = abr.clone();
                             let encode_for_ctrl = encode.clone();
+                            let retransmits_for_ctrl = Arc::clone(&retransmits);
+                            let conn_for_ctrl = conn.clone();
                             tokio::spawn(async move {
                                 use renderd_net::framing::recv_control;
                                 use renderd_proto::generated::renderd::envelope::Payload;
@@ -398,6 +404,13 @@ impl HostApp {
                                         }
                                         Some(Payload::KeyframeRequest(_)) => {
                                             abr_for_ctrl.on_keyframe_request(&encode_for_ctrl);
+                                        }
+                                        Some(Payload::Nack(nack)) => {
+                                            Self::answer_nack(
+                                                &nack,
+                                                &conn_for_ctrl,
+                                                &retransmits_for_ctrl,
+                                            );
                                         }
                                         _ => {}
                                     }
@@ -426,6 +439,7 @@ impl HostApp {
                                         sender_shutdown,
                                         request_keyframe,
                                         link_for_sender,
+                                        retransmits,
                                     )
                                     .await;
                             });
@@ -480,6 +494,28 @@ impl HostApp {
 
         tracing::info!("renderd-host shutdown complete");
         Ok(())
+    }
+
+    /// Resends the fragments a viewer reported lost.
+    ///
+    /// A request repeated within one round trip of the last answer most likely
+    /// crossed it on the wire, so those fragments are not sent twice.
+    fn answer_nack(
+        nack: &renderd_proto::generated::renderd::Nack,
+        connection: &quinn::Connection,
+        retransmits: &RetransmitCache,
+    ) {
+        let now = std::time::Instant::now();
+        let min_gap = connection.rtt();
+        for frame in &nack.frames {
+            for datagram in
+                retransmits.take_for_resend(frame.frame_id, &frame.frag_ids, now, min_gap)
+            {
+                if connection.send_datagram(datagram).is_err() {
+                    return;
+                }
+            }
+        }
     }
 
     /// Returns this machine's primary outbound IPv4 address, or `None` if it has no route.
