@@ -29,6 +29,13 @@ extend_display = true
 # that cannot fit. Set a height (360 to 4320) to force one.
 max_stream_height = 0
 
+# Drop the encoded resolution while the link carries less than the stream's
+# size needs (and raise it again when it carries more), in steps of 896, 720
+# and 544 lines. On a slow link a full-screen change at 1080p is a frame of
+# 80 KB or more, a third of a second at 2 Mbps; fewer pixels keep it snappy.
+# The size chosen above (or by max_stream_height) is the most it will use.
+adaptive_resolution = true
+
 [network]
 # IP address string to bind host daemon socket
 bind_address = "0.0.0.0"
