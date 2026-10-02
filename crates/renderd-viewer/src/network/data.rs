@@ -39,6 +39,20 @@ const BACKLOG_SPAN_NS: u64 = 150_000_000;
 /// timestamps, in case a stream carries no usable ones.
 const BACKLOG_FRAMES: usize = 8;
 
+/// Time the previous pass must have spent decoding for a bunch of frames to
+/// count as a decode backlog rather than as the network delivering them
+/// together.
+///
+/// On a slow link frames bunch up behind every large frame: a 65 KB keyframe
+/// is 170 ms of a 3 Mbps link, and the frames captured meanwhile land
+/// together right after it, spanning more than [`BACKLOG_SPAN_NS`]. Treating
+/// that as a backlog skipped them and asked for *another* keyframe, which
+/// bunched the next frames the same way. Frames can only have queued up
+/// behind decode if decode was what the loop was doing; a hardware decoder
+/// takes a millisecond or two a frame, so a pass this long means decode
+/// really is the bottleneck.
+const BACKLOG_BUSY: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// Whether the frames completed in one drain pass show decode falling behind.
 ///
 /// `pts_ns` are the completed frames' capture timestamps in arrival order.
@@ -325,9 +339,12 @@ impl DatagramReceiver {
     /// count would not do, because one frame's fragments routinely land as
     /// dozens of queued datagrams on every healthy frame. Frames completed by a
     /// retransmit are left out of that measure: their capture time is older by
-    /// the recovery round trip, which says nothing about decode. On a backlog,
-    /// decoding restarts from the newest keyframe in the pass, or, with none,
-    /// waits for the next one and asks for it.
+    /// the recovery round trip, which says nothing about decode. And it only
+    /// counts if the previous pass was busy decoding for [`BACKLOG_BUSY`]:
+    /// frames that queued while the loop sat waiting were bunched by the
+    /// network, not by decode, and are simply decoded. On a backlog, decoding
+    /// restarts from the newest keyframe in the pass, or, with none, waits for
+    /// the next one and asks for it.
     #[allow(clippy::too_many_lines)]
     async fn receive_loop_inner<D, W>(
         &mut self,
@@ -361,6 +378,8 @@ impl DatagramReceiver {
 
         let mut batch: Vec<Bytes> = Vec::with_capacity(64);
         let mut out = ReceiveOutput::default();
+        // How long the previous pass spent decoding.
+        let mut last_decode_work = std::time::Duration::ZERO;
 
         loop {
             // Sleep until a datagram arrives or the window has a retransmit or
@@ -439,7 +458,7 @@ impl DatagramReceiver {
             }
 
             let mut frames: Vec<ReassembledFrame> = std::mem::take(&mut out.frames);
-            if is_decode_backlog(&arrived_pts) {
+            if last_decode_work >= BACKLOG_BUSY && is_decode_backlog(&arrived_pts) {
                 interval_backlog_events += 1;
                 // Everything from the newest keyframe on is still decodable;
                 // without one, skip to the next keyframe and ask for it.
@@ -457,6 +476,7 @@ impl DatagramReceiver {
                 }
             }
 
+            let decode_start = std::time::Instant::now();
             let mut pushed_any = false;
             for frame in frames {
                 let pts_ns = self.unwrap_pts_ns(frame.pts_offset_us);
@@ -493,6 +513,7 @@ impl DatagramReceiver {
                     wake();
                 }
             }
+            last_decode_work = decode_start.elapsed();
 
             let elapsed = interval_start.elapsed();
             if elapsed >= std::time::Duration::from_secs(1) {
@@ -734,6 +755,18 @@ mod tests {
     struct RecordingDecoder {
         decoded_ids: std::sync::Arc<std::sync::Mutex<Vec<u64>>>,
         pending: std::sync::Arc<std::sync::Mutex<std::collections::VecDeque<DecodedFrame>>>,
+        /// Time each decode takes, to stand in for a decoder slower than the
+        /// frame rate.
+        cost: std::time::Duration,
+    }
+
+    impl RecordingDecoder {
+        fn slow(cost: std::time::Duration) -> Self {
+            Self {
+                cost,
+                ..Self::default()
+            }
+        }
     }
 
     impl Decoder for RecordingDecoder {
@@ -752,6 +785,7 @@ mod tests {
             frame_id: u64,
             pts_ns: u64,
         ) -> Result<(), ViewerError> {
+            std::thread::sleep(self.cost);
             self.decoded_ids.lock().unwrap().push(frame_id);
             self.pending.lock().unwrap().push_back(DecodedFrame {
                 frame_id,
@@ -983,19 +1017,20 @@ mod tests {
         );
     }
 
-    /// The regression test for the multi-second lag this module exists to fix:
-    /// once arrival outruns consumption, the receive loop must skip non-keyframe
-    /// backlog rather than faithfully decoding every stale frame in order.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn test_receive_loop_skips_stale_backlog_until_next_keyframe() {
+    /// Runs the receive loop over a loopback connection with `decoder`, and
+    /// returns the host end plus everything the loop signalled.
+    async fn spawn_receive_loop(
+        decoder: RecordingDecoder,
+    ) -> (
+        quinn::Connection,
+        tokio::task::JoinHandle<()>,
+        Arc<std::sync::Mutex<Vec<RecoverySignal>>>,
+    ) {
         let (host_conn, viewer_conn) = loopback_pair().await;
-
         let mut receiver = DatagramReceiver::new();
-        let decoder = RecordingDecoder::default();
-        let mut decoder_handle = decoder.clone();
+        let mut decoder_handle = decoder;
         let frame_queue = Arc::new(FrameQueue::new(8));
-        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(64);
-
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(1024);
         let recv_task = tokio::spawn(async move {
             let _ = receiver
                 .run_receive_loop_with_loss_signal(
@@ -1006,8 +1041,6 @@ mod tests {
                 )
                 .await;
         });
-        // Collect every recovery signal the loop sends, so the test can assert on
-        // *which* kind fired — not just drain them.
         let signals = Arc::new(std::sync::Mutex::new(Vec::<RecoverySignal>::new()));
         let signals_handle = signals.clone();
         tokio::spawn(async move {
@@ -1015,126 +1048,104 @@ mod tests {
                 signals_handle.lock().unwrap().push(signal);
             }
         });
+        (host_conn, recv_task, signals)
+    }
 
-        // Frame 1 (keyframe) arrives alone and should decode immediately — no
-        // backlog exists yet.
-        host_conn.send_datagram(frame_datagram(1, true)).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-
-        // Frames 2..=14 (non-key) and 15 (key) and 16..=20 (non-key) all land
-        // before the receive loop can drain them one at a time — simulating decode
-        // that has fallen behind real-time arrival.
-        for id in 2..=20u64 {
+    /// Sends single-fragment frames `ids` at a 60 fps cadence; `key` marks keyframes.
+    async fn send_at_60fps(
+        host_conn: &quinn::Connection,
+        ids: std::ops::RangeInclusive<u64>,
+        key: impl Fn(u64) -> bool,
+    ) {
+        for id in ids {
             host_conn
-                .send_datagram(frame_datagram(id, id == 15))
+                .send_datagram(frame_datagram(id, key(id)))
                 .unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(16)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    }
+
+    /// The regression test for the multi-second lag this module exists to fix:
+    /// once decode runs slower than frames arrive, the receive loop must skip
+    /// non-keyframe backlog rather than faithfully decoding every stale frame
+    /// in order.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_receive_loop_skips_stale_backlog_until_next_keyframe() {
+        let decoder = RecordingDecoder::slow(std::time::Duration::from_millis(30));
+        let decoded_log = decoder.decoded_ids.clone();
+        let (host_conn, recv_task, signals) = spawn_receive_loop(decoder).await;
+
+        host_conn.send_datagram(frame_datagram(1, true)).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Frames at 60 fps into a decoder that needs 30 ms each.
+        send_at_60fps(&host_conn, 2..=60, |id| id == 45).await;
+        tokio::time::sleep(std::time::Duration::from_millis(600)).await;
 
         host_conn.close(0u32.into(), b"test done");
-        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(3), recv_task).await;
 
-        let decoded_frame_ids = decoder.decoded_ids.lock().unwrap().clone();
-
+        let decoded_frame_ids = decoded_log.lock().unwrap().clone();
+        assert!(decoded_frame_ids.contains(&1), "{decoded_frame_ids:?}");
         assert!(
-            decoded_frame_ids.contains(&1),
-            "the lone first keyframe must always decode: {decoded_frame_ids:?}"
-        );
-        assert!(
-            decoded_frame_ids.contains(&15),
+            decoded_frame_ids.contains(&45),
             "the keyframe that ends the backlog must decode: {decoded_frame_ids:?}"
         );
         assert!(
-            decoded_frame_ids.iter().any(|&id| (16..=20).contains(&id)),
+            decoded_frame_ids.iter().any(|&id| id > 45),
             "decoding must resume after the keyframe: {decoded_frame_ids:?}"
         );
-        let skipped_in_backlog = (2..15).filter(|id| !decoded_frame_ids.contains(id)).count();
+        let skipped = (2..45).filter(|id| !decoded_frame_ids.contains(id)).count();
         assert!(
-            skipped_in_backlog > 0,
-            "at least some of the stale non-key backlog must be skipped, not decoded \
-             in strict arrival order: decoded={decoded_frame_ids:?}"
+            skipped > 0,
+            "some stale non-key backlog must be skipped: {decoded_frame_ids:?}"
         );
 
-        // Not one byte was actually lost on this loopback — every datagram sent
-        // above arrived. The backlog is a purely local, CPU-bound event, so it
-        // must never be reported as FragmentLoss: doing so would tell the host's
-        // ABR loop the network is failing and pull the bitrate down for a problem
-        // more bitrate cannot fix, visibly hurting quality under exactly the
-        // motion (scrolling, video) that causes backlogs in the first place.
+        // Not one byte was lost on this loopback. The backlog is a local,
+        // CPU-bound event; reporting it as loss would pull the bitrate down for
+        // a problem more bitrate cannot fix.
         let recorded_signals = signals.lock().unwrap().clone();
         assert!(
             recorded_signals
                 .iter()
                 .all(|s| !matches!(s, RecoverySignal::FragmentLoss(_))),
-            "no fragment was actually lost, so no signal may report FragmentLoss: {recorded_signals:?}"
+            "no fragment was lost: {recorded_signals:?}"
         );
-        // Frame 15 was in hand, so decoding restarted from it: asking the host
-        // for yet another keyframe would only put a second one on the link.
         assert!(
-            recorded_signals.iter().all(|s| !matches!(
-                s,
-                RecoverySignal::DecodeBacklog | RecoverySignal::KeyframeNeeded
-            )),
-            "the backlog already carried a keyframe: {recorded_signals:?}"
+            recorded_signals
+                .iter()
+                .any(|s| matches!(s, RecoverySignal::DecodeBacklog)),
+            "a backlog with no keyframe in hand asks for one: {recorded_signals:?}"
         );
     }
 
-    /// A backlog with no keyframe in it has nothing to restart from: the loop
-    /// must wait for the next keyframe, decode nothing until then, and ask.
+    /// The slow-link case the backlog check got wrong: frames held up behind a
+    /// large one on the wire arrive together, spanning well over the backlog
+    /// threshold, while decode is perfectly fast. They are decoded, not
+    /// skipped, and no keyframe is asked for.
     #[tokio::test(flavor = "multi_thread")]
-    async fn test_backlog_without_a_keyframe_asks_for_one() {
-        let (host_conn, viewer_conn) = loopback_pair().await;
-
-        let mut receiver = DatagramReceiver::new();
+    async fn test_network_bunching_is_not_a_decode_backlog() {
         let decoder = RecordingDecoder::default();
-        let mut decoder_handle = decoder.clone();
-        let frame_queue = Arc::new(FrameQueue::new(8));
-        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(64);
-
-        let recv_task = tokio::spawn(async move {
-            let _ = receiver
-                .run_receive_loop_with_loss_signal(
-                    &viewer_conn,
-                    &mut decoder_handle,
-                    &frame_queue,
-                    Some(loss_tx),
-                )
-                .await;
-        });
-        let signals = Arc::new(std::sync::Mutex::new(Vec::<RecoverySignal>::new()));
-        let signals_handle = signals.clone();
-        tokio::spawn(async move {
-            while let Some(signal) = loss_rx.recv().await {
-                signals_handle.lock().unwrap().push(signal);
-            }
-        });
+        let decoded_log = decoder.decoded_ids.clone();
+        let (host_conn, recv_task, signals) = spawn_receive_loop(decoder).await;
 
         host_conn.send_datagram(frame_datagram(1, true)).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        for id in 2..=14u64 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Twelve frames, 200 ms of video, delivered back to back.
+        for id in 2..=13u64 {
             host_conn.send_datagram(frame_datagram(id, false)).unwrap();
         }
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        host_conn.send_datagram(frame_datagram(15, false)).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        host_conn.send_datagram(frame_datagram(16, true)).unwrap();
-        host_conn.send_datagram(frame_datagram(17, false)).unwrap();
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         host_conn.close(0u32.into(), b"test done");
         let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
 
-        let decoded_ids = decoder.decoded_ids.lock().unwrap().clone();
-        assert!(
-            !decoded_ids.contains(&15) && decoded_ids.ends_with(&[16, 17]),
-            "nothing between the backlog and the next keyframe may be decoded: {decoded_ids:?}"
-        );
+        assert_eq!(*decoded_log.lock().unwrap(), (1..=13).collect::<Vec<_>>());
         let recorded = signals.lock().unwrap().clone();
         assert!(
-            recorded
-                .iter()
-                .any(|s| matches!(s, RecoverySignal::DecodeBacklog)),
-            "the backlog must ask for a keyframe: {recorded:?}"
+            recorded.iter().all(|s| !matches!(
+                s,
+                RecoverySignal::DecodeBacklog | RecoverySignal::KeyframeNeeded
+            )),
+            "{recorded:?}"
         );
     }
 
