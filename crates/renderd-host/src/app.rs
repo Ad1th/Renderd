@@ -322,12 +322,26 @@ impl HostApp {
                             // this connection, so both now abort the session cleanly
                             // instead of pretending to stream.
                             let start_bitrate = abr.current_bitrate().0;
+                            // The session's size is the most the encoder will use;
+                            // the governor moves it down and back up with the link.
+                            // Capture stays at the session's size: VideoToolbox
+                            // scales each surface to the encoder's.
+                            let mut governor = host_cfg.adaptive_resolution.then(|| {
+                                crate::scale::ResolutionGovernor::new(
+                                    (cfg.width, cfg.height),
+                                    target_fps,
+                                    &cfg.selected_codec,
+                                )
+                            });
+                            let (encode_width, encode_height) = governor
+                                .as_mut()
+                                .map_or((cfg.width, cfg.height), |g| g.start(start_bitrate));
                             // Building the encoder and starting capture block for
                             // up to seconds; let the runtime move the QUIC
                             // connection and control tasks off this worker first.
                             let pipeline_ready = tokio::task::block_in_place(|| match encode.init(
-                                cfg.width,
-                                cfg.height,
+                                encode_width,
+                                encode_height,
                                 start_bitrate,
                                 &cfg.selected_codec,
                                 target_fps,
@@ -347,6 +361,8 @@ impl HostApp {
                                                 ?target,
                                                 width = cfg.width,
                                                 height = cfg.height,
+                                                encode_width,
+                                                encode_height,
                                                 fps = target_fps,
                                                 bitrate_kbps = start_bitrate,
                                                 "ScreenCaptureKit capture and VideoToolbox encoder active"
@@ -404,10 +420,17 @@ impl HostApp {
                                             }
                                         }
                                         Some(Payload::ReactiveStats(stats)) => {
-                                            if let Err(e) = abr_for_ctrl
+                                            match abr_for_ctrl
                                                 .on_reactive_stats(&stats, &encode_for_ctrl)
                                             {
-                                                tracing::debug!("reactive stats ignored: {e}");
+                                                Ok(decision) => Self::follow_link_with_size(
+                                                    governor.as_mut(),
+                                                    decision,
+                                                    &encode_for_ctrl,
+                                                ),
+                                                Err(e) => {
+                                                    tracing::debug!("reactive stats ignored: {e}");
+                                                }
                                             }
                                         }
                                         Some(Payload::PeriodicStats(stats)) => {
@@ -506,6 +529,44 @@ impl HostApp {
 
         tracing::info!("renderd-host shutdown complete");
         Ok(())
+    }
+
+    /// Moves the encoder to the size `governor` picks for `decision`'s bitrate.
+    ///
+    /// Rebuilding the encoder takes tens of milliseconds and waits for the old
+    /// session's last frames, so it runs on a blocking thread.
+    fn follow_link_with_size(
+        governor: Option<&mut crate::scale::ResolutionGovernor>,
+        decision: renderd_abr::BitrateDecision,
+        encode: &Arc<EncodePipeline>,
+    ) {
+        use renderd_abr::AbrState;
+
+        let Some(governor) = governor else {
+            return;
+        };
+        let congested = matches!(decision.state, AbrState::Backoff | AbrState::Panic);
+        let from = governor.current();
+        let Some((width, height)) = governor.update(
+            decision.target_bitrate_kbps.0,
+            congested,
+            std::time::Instant::now(),
+        ) else {
+            return;
+        };
+        tracing::info!(
+            from = ?from,
+            width,
+            height,
+            bitrate_kbps = decision.target_bitrate_kbps.0,
+            "Resizing the stream to fit the link"
+        );
+        let encode = Arc::clone(encode);
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = encode.reconfigure(width, height) {
+                tracing::warn!("encoder resize failed: {e}");
+            }
+        });
     }
 
     /// Resends the fragments a viewer reported lost.

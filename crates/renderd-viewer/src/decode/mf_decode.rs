@@ -72,6 +72,10 @@ pub struct MediaFoundationDecoder {
     /// up to the codec's macroblock alignment relative to the requested size.
     out_width: u32,
     out_height: u32,
+    /// The part of each decoded frame that is picture, as opposed to padding.
+    /// Starts at the session's size and follows the stream when the host
+    /// changes its resolution mid-session.
+    visible: (u32, u32),
     output_queue: VecDeque<DecodedFrame>,
     decoded_count: u64,
 
@@ -123,6 +127,7 @@ impl MediaFoundationDecoder {
             height: 0,
             out_width: 0,
             out_height: 0,
+            visible: (0, 0),
             output_queue: VecDeque::new(),
             decoded_count: 0,
             #[cfg(target_os = "windows")]
@@ -180,6 +185,34 @@ impl MediaFoundationDecoder {
     }
 }
 
+/// The picture inside a decoded frame of `coded` size, in a session that
+/// started at `session` size.
+///
+/// Decoders pad frames up to whole 16-pixel blocks: a 1080-line picture is
+/// decoded as 1088 lines. `aperture` is the display area the decoder reports
+/// alongside, when it does; it is always right. Without it, a coded size that
+/// is the session's size plus padding shows the session's size, and any other
+/// coded size is a resolution the host switched to mid-stream. The host only
+/// switches to sizes that are whole blocks, so that coded size is the picture.
+#[must_use]
+pub fn visible_size(
+    session: (u32, u32),
+    coded: (u32, u32),
+    aperture: Option<(u32, u32)>,
+) -> (u32, u32) {
+    if let Some((w, h)) = aperture {
+        if w > 0 && h > 0 && w <= coded.0 && h <= coded.1 {
+            return (w, h);
+        }
+    }
+    let padding_of = |coded: u32, picture: u32| coded >= picture && coded - picture < 16;
+    if padding_of(coded.0, session.0) && padding_of(coded.1, session.1) {
+        session
+    } else {
+        coded
+    }
+}
+
 impl Decoder for MediaFoundationDecoder {
     fn initialize(&mut self, codec: &str, width: u32, height: u32) -> Result<(), ViewerError> {
         self.codec = codec.to_lowercase();
@@ -187,6 +220,7 @@ impl Decoder for MediaFoundationDecoder {
         self.height = height;
         self.out_width = width;
         self.out_height = height;
+        self.visible = (width, height);
         self.output_queue.clear();
         self.decoded_count = 0;
 
@@ -531,7 +565,18 @@ impl MediaFoundationDecoder {
         } else {
             self.output_buffer_size = nv12_size;
         }
-        tracing::info!(width, height, "Decoder output format changed");
+        let aperture = transform
+            .GetOutputCurrentType(0)
+            .ok()
+            .and_then(|current| display_aperture(&current));
+        self.visible = visible_size((self.width, self.height), (width, height), aperture);
+        tracing::info!(
+            width,
+            height,
+            visible_width = self.visible.0,
+            visible_height = self.visible.1,
+            "Decoder output format changed"
+        );
         self.out_width = width;
         self.out_height = height;
         Ok(())
@@ -701,8 +746,8 @@ impl MediaFoundationDecoder {
         Ok(Some(DecodedFrame {
             frame_id,
             pts_ns,
-            width: self.width.min(self.out_width),
-            height: self.height.min(self.out_height),
+            width: self.visible.0.min(self.out_width),
+            height: self.visible.1.min(self.out_height),
             format: PixelFormat::Nv12,
             buffer: Vec::new(),
             decode_duration: start_time.elapsed(),
@@ -736,8 +781,8 @@ impl MediaFoundationDecoder {
         // Decoders align the coded size up to a macroblock multiple — 1080 becomes 1088
         // for H.264 — so emit the negotiated size and leave the padding rows in the
         // source buffer. Reading fewer rows than the decoder wrote is always safe.
-        let width = (self.width.min(self.out_width)) as usize;
-        let height = (self.height.min(self.out_height)) as usize;
+        let width = (self.visible.0.min(self.out_width)) as usize;
+        let height = (self.visible.1.min(self.out_height)) as usize;
         let mut nv12 = Vec::<u8>::with_capacity(width * height * 3 / 2);
 
         // IMF2DBuffer exposes the real stride; without it the rows are packed at width.
@@ -835,6 +880,25 @@ impl MediaFoundationDecoder {
     }
 }
 
+/// The display area a decoder reports on its output type, if any.
+#[cfg(target_os = "windows")]
+unsafe fn display_aperture(media_type: &IMFMediaType) -> Option<(u32, u32)> {
+    use windows::Win32::Media::MediaFoundation::{MFVideoArea, MF_MT_MINIMUM_DISPLAY_APERTURE};
+
+    let mut area = MFVideoArea::default();
+    // SAFETY: MFVideoArea is plain data; the blob is copied into its bytes.
+    let bytes = std::slice::from_raw_parts_mut(
+        std::ptr::addr_of_mut!(area).cast::<u8>(),
+        std::mem::size_of::<MFVideoArea>(),
+    );
+    media_type
+        .GetBlob(&MF_MT_MINIMUM_DISPLAY_APERTURE, bytes, None)
+        .ok()?;
+    let width = u32::try_from(area.Area.cx).ok()?;
+    let height = u32::try_from(area.Area.cy).ok()?;
+    (width > 0 && height > 0).then_some((width, height))
+}
+
 /// Packs a width and height into the `MF_MT_FRAME_SIZE` attribute layout.
 #[cfg(target_os = "windows")]
 const fn pack_size(width: u32, height: u32) -> u64 {
@@ -920,6 +984,34 @@ mod tests {
     fn test_decode_before_initialize_is_error() {
         let mut decoder = MediaFoundationDecoder::new();
         assert!(decoder.decode_packet(&[0u8; 8], 1, 0).is_err());
+    }
+
+    #[test]
+    fn test_visible_size_crops_padding_of_the_session_size() {
+        assert_eq!(visible_size((1920, 1080), (1920, 1088), None), (1920, 1080));
+        assert_eq!(visible_size((1920, 1080), (1920, 1080), None), (1920, 1080));
+    }
+
+    /// A mid-stream switch to another size, smaller or larger than where the
+    /// session started, must show that size rather than the session's.
+    #[test]
+    fn test_visible_size_follows_a_resolution_switch() {
+        assert_eq!(visible_size((1920, 1080), (960, 544), None), (960, 544));
+        assert_eq!(visible_size((960, 544), (1280, 720), None), (1280, 720));
+        assert_eq!(visible_size((960, 544), (1920, 1088), None), (1920, 1088));
+    }
+
+    #[test]
+    fn test_visible_size_prefers_the_decoders_aperture() {
+        assert_eq!(
+            visible_size((960, 544), (1920, 1088), Some((1920, 1080))),
+            (1920, 1080)
+        );
+        // An aperture bigger than the frame is nonsense; ignore it.
+        assert_eq!(
+            visible_size((1920, 1080), (1920, 1088), Some((4000, 4000))),
+            (1920, 1080)
+        );
     }
 
     #[test]

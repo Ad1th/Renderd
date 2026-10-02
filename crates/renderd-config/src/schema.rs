@@ -56,9 +56,20 @@ pub struct HostConfig {
     /// full frame rate instead of a full-size one that cannot fit.
     #[serde(default)]
     pub max_stream_height: u32,
+
+    /// Lower the encoded resolution while the link carries less than the
+    /// session's size needs, and raise it again when it carries more. On a slow
+    /// link a full-screen change at 1080p is a frame of 80 KB or more — a third
+    /// of a second at 2 Mbps — so fewer pixels is what keeps it responsive.
+    #[serde(default = "default_adaptive_resolution")]
+    pub adaptive_resolution: bool,
 }
 
 const fn default_extend_display() -> bool {
+    true
+}
+
+const fn default_adaptive_resolution() -> bool {
     true
 }
 
@@ -72,6 +83,7 @@ impl Default for HostConfig {
             vsync_phase_sync: true,
             extend_display: true,
             max_stream_height: 0,
+            adaptive_resolution: true,
         }
     }
 }

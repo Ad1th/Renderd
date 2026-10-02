@@ -29,6 +29,55 @@ pub struct VideoToolboxDecoder {
     decoded_count: u64,
     #[cfg(target_os = "macos")]
     session: Option<renderd_vt_sys::DecompressionSession>,
+    /// Parameter sets (VPS/SPS/PPS) the current session was built from. A
+    /// keyframe carrying different ones — the host changed resolution — needs
+    /// a new session.
+    param_sets: Vec<u8>,
+}
+
+/// Splits an Annex-B byte stream into its NAL units, start codes removed.
+#[cfg(any(target_os = "macos", test))]
+fn annexb_nal_units(data: &[u8]) -> Vec<&[u8]> {
+    let mut starts = Vec::new();
+    let mut i = 0;
+    while i + 3 <= data.len() {
+        if data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1 {
+            starts.push((i, i + 3));
+            i += 3;
+        } else {
+            i += 1;
+        }
+    }
+    starts
+        .iter()
+        .enumerate()
+        .map(|(n, &(_, begin))| {
+            let mut end = starts.get(n + 1).map_or(data.len(), |&(next, _)| next);
+            // A four-byte start code leaves its leading zero on the previous unit.
+            while end > begin && data[end - 1] == 0 {
+                end -= 1;
+            }
+            &data[begin..end]
+        })
+        .filter(|nal| !nal.is_empty())
+        .collect()
+}
+
+/// The parameter-set NAL units in `packet`, concatenated; empty when it has none.
+#[cfg(any(target_os = "macos", test))]
+fn parameter_sets(packet: &[u8], hevc: bool) -> Vec<u8> {
+    let mut out = Vec::new();
+    for nal in annexb_nal_units(packet) {
+        let is_param_set = if hevc {
+            (32..=34).contains(&((nal[0] >> 1) & 0x3F))
+        } else {
+            matches!(nal[0] & 0x1F, 7 | 8)
+        };
+        if is_param_set {
+            out.extend_from_slice(nal);
+        }
+    }
+    out
 }
 
 impl Debug for VideoToolboxDecoder {
@@ -62,6 +111,7 @@ impl VideoToolboxDecoder {
             decoded_count: 0,
             #[cfg(target_os = "macos")]
             session: None,
+            param_sets: Vec::new(),
         }
     }
 
@@ -125,6 +175,16 @@ impl Decoder for VideoToolboxDecoder {
 
         #[cfg(target_os = "macos")]
         {
+            let hevc = !matches!(self.codec.as_str(), "h264" | "avc" | "avc1");
+            let param_sets = parameter_sets(packet, hevc);
+            if !param_sets.is_empty() && param_sets != self.param_sets {
+                if let Some(ref session) = self.session {
+                    tracing::info!("New stream parameters (resolution change); rebuilding decoder");
+                    let _ = session.wait_for_async_frames();
+                }
+                self.session = None;
+                self.param_sets = param_sets;
+            }
             if self.session.is_none() {
                 tracing::info!("VT_TRACE [2]: Attempting DecompressionSession::from_nal with incoming packet...");
                 let vt_codec = match self.codec.as_str() {
@@ -162,7 +222,12 @@ impl Decoder for VideoToolboxDecoder {
                             return;
                         }
 
-                        let mut buffer = vec![0u8; (w * h * 4) as usize];
+                        // Sized from the frame itself: a resolution change can
+                        // make it bigger than the session it started as.
+                        let (frame_w, frame_h) =
+                            unsafe { renderd_vt_sys::get_pixel_buffer_dimensions(image_buffer) };
+                        let mut buffer =
+                            vec![0u8; (frame_w.max(w) as usize) * (frame_h.max(h) as usize) * 4];
                         let copy_res = unsafe {
                             renderd_vt_sys::copy_pixel_buffer_bgra(image_buffer, &mut buffer)
                         };
@@ -312,6 +377,7 @@ impl Decoder for VideoToolboxDecoder {
             }
             self.session = None;
         }
+        self.param_sets.clear();
         if let Ok(mut q) = self.output_queue.lock() {
             q.clear();
         }
@@ -323,6 +389,26 @@ impl Decoder for VideoToolboxDecoder {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parameter_sets_are_found_in_annexb_keyframes() {
+        // HEVC VPS (32), SPS (33), PPS (34), then an IDR slice (19).
+        let packet = [
+            0, 0, 0, 1, 0x40, 1, 0xAA, 0, 0, 0, 1, 0x42, 1, 0xBB, 0, 0, 1, 0x44, 1, 0xCC, 0, 0, 0,
+            1, 0x26, 1, 0xDD,
+        ];
+        assert_eq!(
+            parameter_sets(&packet, true),
+            vec![0x40, 1, 0xAA, 0x42, 1, 0xBB, 0x44, 1, 0xCC]
+        );
+        // A P-frame slice alone carries none.
+        assert!(parameter_sets(&[0, 0, 0, 1, 0x02, 1, 0xEE], true).is_empty());
+        // H.264 SPS (7) and PPS (8).
+        let h264 = [
+            0, 0, 0, 1, 0x67, 0x11, 0, 0, 0, 1, 0x68, 0x22, 0, 0, 0, 1, 0x65, 0x33,
+        ];
+        assert_eq!(parameter_sets(&h264, false), vec![0x67, 0x11, 0x68, 0x22]);
+    }
 
     #[test]
     fn test_videotoolbox_decoder_lifecycle() {
