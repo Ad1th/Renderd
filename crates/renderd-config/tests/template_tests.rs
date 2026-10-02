@@ -24,6 +24,18 @@ fn test_host_default_template_validates() {
     config
         .validate()
         .expect("Host default template failed validation rules");
+
+    // The template is what people copy; it must not drift from the defaults the
+    // code ships with (it once still said 30/60 Mbps after the code moved to 8/10).
+    let defaults = renderd_config::RenderdConfig::default();
+    assert_eq!(
+        config.host, defaults.host,
+        "template [host] differs from defaults"
+    );
+    assert_eq!(
+        config.abr, defaults.abr,
+        "template [abr] differs from defaults"
+    );
 }
 
 #[test]

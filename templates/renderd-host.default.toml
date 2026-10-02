@@ -8,8 +8,10 @@ display_id = 0
 target_fps = 60
 
 # Starting hardware encoder bitrate in kbps (1000 to 200000 kbps). The ABR
-# controller ramps up from here towards abr.max_bitrate_kbps on a clean link.
-max_bitrate_kbps = 30000
+# controller moves from here within [abr.min_bitrate_kbps, abr.max_bitrate_kbps],
+# backing off as soon as queuing delay builds, so starting a little high is
+# cheap: it is corrected within a few hundred milliseconds.
+max_bitrate_kbps = 8000
 
 # Hardware video encoder codec ("hevc" or "h264")
 codec = "hevc"
@@ -20,6 +22,12 @@ vsync_phase_sync = true
 # Create a virtual display sized to the viewer's monitor and stream that, making
 # the viewer an additional desktop. Set to false to mirror display_id instead.
 extend_display = true
+
+# Tallest picture to encode, in pixels (width follows the display's aspect
+# ratio). 0 picks it from abr.max_bitrate_kbps: 1080p60 needs ~10 Mbps of
+# desktop text, so a 6 Mbps ceiling streams 900p60 instead of a 1080p picture
+# that cannot fit. Set a height (360 to 4320) to force one.
+max_stream_height = 0
 
 [network]
 # IP address string to bind host daemon socket
@@ -43,13 +51,16 @@ require_auth = true
 
 [abr]
 # Minimum allowed encoder bitrate in kbps
-min_bitrate_kbps = 5000
+min_bitrate_kbps = 1500
 
-# Maximum allowed encoder bitrate in kbps
-max_bitrate_kbps = 60000
+# Maximum allowed encoder bitrate in kbps. Set this to roughly what your link
+# sustains: it also picks the streamed resolution (see host.max_stream_height).
+# For a link that tops out around 6 Mbps, use 6000.
+max_bitrate_kbps = 10000
 
-# Bitrate step size for incremental adjustments in kbps
-step_kbps = 2500
+# Largest single increase when probing for more bandwidth, in kbps. Probes
+# otherwise grow the bitrate by 8% at a time.
+step_kbps = 1000
 
 # Packet loss rate threshold triggering down-step (0.0 to 1.0)
 loss_threshold = 0.02
