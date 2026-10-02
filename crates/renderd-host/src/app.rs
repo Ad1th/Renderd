@@ -322,7 +322,10 @@ impl HostApp {
                             // this connection, so both now abort the session cleanly
                             // instead of pretending to stream.
                             let start_bitrate = abr.current_bitrate().0;
-                            let pipeline_ready = match encode.init(
+                            // Building the encoder and starting capture block for
+                            // up to seconds; let the runtime move the QUIC
+                            // connection and control tasks off this worker first.
+                            let pipeline_ready = tokio::task::block_in_place(|| match encode.init(
                                 cfg.width,
                                 cfg.height,
                                 start_bitrate,
@@ -360,13 +363,16 @@ impl HostApp {
                                     tracing::error!("Encode pipeline init failed: {e}");
                                     false
                                 }
-                            };
+                            });
 
                             if !pipeline_ready {
                                 Self::teardown_session(&capture, &encode, &session, &menu_bar);
                                 conn.close(quinn::VarInt::from_u32(1), b"pipeline-init-failed");
                                 return;
                             }
+                            clock.begin_session(std::time::Duration::from_secs_f64(
+                                1.0 / f64::from(target_fps),
+                            ));
 
                             // Every datagram this session sends, held briefly so the
                             // viewer can ask for lost ones instead of a keyframe.
@@ -384,11 +390,17 @@ impl HostApp {
                                 while let Ok(envelope) = recv_control(&mut recv_stream).await {
                                     match envelope.payload {
                                         Some(Payload::VsyncReport(report)) => {
-                                            let capture_guard = capture_for_ctrl
-                                                .lock()
-                                                .expect("CapturePipeline mutex poisoned");
-                                            if let Err(e) = clock.on_vsync_report(&report, &capture_guard) {
-                                                tracing::debug!("vsync report ignored: {e}");
+                                            match clock.on_vsync_report(&report) {
+                                                Ok(Some(interval)) => {
+                                                    let capture = capture_for_ctrl.clone();
+                                                    tokio::task::spawn_blocking(move || {
+                                                        if let Err(e) = crate::clock::apply_interval(&capture, interval) {
+                                                            tracing::warn!("capture retiming failed: {e}");
+                                                        }
+                                                    });
+                                                }
+                                                Ok(None) => {}
+                                                Err(e) => tracing::debug!("vsync report ignored: {e}"),
                                             }
                                         }
                                         Some(Payload::ReactiveStats(stats)) => {
