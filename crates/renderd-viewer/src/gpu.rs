@@ -164,5 +164,27 @@ mod windows_impl {
         pub fn set_gpu_frames(&self, enabled: bool) {
             self.gpu_frames.store(enabled, Ordering::Relaxed);
         }
+
+        /// Whether the GPU's video engine decodes 8-bit HEVC Main to NV12.
+        #[must_use]
+        pub fn decodes_hevc(&self) -> bool {
+            use windows::Win32::Graphics::Direct3D11::D3D11_DECODER_PROFILE_HEVC_VLD_MAIN;
+            use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
+
+            let profile = D3D11_DECODER_PROFILE_HEVC_VLD_MAIN;
+            // SAFETY: plain capability queries on a live video device.
+            unsafe {
+                let listed = (0..self.video_device.GetVideoDecoderProfileCount()).any(|i| {
+                    self.video_device
+                        .GetVideoDecoderProfile(i)
+                        .is_ok_and(|p| p == profile)
+                });
+                listed
+                    && self
+                        .video_device
+                        .CheckVideoDecoderFormat(&profile, DXGI_FORMAT_NV12)
+                        .is_ok_and(windows::Win32::Foundation::BOOL::as_bool)
+            }
+        }
     }
 }

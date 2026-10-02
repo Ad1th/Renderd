@@ -193,6 +193,38 @@ impl App {
         self.fall_back_to_soft_renderer(e);
     }
 
+    /// The codecs to offer the host, most preferred first.
+    ///
+    /// `--codec auto` on Windows leads with HEVC when this machine decodes it on
+    /// the GPU through the decoder in use, and with H.264 otherwise.
+    fn offered_codecs(&self) -> Vec<String> {
+        if self.config.codec_choice != crate::cli::CodecChoice::Auto {
+            return self.config.codec_choice.codecs();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let hevc_in_hardware = self.config.decoder_backend == crate::cli::DecoderBackend::Mf
+                && self
+                    .gpu
+                    .as_ref()
+                    .is_some_and(crate::decode::MediaFoundationDecoder::hevc_decodes_in_hardware);
+            tracing::info!(
+                hevc_in_hardware,
+                "{}",
+                if hevc_in_hardware {
+                    "HEVC decodes on the GPU; offering it first"
+                } else {
+                    "No hardware HEVC decode; offering H.264 first"
+                }
+            );
+            crate::decode::codecs_for(hevc_in_hardware)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::decode::preferred_codecs()
+        }
+    }
+
     /// Sets a custom graphics renderer implementation.
     #[must_use]
     pub fn with_renderer(mut self, renderer: Box<dyn Renderer>) -> Self {
@@ -305,7 +337,7 @@ impl App {
         let discovery_conn = self.discovery.clone();
         let state_conn = self.state.clone();
         let viewer_id = uuid::Uuid::new_v4();
-        let offered_codecs = self.config.codec_choice.codecs();
+        let offered_codecs = self.offered_codecs();
         let (window_width, window_height) = (self.config.window_width, self.config.window_height);
 
         // Hand the app's decoder to the receive task rather than constructing a second
