@@ -752,6 +752,7 @@ mod tests {
                 format: crate::decoder::PixelFormat::Bgra8,
                 buffer: vec![0u8; 64],
                 decode_duration: std::time::Duration::ZERO,
+                gpu: None,
             });
             Ok(())
         }

@@ -180,6 +180,7 @@ mod tests {
             format: PixelFormat::Bgra8,
             buffer: vec![0; 64],
             decode_duration: Duration::from_millis(1),
+            gpu: None,
         }
     }
 

@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   IDR. On a slow or wireless link frames complete together routinely (a small frame right behind
   a large one), so each bunch cost 100–400 KB of keyframe and delayed the next frames enough to
   bunch them again. A pass is now a backlog only if it spans more than 150 ms of capture time.
+- **GPU decode and presentation on Windows.** The Windows viewer decoded in software, converted
+  NV12 to BGRA on the CPU and blitted through GDI. The stock Media Foundation H.264/HEVC decoders
+  now get a shared D3D11 device and decode through DXVA; the new `D3d11Presenter` hands the
+  decoder's own texture to the D3D11 video processor for colour conversion and scaling into a
+  flip-model swap chain (frame latency 1, sync interval 0). No readback, no CPU conversion. If
+  the presenter cannot start or later fails, the viewer falls back to the software renderer and
+  system-memory frames on its own; `--renderer soft` forces that path.
+  ([`viewer::render::d3d11_presenter`](crates/renderd-viewer/src/render/d3d11_presenter.rs))
 
 ### Fixed
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
