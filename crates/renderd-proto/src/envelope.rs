@@ -26,6 +26,8 @@ pub enum MessageKind {
     StreamReconfigure,
     /// Protocol error notification message
     Error,
+    /// Fragment retransmit request message
+    Nack,
     /// Unknown or empty payload
     Unknown,
 }
@@ -44,6 +46,7 @@ impl Envelope {
             Some(Payload::BitrateAdjust(_)) => MessageKind::BitrateAdjust,
             Some(Payload::StreamReconfigure(_)) => MessageKind::StreamReconfigure,
             Some(Payload::Error(_)) => MessageKind::Error,
+            Some(Payload::Nack(_)) => MessageKind::Nack,
             None => MessageKind::Unknown,
         }
     }
