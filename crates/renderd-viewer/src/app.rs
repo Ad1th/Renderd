@@ -338,6 +338,7 @@ impl App {
         let state_conn = self.state.clone();
         let viewer_id = uuid::Uuid::new_v4();
         let offered_codecs = self.offered_codecs();
+        let initial_mtu = self.config.config.network.quic_mtu;
         let (window_width, window_height) = (self.config.window_width, self.config.window_height);
 
         // Hand the app's decoder to the receive task rather than constructing a second
@@ -376,8 +377,11 @@ impl App {
                     }
                 };
 
+                // Start at the configured packet size rather than QUIC's 1200-byte
+                // minimum: until path MTU discovery catches up, every frame would
+                // otherwise go out in ~12% more packets.
                 let conn = match client
-                    .connect(target_addr, "renderd-host", tls_config)
+                    .connect_with_mtu(target_addr, "renderd-host", tls_config, initial_mtu)
                     .await
                 {
                     Ok(c) => c,
@@ -681,11 +685,13 @@ impl ApplicationHandler<WakeReason> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WakeReason) {
         match event {
-            WakeReason::Frame => {
-                if let Some(ref ws) = self.window_system {
-                    ws.window().request_redraw();
-                }
-            }
+            // Present right here rather than through `request_redraw`. On
+            // Windows a redraw request becomes a WM_PAINT, the lowest-priority
+            // message there is: it is only delivered once the queue is
+            // otherwise empty, so every frame waited behind whatever input the
+            // window was handling.
+            WakeReason::Frame if self.window_system.is_some() => self.present_next_frame(),
+            WakeReason::Frame => {}
             WakeReason::ConnectionChanged => {
                 tracing::debug!(state = ?self.state.connection_state(), "connection state changed");
                 if let Some(ref ws) = self.window_system {
