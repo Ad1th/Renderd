@@ -271,7 +271,7 @@ impl App {
                         );
 
                         let (loss_tx, mut loss_rx) =
-                            tokio::sync::mpsc::channel::<crate::network::RecoverySignal>(16);
+                            tokio::sync::mpsc::channel::<crate::network::RecoverySignal>(256);
 
                         // VsyncReporter & FeedbackExporter task (#110, #111).
                         tokio::spawn(async move {
@@ -339,6 +339,10 @@ impl App {
                                         // or a healthy stream would ask for a fresh IDR
                                         // every KF_DEBOUNCE purely because frames keep
                                         // arriving on this same channel.
+                                        if let crate::network::RecoverySignal::FrameArrived { pts_ns, bytes, arrival } = signal {
+                                            feedback_exporter.record_arrival(pts_ns, bytes, arrival);
+                                            continue;
+                                        }
                                         if let crate::network::RecoverySignal::FrameDecoded { frame_id, decode_duration } = signal {
                                             feedback_exporter.record_frame(
                                                 frame_id,
