@@ -1138,6 +1138,98 @@ mod tests {
         );
     }
 
+    /// Over a real QUIC connection that loses 5% of fragments, answering the
+    /// loop's retransmit requests must get every frame to the decoder, in
+    /// order, without a single keyframe request.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_lossy_stream_is_recovered_by_retransmits_alone() {
+        const FRAMES: u64 = 120;
+        let (host_conn, viewer_conn) = loopback_pair().await;
+
+        let mut receiver = DatagramReceiver::new();
+        let decoder = RecordingDecoder::default();
+        let mut decoder_handle = decoder.clone();
+        let frame_queue = Arc::new(FrameQueue::new(8));
+        let (loss_tx, mut loss_rx) = tokio::sync::mpsc::channel::<RecoverySignal>(1024);
+
+        let recv_task = tokio::spawn(async move {
+            let _ = receiver
+                .run_receive_loop_with_loss_signal(
+                    &viewer_conn,
+                    &mut decoder_handle,
+                    &frame_queue,
+                    Some(loss_tx),
+                )
+                .await;
+        });
+
+        let sent: Arc<std::sync::Mutex<std::collections::HashMap<u64, Vec<Bytes>>>> =
+            Arc::default();
+        let keyframe_requests = Arc::new(AtomicU64::new(0));
+
+        // The host side: answer every request from what was sent.
+        let answer_conn = host_conn.clone();
+        let answer_sent = Arc::clone(&sent);
+        let answer_kf = Arc::clone(&keyframe_requests);
+        tokio::spawn(async move {
+            while let Some(signal) = loss_rx.recv().await {
+                match signal {
+                    RecoverySignal::Nack(requests) => {
+                        let sent = answer_sent.lock().unwrap().clone();
+                        for request in requests {
+                            let Some(frags) = sent.get(&request.frame_id) else {
+                                continue;
+                            };
+                            let ids: Vec<usize> = if request.frag_ids.is_empty() {
+                                (0..frags.len()).collect()
+                            } else {
+                                request.frag_ids.iter().map(|&i| usize::from(i)).collect()
+                            };
+                            for i in ids {
+                                let _ = answer_conn.send_datagram(frags[i].clone());
+                            }
+                        }
+                    }
+                    RecoverySignal::KeyframeNeeded | RecoverySignal::DecodeBacklog => {
+                        answer_kf.fetch_add(1, Ordering::Relaxed);
+                    }
+                    _ => {}
+                }
+            }
+        });
+
+        // Deterministic 5% loss on first transmission.
+        let mut rng = 0x2545_F491_4F6C_DD1Du64;
+        for id in 1..=FRAMES {
+            let frags = frame_fragments(id, id == 1, 3);
+            sent.lock().unwrap().insert(id, frags.clone());
+            for frag in frags {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                if rng % 100 >= 5 {
+                    host_conn.send_datagram(frag).unwrap();
+                }
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(4)).await;
+        }
+        // A tail-loss probe, as the real sender sends once the stream goes quiet.
+        let last = sent.lock().unwrap()[&FRAMES][2].clone();
+        host_conn.send_datagram(last).unwrap();
+        tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+
+        host_conn.close(0u32.into(), b"test done");
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(2), recv_task).await;
+
+        let decoded_ids = decoder.decoded_ids.lock().unwrap().clone();
+        assert_eq!(
+            decoded_ids,
+            (1..=FRAMES).collect::<Vec<_>>(),
+            "every frame, in order"
+        );
+        assert_eq!(keyframe_requests.load(Ordering::Relaxed), 0);
+    }
+
     /// A lost fragment is asked for again, and the frames behind it wait for
     /// the retransmit instead of being decoded against a missing reference.
     #[tokio::test(flavor = "multi_thread")]
