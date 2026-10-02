@@ -32,6 +32,8 @@ pub struct ClockController {
     estimator: Arc<Mutex<ClockEpochEstimator>>,
     last_target_interval: Arc<Mutex<Duration>>,
     last_applied: Arc<Mutex<Option<(Duration, Instant)>>>,
+    /// The negotiated frame interval: capture never runs faster than this.
+    floor: Arc<Mutex<Duration>>,
 }
 
 impl Default for ClockController {
@@ -48,22 +50,46 @@ impl ClockController {
             estimator: Arc::new(Mutex::new(ClockEpochEstimator::new(16))),
             last_target_interval: Arc::new(Mutex::new(Duration::from_nanos(16_666_666))),
             last_applied: Arc::new(Mutex::new(None)),
+            floor: Arc::new(Mutex::new(Duration::ZERO)),
+        }
+    }
+
+    /// Starts a session whose capture was configured at `frame_interval`.
+    ///
+    /// Capture is already running at that interval, so it counts as applied:
+    /// the first vsync report used to reconfigure `ScreenCaptureKit` to the
+    /// interval it already had, rebuilding its pipeline — a stall and a few
+    /// dropped frames — at the start of every session. The interval is also
+    /// the floor for the session. The negotiated rate already accounts for the
+    /// viewer's refresh rate and the host's `target_fps`, and a vsync report
+    /// at 60 Hz used to lift a 30 fps session back to 60 fps — twice the
+    /// frames for the bitrate the encoder was sized for.
+    pub fn begin_session(&self, frame_interval: Duration) {
+        if let Ok(mut floor) = self.floor.lock() {
+            *floor = frame_interval;
+        }
+        if let Ok(mut applied) = self.last_applied.lock() {
+            *applied = Some((frame_interval, Instant::now()));
+        }
+        if let Ok(mut last) = self.last_target_interval.lock() {
+            *last = frame_interval;
         }
     }
 
     /// Processes a [`VsyncReport`] message from the connected viewer.
     ///
-    /// Updates the presentation clock estimator every time, but only reconfigures the
-    /// capture stream when the reported period has really moved and at most once per
-    /// [`MIN_RECONFIGURE_INTERVAL`].
+    /// Updates the presentation clock estimator every time. Returns the capture
+    /// interval to apply when the reported period has really moved, at most
+    /// once per [`MIN_RECONFIGURE_INTERVAL`], and never faster than the
+    /// session's negotiated rate (see [`Self::begin_session`]).
+    ///
+    /// Applying it is left to the caller ([`apply_interval`]) because
+    /// reconfiguring `ScreenCaptureKit` blocks until the capture pipeline is
+    /// rebuilt, which must not happen on an async worker thread.
     ///
     /// # Errors
-    /// Returns [`HostError::Initialization`] if updating target interval on `capture_pipeline` fails.
-    pub fn on_vsync_report(
-        &self,
-        report: &VsyncReport,
-        capture_pipeline: &CapturePipeline,
-    ) -> Result<Duration, HostError> {
+    /// Returns [`HostError::Initialization`] if an internal mutex is poisoned.
+    pub fn on_vsync_report(&self, report: &VsyncReport) -> Result<Option<Duration>, HostError> {
         let vsync_period_ns = report.vsync_period_ns;
 
         // Default to 60 Hz (16,666,666 ns) if period is 0 or uninitialized
@@ -73,7 +99,11 @@ impl ClockController {
             vsync_period_ns.clamp(4_000_000, 33_333_333) // Clamp between 250 Hz and 30 Hz
         };
 
-        let target_interval = Duration::from_nanos(target_ns);
+        let floor = *self
+            .floor
+            .lock()
+            .map_err(|_| HostError::Initialization("ClockController mutex poisoned".into()))?;
+        let target_interval = Duration::from_nanos(target_ns).max(floor);
 
         let sample = ClockSample {
             t1_ns: 0,
@@ -97,15 +127,15 @@ impl ClockController {
         drop(last_guard);
 
         if self.should_reconfigure(target_interval)? {
-            capture_pipeline.set_target_interval(target_interval)?;
             tracing::info!(
                 vsync_period_ns = report.vsync_period_ns,
                 target_ms = target_interval.as_secs_f64() * 1000.0,
-                "Updated capture pipeline vsync phase pacing"
+                "Retiming capture to the viewer's vsync period"
             );
+            return Ok(Some(target_interval));
         }
 
-        Ok(target_interval)
+        Ok(None)
     }
 
     /// Decides whether `target` differs enough from what was last applied, and enough
@@ -147,25 +177,69 @@ impl ClockController {
     }
 }
 
+/// Applies a capture interval [`ClockController::on_vsync_report`] asked for.
+///
+/// Blocks while `ScreenCaptureKit` rebuilds its pipeline; call it from a
+/// blocking thread.
+///
+/// # Errors
+/// Returns [`HostError::Initialization`] if the capture stream rejects it.
+pub fn apply_interval(
+    capture: &Mutex<CapturePipeline>,
+    interval: Duration,
+) -> Result<(), HostError> {
+    capture
+        .lock()
+        .map_err(|_| HostError::Initialization("CapturePipeline mutex poisoned".into()))?
+        .set_target_interval(interval)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::capture::CapturePipeline;
+
+    fn report(period_ns: u64) -> VsyncReport {
+        VsyncReport {
+            vsync_period_ns: period_ns,
+            vsync_phase_ns: 1_000_000,
+            clock_epoch_ns: 100_000_000,
+        }
+    }
 
     #[test]
     fn test_clock_controller_vsync_report_processing() {
         let controller = ClockController::new();
-        let capture = CapturePipeline::new();
+        let interval = controller.on_vsync_report(&report(16_666_666)).unwrap();
+        assert_eq!(interval, Some(Duration::from_nanos(16_666_666)));
+        assert_eq!(
+            controller.target_interval(),
+            Duration::from_nanos(16_666_666)
+        );
+    }
 
-        let report = VsyncReport {
-            vsync_period_ns: 16_666_666, // 60 Hz
-            vsync_phase_ns: 1_000_000,
-            clock_epoch_ns: 100_000_000,
-        };
+    /// Capture already runs at the negotiated rate; a report confirming it
+    /// must not rebuild the capture pipeline.
+    #[test]
+    fn test_session_start_rate_counts_as_applied() {
+        let controller = ClockController::new();
+        controller.begin_session(Duration::from_nanos(16_666_666));
+        assert_eq!(
+            controller.on_vsync_report(&report(16_666_666)).unwrap(),
+            None
+        );
+    }
 
-        let interval = controller.on_vsync_report(&report, &capture).unwrap();
-        assert_eq!(interval, Duration::from_nanos(16_666_666));
-        assert_eq!(controller.target_interval(), interval);
+    /// A 60 Hz viewer must not lift a 30 fps session to 60 fps.
+    #[test]
+    fn test_vsync_never_raises_capture_above_the_negotiated_rate() {
+        let controller = ClockController::new();
+        let thirty = Duration::from_nanos(33_333_333);
+        controller.begin_session(thirty);
+        assert_eq!(
+            controller.on_vsync_report(&report(16_666_666)).unwrap(),
+            None
+        );
+        assert_eq!(controller.target_interval(), thirty);
     }
 
     /// Repeated reports at the same period must not reconfigure capture again.
