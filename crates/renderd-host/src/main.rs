@@ -10,6 +10,7 @@ mod encode;
 mod error;
 mod network;
 mod panic;
+mod refine;
 mod scale;
 mod session;
 mod ui;

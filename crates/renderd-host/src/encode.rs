@@ -4,7 +4,7 @@
 //! and outputs encoded NAL units into a bounded lock-free ring buffer consumed by the
 //! datagram sender.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -162,6 +162,15 @@ impl KeyframeGate {
     }
 }
 
+/// What became of a surface handed to [`EncodePipeline::submit`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submitted {
+    /// The surface went to the encoder.
+    Encoded,
+    /// The send queue was too deep; the surface was not encoded.
+    Skipped,
+}
+
 /// Encoded video frame payload emitted by the hardware encoder into the ring buffer.
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
@@ -193,11 +202,18 @@ pub struct EncodePipeline {
     tx: Sender<EncodedFrame>,
     rx: Receiver<EncodedFrame>,
     frame_counter: AtomicU64,
+    /// Frames the hardware encoder has emitted, which is also the source of
+    /// their `frame_id`s. Never reset: a new encoder session for the same
+    /// viewer must continue the ids, or the viewer discards everything it
+    /// sends as stale.
+    output_frames: Arc<AtomicU64>,
     keyframes: Arc<KeyframeGate>,
     dropped_frames: Arc<AtomicU64>,
     encoder_skipped: Arc<AtomicU64>,
     current_bitrate_kbps: AtomicU32,
     link: Arc<LinkPressure>,
+    /// Presentation timestamp of the last surface submitted, in nanoseconds.
+    last_pts_ns: AtomicI64,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -228,13 +244,36 @@ impl EncodePipeline {
             tx,
             rx,
             frame_counter: AtomicU64::new(1),
+            output_frames: Arc::new(AtomicU64::new(0)),
             keyframes: Arc::new(KeyframeGate::new()),
             dropped_frames: Arc::new(AtomicU64::new(0)),
             encoder_skipped: Arc::new(AtomicU64::new(0)),
             current_bitrate_kbps: AtomicU32::new(0),
             link: Arc::new(LinkPressure::new()),
+            last_pts_ns: AtomicI64::new(i64::MIN),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// `pts_ns`, raised if needed to stay strictly after the last surface
+    /// submitted.
+    ///
+    /// Capture timestamps and the re-encode passes of [`crate::refine`] come
+    /// from different clocks; the encoder must never see time go backwards.
+    pub fn monotonic_pts(&self, pts_ns: i64) -> i64 {
+        let mut last = self.last_pts_ns.load(Ordering::Relaxed);
+        loop {
+            let next = pts_ns.max(last.saturating_add(1_000));
+            match self.last_pts_ns.compare_exchange_weak(
+                last,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return next,
+                Err(seen) => last = seen,
+            }
         }
     }
 
@@ -336,7 +375,7 @@ impl EncodePipeline {
         let keyframes = Arc::clone(&self.keyframes);
         let dropped = Arc::clone(&self.dropped_frames);
         let encoder_skipped = Arc::clone(&self.encoder_skipped);
-        let count_atomic = Arc::new(AtomicU64::new(0));
+        let count_atomic = Arc::clone(&self.output_frames);
 
         #[allow(unsafe_code)]
         move |err, flags, sample_buf| {
@@ -371,7 +410,7 @@ impl EncodePipeline {
             // CMSampleBufferRef owned by the VideoToolbox callback.
             let pts_ns = unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
                 .unwrap_or(0);
-            if frame_id <= 3 {
+            if frame_id <= 3 || is_kf {
                 tracing::info!(
                     frame_id,
                     is_keyframe = is_kf,
@@ -424,12 +463,28 @@ impl EncodePipeline {
         surface: &renderd_vt_sys::IoSurface,
         pts_ns: i64,
     ) -> Result<(), HostError> {
+        self.submit(surface, pts_ns).map(|_| ())
+    }
+
+    /// Submits a GPU `IoSurface` to the hardware encoder, reporting whether it
+    /// was encoded or skipped because the send queue is deep.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostError::Initialization`] if hardware encoding fails.
+    #[cfg(target_os = "macos")]
+    pub fn submit(
+        &self,
+        surface: &renderd_vt_sys::IoSurface,
+        pts_ns: i64,
+    ) -> Result<Submitted, HostError> {
         // Shed a deep send queue here, before encoding, where skipping a frame
         // costs nothing: the encoder just sees a lower frame rate. A pending
         // keyframe request stays pending until a frame is actually encoded.
         if self.link.should_skip_frame(self.current_bitrate()) {
-            return Ok(());
+            return Ok(Submitted::Skipped);
         }
+        let pts_ns = self.monotonic_pts(pts_ns);
 
         let force_kf = self.keyframes.take(self.current_bitrate());
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
@@ -463,7 +518,7 @@ impl EncodePipeline {
             let _ = self.tx.try_send(frame);
         }
 
-        Ok(())
+        Ok(Submitted::Encoded)
     }
 
     /// Submits a raw byte payload to the encoding pipeline (used in mock / headless environments).
@@ -565,6 +620,12 @@ impl EncodePipeline {
         self.rx.clone()
     }
 
+    /// Frames the hardware encoder has emitted so far.
+    #[must_use]
+    pub fn frames_output(&self) -> u64 {
+        self.output_frames.load(Ordering::Relaxed)
+    }
+
     /// Returns the number of frames the encoder itself skipped for lack of bit budget.
     #[must_use]
     pub fn encoder_skipped_frames(&self) -> u64 {
@@ -626,6 +687,15 @@ mod tests {
         // ...and the drop leaves a keyframe request pending so the decoder can
         // resynchronise once the gate allows it.
         assert!(pipeline.keyframe_pending());
+    }
+
+    #[test]
+    fn test_monotonic_pts_never_goes_backwards() {
+        let pipeline = EncodePipeline::new();
+        assert_eq!(pipeline.monotonic_pts(5_000_000), 5_000_000);
+        assert_eq!(pipeline.monotonic_pts(9_000_000), 9_000_000);
+        // A capture timestamp older than a re-encode pass already submitted.
+        assert_eq!(pipeline.monotonic_pts(8_000_000), 9_001_000);
     }
 
     #[test]
