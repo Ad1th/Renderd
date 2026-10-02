@@ -166,6 +166,35 @@ impl MediaFoundationDecoder {
         }
     }
 
+    /// Whether HEVC decodes on this machine's GPU through Media Foundation:
+    /// the GPU's video engine has the HEVC Main profile, and an HEVC decoder
+    /// (the Store's HEVC Video Extensions) is installed and accepts the device.
+    ///
+    /// HEVC needs roughly a quarter fewer bits than H.264 for the same desktop
+    /// picture, which on a 2-5 Mbps link is the difference between crisp and
+    /// soft text. But decoded in software it would swamp a weak CPU, so it is
+    /// only worth preferring when both halves are there.
+    ///
+    /// Runs on a thread of its own: building the decoder joins the
+    /// multithreaded COM apartment, and on the UI thread that would break
+    /// `winit`'s own COM setup.
+    #[cfg(target_os = "windows")]
+    #[must_use]
+    pub fn hevc_decodes_in_hardware(d3d: &std::sync::Arc<D3d11Context>) -> bool {
+        if !d3d.decodes_hevc() {
+            return false;
+        }
+        let d3d = std::sync::Arc::clone(d3d);
+        std::thread::spawn(move || {
+            let mut decoder = Self::with_d3d11(d3d);
+            let hardware = decoder.initialize("hevc", 1920, 1080).is_ok() && decoder.is_hardware();
+            let _ = decoder.reset();
+            hardware
+        })
+        .join()
+        .unwrap_or(false)
+    }
+
     /// Target video codec string (`"h264"` or `"hevc"`).
     #[must_use]
     pub fn codec(&self) -> &str {
