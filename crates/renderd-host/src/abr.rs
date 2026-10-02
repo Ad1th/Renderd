@@ -119,8 +119,13 @@ impl AbrManager {
     ) -> Result<BitrateDecision, HostError> {
         let target = pipeline.current_bitrate();
         let link = pipeline.link();
+        // QUIC's packet loss on the live connection; the viewer's frame-loss
+        // estimate only stands in when no connection is attached.
+        let loss_rate = link
+            .packet_loss()
+            .unwrap_or_else(|| f64::from(stats.loss_rate.clamp(0.0, 1.0)));
         let signals = Signals {
-            loss_rate: f64::from(stats.loss_rate.clamp(0.0, 1.0)),
+            loss_rate,
             queue_delay_ms: f64::from(stats.queue_delay_us) / 1_000.0,
             send_queue_ms: link.queue_delay(target).as_secs_f64() * 1_000.0,
             receive_rate_kbps: f64::from(stats.receive_rate_kbps),
@@ -144,7 +149,8 @@ impl AbrManager {
         }
 
         tracing::debug!(
-            loss_rate = stats.loss_rate,
+            packet_loss = signals.loss_rate,
+            viewer_frame_loss = stats.loss_rate,
             queue_delay_ms = signals.queue_delay_ms,
             send_queue_ms = signals.send_queue_ms,
             receive_kbps = stats.receive_rate_kbps,
@@ -228,6 +234,19 @@ mod tests {
     use super::*;
     use crate::encode::EncodePipeline;
 
+    /// Light loss is resent, not paid for in bitrate.
+    #[test]
+    fn test_abr_manager_light_loss_holds_bitrate() {
+        let manager = AbrManager::new();
+        let pipeline = EncodePipeline::new();
+        let stats = ReactiveStats {
+            loss_rate: 0.08,
+            ..Default::default()
+        };
+        let decision = manager.on_reactive_stats(&stats, &pipeline).unwrap();
+        assert_eq!(decision.target_bitrate_kbps.0, 15_000);
+    }
+
     #[test]
     fn test_abr_manager_reactive_stats_loss_reduces_bitrate() {
         let manager = AbrManager::new();
@@ -236,9 +255,9 @@ mod tests {
         let initial_bw = manager.current_bitrate();
         assert_eq!(initial_bw.0, 15_000);
 
-        // Send ReactiveStats with 10% loss rate (above 5% loss threshold)
+        // Heavy loss: the link is overrun.
         let stats = ReactiveStats {
-            loss_rate: 0.10,
+            loss_rate: 0.25,
             jitter_us: 100,
             last_frame_id: 1,
             ..Default::default()
@@ -247,7 +266,7 @@ mod tests {
         let decision = manager.on_reactive_stats(&stats, &pipeline).unwrap();
         assert!(
             decision.target_bitrate_kbps.0 < initial_bw.0,
-            "Bitrate should be reduced on 10% loss: got {:?}",
+            "Bitrate should be reduced on 25% loss: got {:?}",
             decision.target_bitrate_kbps
         );
     }

@@ -177,7 +177,8 @@ pub struct AbrConfig {
     /// Bitrate step size for incremental adjustments in kbps.
     pub step_kbps: u32,
 
-    /// Packet loss rate threshold triggering down-step (0.0 - 1.0).
+    /// Packet loss rate (0.0 - 1.0) above which the bitrate stops probing upward.
+    /// The bitrate is cut at five times this rate; lighter loss is resent.
     pub loss_threshold: f32,
 }
 

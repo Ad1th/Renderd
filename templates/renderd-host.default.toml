@@ -62,5 +62,8 @@ max_bitrate_kbps = 10000
 # otherwise grow the bitrate by 8% at a time.
 step_kbps = 1000
 
-# Packet loss rate threshold triggering down-step (0.0 to 1.0)
+# Packet loss rate (0.0 to 1.0) above which the bitrate stops probing upward.
+# Lost fragments are resent, so light random loss costs a round trip rather
+# than picture quality; the bitrate is only cut at five times this rate (or
+# when queuing delay builds), and halved at 15%.
 loss_threshold = 0.02
