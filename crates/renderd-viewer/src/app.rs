@@ -193,6 +193,38 @@ impl App {
         self.fall_back_to_soft_renderer(e);
     }
 
+    /// The codecs to offer the host, most preferred first.
+    ///
+    /// `--codec auto` on Windows leads with HEVC when this machine decodes it on
+    /// the GPU through the decoder in use, and with H.264 otherwise.
+    fn offered_codecs(&self) -> Vec<String> {
+        if self.config.codec_choice != crate::cli::CodecChoice::Auto {
+            return self.config.codec_choice.codecs();
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let hevc_in_hardware = self.config.decoder_backend == crate::cli::DecoderBackend::Mf
+                && self
+                    .gpu
+                    .as_ref()
+                    .is_some_and(crate::decode::MediaFoundationDecoder::hevc_decodes_in_hardware);
+            tracing::info!(
+                hevc_in_hardware,
+                "{}",
+                if hevc_in_hardware {
+                    "HEVC decodes on the GPU; offering it first"
+                } else {
+                    "No hardware HEVC decode; offering H.264 first"
+                }
+            );
+            crate::decode::codecs_for(hevc_in_hardware)
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            crate::decode::preferred_codecs()
+        }
+    }
+
     /// Sets a custom graphics renderer implementation.
     #[must_use]
     pub fn with_renderer(mut self, renderer: Box<dyn Renderer>) -> Self {
@@ -305,7 +337,8 @@ impl App {
         let discovery_conn = self.discovery.clone();
         let state_conn = self.state.clone();
         let viewer_id = uuid::Uuid::new_v4();
-        let offered_codecs = self.config.codec_choice.codecs();
+        let offered_codecs = self.offered_codecs();
+        let initial_mtu = self.config.config.network.quic_mtu;
         let (window_width, window_height) = (self.config.window_width, self.config.window_height);
 
         // Hand the app's decoder to the receive task rather than constructing a second
@@ -344,8 +377,11 @@ impl App {
                     }
                 };
 
+                // Start at the configured packet size rather than QUIC's 1200-byte
+                // minimum: until path MTU discovery catches up, every frame would
+                // otherwise go out in ~12% more packets.
                 let conn = match client
-                    .connect(target_addr, "renderd-host", tls_config)
+                    .connect_with_mtu(target_addr, "renderd-host", tls_config, initial_mtu)
                     .await
                 {
                     Ok(c) => c,
@@ -437,46 +473,61 @@ impl App {
                                         }
                                     }
                                     Some(signal) = loss_rx.recv() => {
-                                        // Only genuine network loss should ever pull the
-                                        // encoder's bitrate down. A decode backlog is a
+                                        use crate::network::RecoverySignal;
+                                        // Only genuine network loss should ever count
+                                        // toward the loss rate. A decode backlog is a
                                         // local, CPU-bound event — it still wants a fresh
                                         // keyframe to resync on, but reporting it as loss
-                                        // would crush quality under motion (scrolling,
-                                        // video) for a problem more bitrate can't fix.
-                                        // A successful decode only feeds the exporter's
-                                        // received_frames/frame_id bookkeeping — it must
-                                        // never fall into the keyframe-request path below,
-                                        // or a healthy stream would ask for a fresh IDR
-                                        // every KF_DEBOUNCE purely because frames keep
-                                        // arriving on this same channel.
-                                        if let crate::network::RecoverySignal::FrameArrived { pts_ns, bytes, arrival } = signal {
-                                            feedback_exporter.record_arrival(pts_ns, bytes, arrival);
-                                            continue;
-                                        }
-                                        if let crate::network::RecoverySignal::FrameDecoded { frame_id, decode_duration } = signal {
-                                            feedback_exporter.record_frame(
-                                                frame_id,
-                                                decode_duration,
-                                                std::time::Duration::ZERO,
-                                            );
-                                            continue;
-                                        }
-
-                                        if let crate::network::RecoverySignal::FragmentLoss(count) = signal {
-                                            feedback_exporter.record_frame_loss(count.max(1));
-                                        }
-                                        if last_kf_req.elapsed() >= KF_DEBOUNCE {
-                                            last_kf_req = std::time::Instant::now();
-                                            let kf_req = feedback_exporter.create_keyframe_request();
-                                            let env = Envelope {
-                                                payload: Some(Payload::KeyframeRequest(kf_req)),
-                                            };
-                                            if send_control(&mut send_stream, &env).await.is_err() {
-                                                break;
+                                        // would crush quality under motion for a problem
+                                        // more bitrate can't fix.
+                                        match signal {
+                                            RecoverySignal::FrameArrived { pts_ns, bytes, arrival } => {
+                                                feedback_exporter.record_arrival(pts_ns, bytes, arrival);
                                             }
-                                            tracing::info!(
-                                                "Sent KeyframeRequest over Stream 0 due to frame loss"
-                                            );
+                                            RecoverySignal::FrameDecoded { frame_id, decode_duration } => {
+                                                feedback_exporter.record_frame(
+                                                    frame_id,
+                                                    decode_duration,
+                                                    std::time::Duration::ZERO,
+                                                );
+                                            }
+                                            RecoverySignal::FragmentLoss(count) => {
+                                                feedback_exporter.record_frame_loss(count.max(1));
+                                            }
+                                            // Sent the moment the loss is seen: every
+                                            // millisecond here is a millisecond the frames
+                                            // behind the lost one wait.
+                                            RecoverySignal::Nack(requests) => {
+                                                use renderd_proto::generated::renderd::{FrameNack, Nack};
+                                                let nack = Nack {
+                                                    frames: requests
+                                                        .into_iter()
+                                                        .map(|r| FrameNack {
+                                                            frame_id: r.frame_id,
+                                                            frag_ids: r.frag_ids.into_iter().map(u32::from).collect(),
+                                                        })
+                                                        .collect(),
+                                                };
+                                                let env = Envelope { payload: Some(Payload::Nack(nack)) };
+                                                if send_control(&mut send_stream, &env).await.is_err() {
+                                                    break;
+                                                }
+                                            }
+                                            RecoverySignal::KeyframeNeeded | RecoverySignal::DecodeBacklog => {
+                                                if last_kf_req.elapsed() >= KF_DEBOUNCE {
+                                                    last_kf_req = std::time::Instant::now();
+                                                    let kf_req = feedback_exporter.create_keyframe_request();
+                                                    let env = Envelope {
+                                                        payload: Some(Payload::KeyframeRequest(kf_req)),
+                                                    };
+                                                    if send_control(&mut send_stream, &env).await.is_err() {
+                                                        break;
+                                                    }
+                                                    tracing::info!(
+                                                        "Sent KeyframeRequest over Stream 0: a reference frame could not be recovered"
+                                                    );
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -487,7 +538,7 @@ impl App {
                         state_conn.set_connection_state(crate::state::ConnectionState::Connected);
                         let _ = frame_proxy.send_event(WakeReason::ConnectionChanged);
 
-                        let mut receiver = DatagramReceiver::new(4);
+                        let mut receiver = DatagramReceiver::new();
 
                         if let Err(e) = decoder.reset() {
                             tracing::warn!("Decoder reset error: {e}");
@@ -633,12 +684,20 @@ impl ApplicationHandler<WakeReason> for App {
     }
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WakeReason) {
-        if event == WakeReason::ConnectionChanged {
-            tracing::debug!(state = ?self.state.connection_state(), "connection state changed");
-        }
-        // A new frame or a new connection state: either way there is something to draw.
-        if let Some(ref ws) = self.window_system {
-            ws.window().request_redraw();
+        match event {
+            // Present right here rather than through `request_redraw`. On
+            // Windows a redraw request becomes a WM_PAINT, the lowest-priority
+            // message there is: it is only delivered once the queue is
+            // otherwise empty, so every frame waited behind whatever input the
+            // window was handling.
+            WakeReason::Frame if self.window_system.is_some() => self.present_next_frame(),
+            WakeReason::Frame => {}
+            WakeReason::ConnectionChanged => {
+                tracing::debug!(state = ?self.state.connection_state(), "connection state changed");
+                if let Some(ref ws) = self.window_system {
+                    ws.window().request_redraw();
+                }
+            }
         }
     }
 

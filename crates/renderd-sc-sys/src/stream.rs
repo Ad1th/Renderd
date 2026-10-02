@@ -322,7 +322,11 @@ impl ScreenStream {
             config.setShowsCursor(true);
             // Three is the documented minimum; two was silently rounded and made the
             // capture pipeline stall whenever the encoder held a surface a beat too long.
-            let _: () = msg_send![&config, setQueueDepth: 3isize];
+            // The host also holds the newest surface to re-encode once the screen
+            // goes still, so two more keep three free for the capture pipeline.
+            // Depth only bounds how many surfaces may be outstanding; frames are
+            // still delivered as soon as they are ready.
+            let _: () = msg_send![&config, setQueueDepth: 5isize];
 
             // Set minimumFrameInterval to achieve target framerate
             if target_fps > 0 {

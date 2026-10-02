@@ -14,6 +14,8 @@
 //!   `is_last_fragment`, and `phase_sync_valid`.
 //! - [`reassembly`] — [`ReassemblyBuffer`] sliding-window state machine
 //!   (window depth `W = 4` frames by default).
+//! - [`receive`] — [`ReceiveWindow`], the decode-ordered receiver that asks for
+//!   lost fragments again instead of waiting for a keyframe.
 //! - [`validate`] — [`ValidateHeader`] trait with field range checks.
 //! - [`error`] — [`FrameError`] enum.
 //!
@@ -45,10 +47,12 @@ pub mod error;
 pub mod flags;
 pub mod header;
 pub mod reassembly;
+pub mod receive;
 pub mod validate;
 
 pub use error::*;
 pub use flags::*;
 pub use header::*;
 pub use reassembly::*;
+pub use receive::*;
 pub use validate::*;

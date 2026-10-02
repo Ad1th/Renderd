@@ -61,8 +61,51 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the presenter cannot start or later fails, the viewer falls back to the software renderer and
   system-memory frames on its own; `--renderer soft` forces that path.
   ([`viewer::render::d3d11_presenter`](crates/renderd-viewer/src/render/d3d11_presenter.rs))
+- **Lost fragments are resent, not paid for with a keyframe.** A lost fragment used to go
+  unnoticed until four incomplete frames had piled up — on a mostly clean link, never — while the
+  frames after it were decoded against a reference the decoder never got, smearing the picture
+  until the next keyframe, which on a 3 Mbps link is a quarter of a second of link time. The
+  viewer's new `ReceiveWindow` hands frames to the decoder strictly in order, notices a missing
+  fragment as soon as anything after it arrives, and asks for exactly those fragments in a new
+  `Nack` message; the host answers from the last second of datagrams it keeps, and resends the
+  newest frame's last datagram after 100 ms of quiet so a lost tail is noticed too. Only a frame
+  still missing two round trips plus 120 ms later costs a keyframe, and nothing that depends on
+  it is decoded meanwhile. Over loopback QUIC with 5% loss every frame arrives in order with no
+  keyframe request. ([`renderd-frame::receive`](crates/renderd-frame/src/receive.rs),
+  [`host::network::retransmit`](crates/renderd-host/src/network/retransmit.rs))
+- **Bitrate steers on real packet loss.** The ABR loop used the viewer's frame-loss rate per
+  100 ms report — one lost frame among six read as 14%, two as 25% — which walked the bitrate
+  down to the floor on any Wi-Fi link. The host now reads QUIC's own packet-loss counters over the
+  last second; loss above `abr.loss_threshold` only stops probing, and the bitrate is cut at five
+  times that (or on queuing delay, as before). A 4 Mbps link with 1-3% random loss now holds
+  3 Mbps in simulation instead of sinking to 1.5.
+- **Encoded resolution follows the link.** With the default 10 Mbps ceiling a 3 Mbps link still
+  got 1080p, and at 2 Mbps a full-screen change of 1080p text is an 83 KB frame (a third of a
+  second) against 25 KB at 544p — no `VideoToolbox` setting bounds it with low-latency rate
+  control. The host now steps the encoder down to 896, 720 or 544 lines when the bitrate falls
+  below 75% of what the size needs for 2 s, and back up a rung after 8 s of room, without
+  touching capture (`VideoToolbox` scales). The viewer follows from the stream. On by default;
+  `host.adaptive_resolution = false` turns it off. ([`host::scale`](crates/renderd-host/src/scale.rs))
+- **A still screen ends on the current picture.** After a big change the low-latency rate
+  controller drops the frames that follow it (six of eight in a 2 Mbps measurement), so a scroll
+  that stopped inside that window left the viewer on a stale frame until the next change. The
+  host now re-encodes the newest captured surface after 60 ms of stillness until two passes come
+  out of the encoder. ([`host::refine`](crates/renderd-host/src/refine.rs))
+- **HEVC on Windows where the GPU decodes it.** `--codec auto` now offers HEVC first when the GPU
+  has the HEVC Main profile and the Media Foundation HEVC decoder runs on it, H.264 otherwise.
+- **Frames are presented on arrival.** The viewer presented through `request_redraw`, which on
+  Windows is a WM_PAINT — the lowest-priority message. It now presents from the wake itself, and
+  connects at `network.quic_mtu` instead of QUIC's 1200-byte minimum.
 
 ### Fixed
+- **Keyframe loop on slow links.** Frames held up on the wire behind a large one arrive together
+  and span more than the 150 ms backlog threshold; the viewer took that for decode falling behind,
+  skipped them and asked for another keyframe, which bunched the next frames the same way. A pass
+  now only counts as a backlog if the previous one spent 50 ms or more decoding.
+- **Capture rate at session start.** The first vsync report rebuilt the `ScreenCaptureKit`
+  pipeline at every session start and replaced the negotiated frame rate with the viewer's
+  refresh rate, lifting a 30 fps session to 60. Vsync now only slows capture, and the rebuild runs
+  off the async workers.
 - **Standing latency (viewer decode backlog).** The receive loop decoded every queued datagram
   strictly in arrival order with no way to catch up; software decode even slightly slower than
   real time (routine under sustained motion) meant the backlog never shrank, and the viewer fell

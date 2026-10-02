@@ -36,7 +36,8 @@ pub struct ViewerCli {
 
     /// Force a codec instead of using this platform's preference order.
     ///
-    /// `auto` (default) offers H.264 first on Windows and HEVC first elsewhere.
+    /// `auto` (default) offers HEVC first where the GPU decodes it (on Windows,
+    /// that also needs the HEVC Video Extensions), and H.264 first otherwise.
     /// Pin this when one codec misbehaves on a particular machine.
     #[arg(long, value_name = "CODEC", default_value = "auto")]
     pub codec: CodecChoice,

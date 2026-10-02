@@ -14,6 +14,7 @@
 //! encoder. The encoder sees a lower frame rate, the stream stays decodable, and
 //! the next frame that does go out is fresh rather than stale.
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -49,6 +50,51 @@ pub fn next_skip_state(skipping: bool, queue: Duration) -> bool {
     }
 }
 
+/// Samples of packet loss kept, one per [`LinkPressure::packet_loss`] call.
+///
+/// The ABR loop samples every 100 ms, so this is about the last second.
+pub const LOSS_SAMPLES: usize = 10;
+
+/// Fewest packets over the sampling window for a loss rate to mean anything.
+/// A still desktop sends a handful of packets a second; one of them lost is
+/// not 20% loss.
+pub const MIN_LOSS_PACKETS: u64 = 50;
+
+/// Running packet counts behind [`LinkPressure::packet_loss`].
+#[derive(Debug, Default)]
+struct LossWindow {
+    /// QUIC's cumulative `(sent, lost)` packet counters at the last sample.
+    last: Option<(u64, u64)>,
+    /// Per-sample `(sent, lost)` deltas, oldest first.
+    samples: VecDeque<(u64, u64)>,
+}
+
+impl LossWindow {
+    /// Adds the counters read now and returns the loss rate over the window.
+    fn sample(&mut self, sent: u64, lost: u64) -> f64 {
+        if let Some((last_sent, last_lost)) = self.last {
+            self.samples.push_back((
+                sent.saturating_sub(last_sent),
+                lost.saturating_sub(last_lost),
+            ));
+            while self.samples.len() > LOSS_SAMPLES {
+                self.samples.pop_front();
+            }
+        }
+        self.last = Some((sent, lost));
+        let (sent, lost) = self
+            .samples
+            .iter()
+            .fold((0, 0), |(s, l), &(ds, dl)| (s + ds, l + dl));
+        if sent < MIN_LOSS_PACKETS {
+            return 0.0;
+        }
+        #[allow(clippy::cast_precision_loss)]
+        let rate = lost as f64 / sent as f64;
+        rate.clamp(0.0, 1.0)
+    }
+}
+
 /// Live view of the session's send queue, shared by the sender and capture path.
 #[derive(Debug, Default)]
 pub struct LinkPressure {
@@ -56,6 +102,7 @@ pub struct LinkPressure {
     skipping: AtomicBool,
     skipped: AtomicU64,
     sent_kbps: AtomicU32,
+    loss: Mutex<LossWindow>,
 }
 
 impl LinkPressure {
@@ -71,6 +118,9 @@ impl LinkPressure {
             *guard = Some(connection);
         }
         self.skipping.store(false, Ordering::Relaxed);
+        if let Ok(mut loss) = self.loss.lock() {
+            *loss = LossWindow::default();
+        }
     }
 
     /// Stops tracking, so capture for the next session starts unthrottled.
@@ -80,6 +130,29 @@ impl LinkPressure {
         }
         self.skipping.store(false, Ordering::Relaxed);
         self.sent_kbps.store(0, Ordering::Relaxed);
+        if let Ok(mut loss) = self.loss.lock() {
+            *loss = LossWindow::default();
+        }
+    }
+
+    /// Packet loss over about the last second, as QUIC's own loss detection
+    /// sees it, or `None` with no session attached.
+    ///
+    /// Each call is one sample; call it once per ABR tick. This replaces the
+    /// viewer's frame-loss rate, which over a 100 ms report made one lost
+    /// frame among six read as 14% loss, counted frames the sender skipped on
+    /// purpose as lost, and counted a lost frame twice when its gap and its
+    /// eviction were both reported.
+    #[must_use]
+    pub fn packet_loss(&self) -> Option<f64> {
+        let stats = self
+            .connection
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|c| c.stats().path)?;
+        let mut loss = self.loss.lock().ok()?;
+        Some(loss.sample(stats.sent_packets, stats.lost_packets))
     }
 
     /// Records the video bitrate the sender actually put on the wire over its
@@ -174,6 +247,33 @@ mod tests {
         }
         assert_eq!(link.skipped_frames(), 0);
         assert_eq!(link.queued_bytes(), 0);
+    }
+
+    #[test]
+    fn test_loss_window_rates_the_last_second() {
+        let mut window = LossWindow::default();
+        assert!(window.sample(0, 0).abs() < f64::EPSILON);
+        // 100 packets, 3 lost.
+        assert!((window.sample(100, 3) - 0.03).abs() < 1e-9);
+        // The window keeps LOSS_SAMPLES deltas; old loss ages out.
+        let mut sent = 100;
+        for _ in 0..LOSS_SAMPLES {
+            sent += 100;
+            window.sample(sent, 3);
+        }
+        assert!(window.sample(sent + 100, 3).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_loss_needs_enough_packets_to_mean_anything() {
+        let mut window = LossWindow::default();
+        window.sample(0, 0);
+        assert!(window.sample(5, 1).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn test_detached_link_reports_no_loss_rate() {
+        assert!(LinkPressure::new().packet_loss().is_none());
     }
 
     #[test]

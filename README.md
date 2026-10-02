@@ -302,20 +302,24 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 
 #### On a slow or shared link
 
-Renderd adapts on its own. The bitrate backs off as soon as queuing delay builds, and
-frames are skipped at capture rather than queued. You can still help it on a link you
-know is slow:
+Renderd adapts on its own. The bitrate backs off as soon as queuing delay builds, frames
+are skipped at capture rather than queued, lost packets are resent instead of costing a
+keyframe, and the encoded resolution steps down (896, 720, 544 lines) while the link
+carries less than the picture needs and back up when it carries more. You can still help
+it on a link you know is slow:
 
 1. **Tell it the ceiling.** Set `abr.max_bitrate_kbps` to roughly what the link sustains,
-   e.g. `6000` for a link that tops out around 6 Mbps. With `host.max_stream_height = 0`
-   (the default) this also picks the streamed resolution: 1080p60 of desktop text needs
-   about 10 Mbps, so a 6 Mbps ceiling streams 900p60 instead of a 1080p picture that
-   cannot fit.
+   e.g. `3000` for a link that tops out around 3 Mbps. With `host.max_stream_height = 0`
+   (the default) this sets the largest resolution the stream will use: 1080p60 of
+   desktop text needs about 8-10 Mbps. Setting `host.max_bitrate_kbps` (the starting
+   bitrate) near the link's speed too makes the very first picture arrive quickly.
 2. **Read the lag off the logs.** Each second the host logs `HOST METRICS` with
    `send_queue_kb` (video waiting on the host), and every half-second `VIEWER TELEMETRY`
    with `capture_skipped` and `encoder_skipped`. A `send_queue_kb` that stays high means
    the link is the bottleneck. Run the host with `--log-level debug` to see the ABR
-   decisions with the viewer's measured `queue_delay_ms`.
+   decisions with the viewer's measured `queue_delay_ms`. `Resizing the stream to fit the
+   link` marks each resolution change; on the viewer, `nacked_frags`, `recovered_total`
+   and `lost_total` show how much loss retransmits absorbed.
 
 ---
 

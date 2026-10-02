@@ -17,7 +17,7 @@ use renderd_net::{FragmentBurst, NetError};
 
 use crate::encode::EncodedFrame;
 use crate::error::HostError;
-use crate::network::LinkPressure;
+use crate::network::{LinkPressure, RetransmitCache};
 
 /// Fallback fragment payload size used before the path MTU is known
 /// (1200-byte minimum QUIC datagram, minus QUIC framing and the 16-byte header).
@@ -28,6 +28,22 @@ const MIN_PAYLOAD_SIZE: usize = 256;
 
 /// Consecutive datagram send failures after which the sender considers the peer gone.
 const MAX_CONSECUTIVE_SEND_ERRORS: u32 = 120;
+
+/// Quiet time after a frame before its last datagram is sent again.
+///
+/// A frame whose tail is lost looks, to the viewer, exactly like one still on
+/// its way — until something later arrives. While the desktop is changing the
+/// next frame does that within one frame interval; once it goes still nothing
+/// would, and the lost tail would stay lost until the next change. Resending
+/// the last datagram once the stream goes quiet tells the viewer what it is
+/// missing.
+///
+/// The wait is long enough that a desktop updating at 10 fps or more never
+/// triggers a probe — the next frame does the job for free — and at least two
+/// round trips, so the probe never races a retransmit the viewer already
+/// asked for. At 30 ms a desktop redrawing at ~25 fps drew a probe after every
+/// frame, doubling the packet rate for nothing.
+const TAIL_PROBE_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Frames allowed to queue up behind the sender before it skips ahead.
 ///
@@ -212,6 +228,7 @@ impl DataSender {
         shutdown: &AtomicBool,
         request_keyframe: &(dyn Fn() + Sync),
         link: &LinkPressure,
+        retransmits: &RetransmitCache,
     ) {
         /// Wake-up interval used only to re-check the shutdown flag while idle.
         const IDLE_POLL: std::time::Duration = std::time::Duration::from_millis(50);
@@ -227,10 +244,23 @@ impl DataSender {
         let mut interval_bytes: u64 = 0;
         let mut interval_skipped: u64 = 0;
 
+        // When to resend the last datagram if no newer frame has gone out.
+        let mut tail_probe_at: Option<std::time::Instant> = None;
+
         while !shutdown.load(Ordering::Relaxed) {
-            let mut frame = match rx.recv_timeout(IDLE_POLL) {
+            let wait = tail_probe_at.map_or(IDLE_POLL, |at| {
+                at.saturating_duration_since(std::time::Instant::now())
+                    .min(IDLE_POLL)
+            });
+            let mut frame = match rx.recv_timeout(wait) {
                 Ok(frame) => frame,
                 Err(crossbeam_channel::RecvTimeoutError::Timeout) => {
+                    if tail_probe_at.is_some_and(|at| std::time::Instant::now() >= at) {
+                        tail_probe_at = None;
+                        if let Some(probe) = retransmits.tail_probe() {
+                            let _ = connection.send_datagram(probe);
+                        }
+                    }
                     // Nothing to send (a still desktop). The per-second metrics
                     // below only run after a send, so publish the idle rate here
                     // or the ABR loop would keep seeing the last busy second and
@@ -283,8 +313,20 @@ impl DataSender {
             let is_kf = frame.is_keyframe;
             let queue_depth = rx.len();
 
-            match self.send_frame_burst(connection, &frame) {
-                Ok(num_frags) => {
+            let sent = Self::fragment_frame(&frame, Self::payload_size_for(connection)).and_then(
+                |fragments| {
+                    FragmentBurst::send_all(connection, &fragments)
+                        .map(|count| (count, fragments))
+                        .map_err(|e| {
+                            HostError::Initialization(format!("Datagram burst send failed: {e}"))
+                        })
+                },
+            );
+            match sent {
+                Ok((num_frags, fragments)) => {
+                    let now = std::time::Instant::now();
+                    retransmits.insert(frame_id, fragments, now);
+                    tail_probe_at = Some(now + (connection.rtt() * 2).max(TAIL_PROBE_MIN_DELAY));
                     consecutive_errors = 0;
                     sent_frames += 1;
                     interval_frames += 1;
@@ -323,6 +365,7 @@ impl DataSender {
                             send_queue_kb = FragmentBurst::queued_bytes(connection) / 1024,
                             payload_size = Self::payload_size_for(connection),
                             rtt_ms = format!("{:.2}", connection.rtt().as_secs_f64() * 1000.0),
+                            resent_total = retransmits.resent(),
                             last_frame_id = frame_id,
                             is_keyframe = is_kf,
                             total_sent = sent_frames,
@@ -372,10 +415,18 @@ impl DataSender {
         shutdown: Arc<AtomicBool>,
         request_keyframe: Arc<dyn Fn() + Send + Sync>,
         link: Arc<LinkPressure>,
+        retransmits: Arc<RetransmitCache>,
     ) {
         let sender = Self::new();
         if let Err(e) = tokio::task::spawn_blocking(move || {
-            sender.run_blocking(&connection, &rx, &shutdown, &*request_keyframe, &link);
+            sender.run_blocking(
+                &connection,
+                &rx,
+                &shutdown,
+                &*request_keyframe,
+                &link,
+                &retransmits,
+            );
         })
         .await
         {

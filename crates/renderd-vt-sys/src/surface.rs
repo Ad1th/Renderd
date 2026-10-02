@@ -25,6 +25,16 @@ extern "C" {
 
     /// Looks up an `IOSurfaceRef` by its unique 32-bit ID.
     pub fn IOSurfaceLookup(csid: IOSurfaceID) -> IOSurfaceRef;
+
+    /// Increments the per-process use count that buffer pools check before
+    /// recycling a surface.
+    fn IOSurfaceIncrementUseCount(buffer: IOSurfaceRef);
+
+    /// Decrements the use count raised by `IOSurfaceIncrementUseCount`.
+    fn IOSurfaceDecrementUseCount(buffer: IOSurfaceRef);
+
+    /// Returns whether any process has the surface marked in use.
+    fn IOSurfaceIsInUse(buffer: IOSurfaceRef) -> u8;
 }
 
 /// Safe RAII wrapper around macOS `IOSurfaceRef`.
@@ -96,6 +106,45 @@ impl IoSurface {
     pub fn retain_count(&self) -> isize {
         // SAFETY: self.0 is guaranteed to be a valid non-null CFTypeRef for the lifetime of self.
         unsafe { CFGetRetainCount(self.0 as CFTypeRef) }
+    }
+}
+
+/// An [`IoSurface`] marked in use for as long as this value lives.
+///
+/// Holding a reference keeps a surface's memory alive, but a buffer pool —
+/// `ScreenCaptureKit`'s capture pool among them — may still recycle it and draw
+/// a new frame into it. Pools skip surfaces whose use count is raised, which
+/// is what this does.
+#[derive(Debug)]
+pub struct HeldSurface(IoSurface);
+
+impl HeldSurface {
+    /// Marks `surface` in use until the returned value is dropped.
+    #[must_use]
+    pub fn new(surface: IoSurface) -> Self {
+        // SAFETY: surface wraps a valid, retained IOSurfaceRef.
+        unsafe { IOSurfaceIncrementUseCount(surface.as_raw()) };
+        Self(surface)
+    }
+
+    /// The held surface.
+    #[must_use]
+    pub const fn surface(&self) -> &IoSurface {
+        &self.0
+    }
+
+    /// Whether the surface is marked in use by anyone, this hold included.
+    #[must_use]
+    pub fn is_in_use(&self) -> bool {
+        // SAFETY: self.0 wraps a valid, retained IOSurfaceRef.
+        unsafe { IOSurfaceIsInUse(self.0.as_raw()) != 0 }
+    }
+}
+
+impl Drop for HeldSurface {
+    fn drop(&mut self) {
+        // SAFETY: balances the increment in `new` on the same live surface.
+        unsafe { IOSurfaceDecrementUseCount(self.0.as_raw()) };
     }
 }
 
@@ -199,6 +248,21 @@ mod tests {
         // Drop decrements retain count
         drop(surface2);
         assert_eq!(surface1.retain_count(), 1);
+    }
+
+    #[test]
+    fn test_held_surface_marks_use_for_its_lifetime() {
+        let raw = create_test_iosurface(16, 16);
+        assert!(!raw.is_null());
+        // SAFETY: raw is a valid newly created IOSurfaceRef with retain count 1.
+        let surface = unsafe { IoSurface::from_raw(raw) }.unwrap();
+        // SAFETY: surface is live.
+        assert_eq!(unsafe { IOSurfaceIsInUse(surface.as_raw()) }, 0);
+        let held = HeldSurface::new(surface.clone());
+        assert!(held.is_in_use());
+        drop(held);
+        // SAFETY: surface is live.
+        assert_eq!(unsafe { IOSurfaceIsInUse(surface.as_raw()) }, 0);
     }
 
     #[test]

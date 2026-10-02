@@ -29,7 +29,7 @@ use crate::capture::{CapturePipeline, CaptureTarget};
 use crate::clock::ClockController;
 use crate::encode::EncodePipeline;
 use crate::error::HostError;
-use crate::network::{ControlDispatcher, DataSender, NetworkManager};
+use crate::network::{ControlDispatcher, DataSender, NetworkManager, RetransmitCache};
 use crate::session::HostSession;
 use crate::ui::UiManager;
 
@@ -322,9 +322,26 @@ impl HostApp {
                             // this connection, so both now abort the session cleanly
                             // instead of pretending to stream.
                             let start_bitrate = abr.current_bitrate().0;
-                            let pipeline_ready = match encode.init(
-                                cfg.width,
-                                cfg.height,
+                            // The session's size is the most the encoder will use;
+                            // the governor moves it down and back up with the link.
+                            // Capture stays at the session's size: VideoToolbox
+                            // scales each surface to the encoder's.
+                            let mut governor = host_cfg.adaptive_resolution.then(|| {
+                                crate::scale::ResolutionGovernor::new(
+                                    (cfg.width, cfg.height),
+                                    target_fps,
+                                    &cfg.selected_codec,
+                                )
+                            });
+                            let (encode_width, encode_height) = governor
+                                .as_mut()
+                                .map_or((cfg.width, cfg.height), |g| g.start(start_bitrate));
+                            // Building the encoder and starting capture block for
+                            // up to seconds; let the runtime move the QUIC
+                            // connection and control tasks off this worker first.
+                            let pipeline_ready = tokio::task::block_in_place(|| match encode.init(
+                                encode_width,
+                                encode_height,
                                 start_bitrate,
                                 &cfg.selected_codec,
                                 target_fps,
@@ -344,6 +361,8 @@ impl HostApp {
                                                 ?target,
                                                 width = cfg.width,
                                                 height = cfg.height,
+                                                encode_width,
+                                                encode_height,
                                                 fps = target_fps,
                                                 bitrate_kbps = start_bitrate,
                                                 "ScreenCaptureKit capture and VideoToolbox encoder active"
@@ -360,36 +379,58 @@ impl HostApp {
                                     tracing::error!("Encode pipeline init failed: {e}");
                                     false
                                 }
-                            };
+                            });
 
                             if !pipeline_ready {
                                 Self::teardown_session(&capture, &encode, &session, &menu_bar);
                                 conn.close(quinn::VarInt::from_u32(1), b"pipeline-init-failed");
                                 return;
                             }
+                            clock.begin_session(std::time::Duration::from_secs_f64(
+                                1.0 / f64::from(target_fps),
+                            ));
+
+                            // Every datagram this session sends, held briefly so the
+                            // viewer can ask for lost ones instead of a keyframe.
+                            let retransmits = Arc::new(RetransmitCache::new());
 
                             // Spawn Control stream reader to process VsyncReport & telemetry (#110, #111)
                             let capture_for_ctrl = capture.clone();
                             let abr_for_ctrl = abr.clone();
                             let encode_for_ctrl = encode.clone();
+                            let retransmits_for_ctrl = Arc::clone(&retransmits);
+                            let conn_for_ctrl = conn.clone();
                             tokio::spawn(async move {
                                 use renderd_net::framing::recv_control;
                                 use renderd_proto::generated::renderd::envelope::Payload;
                                 while let Ok(envelope) = recv_control(&mut recv_stream).await {
                                     match envelope.payload {
                                         Some(Payload::VsyncReport(report)) => {
-                                            let capture_guard = capture_for_ctrl
-                                                .lock()
-                                                .expect("CapturePipeline mutex poisoned");
-                                            if let Err(e) = clock.on_vsync_report(&report, &capture_guard) {
-                                                tracing::debug!("vsync report ignored: {e}");
+                                            match clock.on_vsync_report(&report) {
+                                                Ok(Some(interval)) => {
+                                                    let capture = capture_for_ctrl.clone();
+                                                    tokio::task::spawn_blocking(move || {
+                                                        if let Err(e) = crate::clock::apply_interval(&capture, interval) {
+                                                            tracing::warn!("capture retiming failed: {e}");
+                                                        }
+                                                    });
+                                                }
+                                                Ok(None) => {}
+                                                Err(e) => tracing::debug!("vsync report ignored: {e}"),
                                             }
                                         }
                                         Some(Payload::ReactiveStats(stats)) => {
-                                            if let Err(e) = abr_for_ctrl
+                                            match abr_for_ctrl
                                                 .on_reactive_stats(&stats, &encode_for_ctrl)
                                             {
-                                                tracing::debug!("reactive stats ignored: {e}");
+                                                Ok(decision) => Self::follow_link_with_size(
+                                                    governor.as_mut(),
+                                                    decision,
+                                                    &encode_for_ctrl,
+                                                ),
+                                                Err(e) => {
+                                                    tracing::debug!("reactive stats ignored: {e}");
+                                                }
                                             }
                                         }
                                         Some(Payload::PeriodicStats(stats)) => {
@@ -398,6 +439,13 @@ impl HostApp {
                                         }
                                         Some(Payload::KeyframeRequest(_)) => {
                                             abr_for_ctrl.on_keyframe_request(&encode_for_ctrl);
+                                        }
+                                        Some(Payload::Nack(nack)) => {
+                                            Self::answer_nack(
+                                                &nack,
+                                                &conn_for_ctrl,
+                                                &retransmits_for_ctrl,
+                                            );
                                         }
                                         _ => {}
                                     }
@@ -426,6 +474,7 @@ impl HostApp {
                                         sender_shutdown,
                                         request_keyframe,
                                         link_for_sender,
+                                        retransmits,
                                     )
                                     .await;
                             });
@@ -480,6 +529,66 @@ impl HostApp {
 
         tracing::info!("renderd-host shutdown complete");
         Ok(())
+    }
+
+    /// Moves the encoder to the size `governor` picks for `decision`'s bitrate.
+    ///
+    /// Rebuilding the encoder takes tens of milliseconds and waits for the old
+    /// session's last frames, so it runs on a blocking thread.
+    fn follow_link_with_size(
+        governor: Option<&mut crate::scale::ResolutionGovernor>,
+        decision: renderd_abr::BitrateDecision,
+        encode: &Arc<EncodePipeline>,
+    ) {
+        use renderd_abr::AbrState;
+
+        let Some(governor) = governor else {
+            return;
+        };
+        let congested = matches!(decision.state, AbrState::Backoff | AbrState::Panic);
+        let from = governor.current();
+        let Some((width, height)) = governor.update(
+            decision.target_bitrate_kbps.0,
+            congested,
+            std::time::Instant::now(),
+        ) else {
+            return;
+        };
+        tracing::info!(
+            from = ?from,
+            width,
+            height,
+            bitrate_kbps = decision.target_bitrate_kbps.0,
+            "Resizing the stream to fit the link"
+        );
+        let encode = Arc::clone(encode);
+        tokio::task::spawn_blocking(move || {
+            if let Err(e) = encode.reconfigure(width, height) {
+                tracing::warn!("encoder resize failed: {e}");
+            }
+        });
+    }
+
+    /// Resends the fragments a viewer reported lost.
+    ///
+    /// A request repeated within one round trip of the last answer most likely
+    /// crossed it on the wire, so those fragments are not sent twice.
+    fn answer_nack(
+        nack: &renderd_proto::generated::renderd::Nack,
+        connection: &quinn::Connection,
+        retransmits: &RetransmitCache,
+    ) {
+        let now = std::time::Instant::now();
+        let min_gap = connection.rtt();
+        for frame in &nack.frames {
+            for datagram in
+                retransmits.take_for_resend(frame.frame_id, &frame.frag_ids, now, min_gap)
+            {
+                if connection.send_datagram(datagram).is_err() {
+                    return;
+                }
+            }
+        }
     }
 
     /// Returns this machine's primary outbound IPv4 address, or `None` if it has no route.
