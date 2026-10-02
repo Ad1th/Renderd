@@ -4,7 +4,7 @@
 //! and outputs encoded NAL units into a bounded lock-free ring buffer consumed by the
 //! datagram sender.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -162,6 +162,24 @@ impl KeyframeGate {
     }
 }
 
+/// How the encoder is set up, kept so it can be rebuilt at another size.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EncoderParams {
+    codec: String,
+    width: u32,
+    height: u32,
+    frame_rate: u32,
+}
+
+/// What became of a surface handed to [`EncodePipeline::submit`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Submitted {
+    /// The surface went to the encoder.
+    Encoded,
+    /// The send queue was too deep; the surface was not encoded.
+    Skipped,
+}
+
 /// Encoded video frame payload emitted by the hardware encoder into the ring buffer.
 #[derive(Debug, Clone)]
 pub struct EncodedFrame {
@@ -193,11 +211,19 @@ pub struct EncodePipeline {
     tx: Sender<EncodedFrame>,
     rx: Receiver<EncodedFrame>,
     frame_counter: AtomicU64,
+    /// Frames the hardware encoder has emitted, which is also the source of
+    /// their `frame_id`s. Never reset: a new encoder session for the same
+    /// viewer must continue the ids, or the viewer discards everything it
+    /// sends as stale.
+    output_frames: Arc<AtomicU64>,
     keyframes: Arc<KeyframeGate>,
     dropped_frames: Arc<AtomicU64>,
     encoder_skipped: Arc<AtomicU64>,
     current_bitrate_kbps: AtomicU32,
     link: Arc<LinkPressure>,
+    /// Presentation timestamp of the last surface submitted, in nanoseconds.
+    last_pts_ns: AtomicI64,
+    params: std::sync::Mutex<Option<EncoderParams>>,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -228,13 +254,37 @@ impl EncodePipeline {
             tx,
             rx,
             frame_counter: AtomicU64::new(1),
+            output_frames: Arc::new(AtomicU64::new(0)),
             keyframes: Arc::new(KeyframeGate::new()),
             dropped_frames: Arc::new(AtomicU64::new(0)),
             encoder_skipped: Arc::new(AtomicU64::new(0)),
             current_bitrate_kbps: AtomicU32::new(0),
             link: Arc::new(LinkPressure::new()),
+            last_pts_ns: AtomicI64::new(i64::MIN),
+            params: std::sync::Mutex::new(None),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
+        }
+    }
+
+    /// `pts_ns`, raised if needed to stay strictly after the last surface
+    /// submitted.
+    ///
+    /// Capture timestamps and the re-encode passes of [`crate::refine`] come
+    /// from different clocks; the encoder must never see time go backwards.
+    pub fn monotonic_pts(&self, pts_ns: i64) -> i64 {
+        let mut last = self.last_pts_ns.load(Ordering::Relaxed);
+        loop {
+            let next = pts_ns.max(last.saturating_add(1_000));
+            match self.last_pts_ns.compare_exchange_weak(
+                last,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return next,
+                Err(seen) => last = seen,
+            }
         }
     }
 
@@ -269,22 +319,95 @@ impl EncodePipeline {
         while self.rx.try_recv().is_ok() {}
         self.keyframes.reset();
 
+        let params = EncoderParams {
+            codec: codec_lower,
+            width,
+            height,
+            frame_rate: frame_rate.max(1),
+        };
+        self.start_session(&params, bitrate_kbps)?;
+        self.current_bitrate_kbps
+            .store(bitrate_kbps, Ordering::Relaxed);
+        tracing::info!(
+            codec = %params.codec,
+            width,
+            height,
+            bitrate_kbps,
+            frame_rate,
+            "Encoder configured"
+        );
+        if let Ok(mut guard) = self.params.lock() {
+            *guard = Some(params);
+        }
+        Ok(())
+    }
+
+    /// Re-creates the encoder at `width` × `height` mid-session, keeping its
+    /// codec, frame rate and current bitrate.
+    ///
+    /// The first frame of the new size is a keyframe, and frame ids carry on
+    /// from the old encoder, so the viewer's decoder simply switches size at
+    /// that keyframe. Frames the old encoder still had in flight are delivered
+    /// first. Capture is left alone: `VideoToolbox` scales a captured surface
+    /// to the session's size by itself.
+    ///
+    /// Returns `false`, doing nothing, if the encoder is already that size.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostError::Initialization`] if the encoder was never
+    /// configured or the new session cannot be created; the old one keeps
+    /// running in that case.
+    pub fn reconfigure(&self, width: u32, height: u32) -> Result<bool, HostError> {
+        let mut params = self
+            .params
+            .lock()
+            .map_err(|_| HostError::Initialization("EncodePipeline mutex poisoned".into()))?
+            .clone()
+            .ok_or_else(|| HostError::Initialization("encoder was never configured".into()))?;
+        if (params.width, params.height) == (width, height) {
+            return Ok(false);
+        }
+        params.width = width;
+        params.height = height;
+        self.keyframes.reset();
+        self.start_session(&params, self.current_bitrate().max(1))?;
+        tracing::info!(width, height, "Encoder resized to follow the link");
+        if let Ok(mut guard) = self.params.lock() {
+            *guard = Some(params);
+        }
+        Ok(true)
+    }
+
+    /// The size the encoder is producing, once configured.
+    #[must_use]
+    pub fn encoded_size(&self) -> Option<(u32, u32)> {
+        self.params
+            .lock()
+            .ok()?
+            .as_ref()
+            .map(|p| (p.width, p.height))
+    }
+
+    /// Creates a hardware session for `params` and swaps it in. Dropping the
+    /// old session waits for its in-flight frames to come out first.
+    fn start_session(&self, params: &EncoderParams, bitrate_kbps: u32) -> Result<(), HostError> {
         #[cfg(target_os = "macos")]
         {
             use renderd_vt_sys::{CompressionSession, VideoCodec};
 
             // Encode what the viewer actually negotiated. Hardcoding HEVC here meant a
             // viewer that could only decode H.264 was sent a stream it could never show.
-            let vt_codec = if codec_lower == "h264" {
+            let vt_codec = if params.codec == "h264" {
                 VideoCodec::H264
             } else {
                 VideoCodec::Hevc
             };
 
-            let width_i32 = i32::try_from(width).map_err(|_| {
+            let width_i32 = i32::try_from(params.width).map_err(|_| {
                 HostError::Initialization("Width exceeds i32 max bounds".to_string())
             })?;
-            let height_i32 = i32::try_from(height).map_err(|_| {
+            let height_i32 = i32::try_from(params.height).map_err(|_| {
                 HostError::Initialization("Height exceeds i32 max bounds".to_string())
             })?;
 
@@ -293,30 +416,34 @@ impl EncodePipeline {
                 height_i32,
                 vt_codec,
                 bitrate_kbps,
-                frame_rate.max(1),
+                params.frame_rate,
                 self.output_handler(),
             )
             .map_err(|e| {
                 HostError::Initialization(format!("VTCompressionSession init failed: {e}"))
             })?;
 
-            log_rate_controller(&session, &codec_lower);
+            log_rate_controller(&session, &params.codec);
 
             let mut guard = self
                 .session
                 .lock()
                 .map_err(|_| HostError::Initialization("EncodePipeline mutex poisoned".into()))?;
+            // Drain the old session before the new one encodes anything. Frame ids
+            // are handed out as frames come out of the encoder, so a last frame of
+            // the old size finishing after the new size's first keyframe would get
+            // the later id, and the viewer would decode it against the wrong
+            // picture. Dropping waits for its in-flight frames — a few
+            // milliseconds, during which capture waits on this lock.
+            drop(guard.take());
             *guard = Some(session);
+            drop(guard);
         }
 
         #[cfg(not(target_os = "macos"))]
         {
-            let _ = (width, height, bitrate_kbps, frame_rate);
+            let _ = (params, bitrate_kbps);
         }
-
-        self.current_bitrate_kbps
-            .store(bitrate_kbps, Ordering::Relaxed);
-        tracing::info!(codec = %codec_lower, width, height, bitrate_kbps, frame_rate, "Encoder configured");
         Ok(())
     }
 
@@ -336,7 +463,7 @@ impl EncodePipeline {
         let keyframes = Arc::clone(&self.keyframes);
         let dropped = Arc::clone(&self.dropped_frames);
         let encoder_skipped = Arc::clone(&self.encoder_skipped);
-        let count_atomic = Arc::new(AtomicU64::new(0));
+        let count_atomic = Arc::clone(&self.output_frames);
 
         #[allow(unsafe_code)]
         move |err, flags, sample_buf| {
@@ -371,7 +498,7 @@ impl EncodePipeline {
             // CMSampleBufferRef owned by the VideoToolbox callback.
             let pts_ns = unsafe { renderd_vt_sys::sample_buffer_presentation_time_ns(sample_buf) }
                 .unwrap_or(0);
-            if frame_id <= 3 {
+            if frame_id <= 3 || is_kf {
                 tracing::info!(
                     frame_id,
                     is_keyframe = is_kf,
@@ -404,6 +531,9 @@ impl EncodePipeline {
     /// Releases the hardware encoder session, if any.
     pub fn shutdown(&self) {
         self.link.detach();
+        if let Ok(mut params) = self.params.lock() {
+            *params = None;
+        }
         #[cfg(target_os = "macos")]
         if let Ok(mut guard) = self.session.lock() {
             *guard = None;
@@ -424,12 +554,28 @@ impl EncodePipeline {
         surface: &renderd_vt_sys::IoSurface,
         pts_ns: i64,
     ) -> Result<(), HostError> {
+        self.submit(surface, pts_ns).map(|_| ())
+    }
+
+    /// Submits a GPU `IoSurface` to the hardware encoder, reporting whether it
+    /// was encoded or skipped because the send queue is deep.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HostError::Initialization`] if hardware encoding fails.
+    #[cfg(target_os = "macos")]
+    pub fn submit(
+        &self,
+        surface: &renderd_vt_sys::IoSurface,
+        pts_ns: i64,
+    ) -> Result<Submitted, HostError> {
         // Shed a deep send queue here, before encoding, where skipping a frame
         // costs nothing: the encoder just sees a lower frame rate. A pending
         // keyframe request stays pending until a frame is actually encoded.
         if self.link.should_skip_frame(self.current_bitrate()) {
-            return Ok(());
+            return Ok(Submitted::Skipped);
         }
+        let pts_ns = self.monotonic_pts(pts_ns);
 
         let force_kf = self.keyframes.take(self.current_bitrate());
         let frame_id = self.frame_counter.fetch_add(1, Ordering::SeqCst);
@@ -463,7 +609,7 @@ impl EncodePipeline {
             let _ = self.tx.try_send(frame);
         }
 
-        Ok(())
+        Ok(Submitted::Encoded)
     }
 
     /// Submits a raw byte payload to the encoding pipeline (used in mock / headless environments).
@@ -565,6 +711,12 @@ impl EncodePipeline {
         self.rx.clone()
     }
 
+    /// Frames the hardware encoder has emitted so far.
+    #[must_use]
+    pub fn frames_output(&self) -> u64 {
+        self.output_frames.load(Ordering::Relaxed)
+    }
+
     /// Returns the number of frames the encoder itself skipped for lack of bit budget.
     #[must_use]
     pub fn encoder_skipped_frames(&self) -> u64 {
@@ -626,6 +778,30 @@ mod tests {
         // ...and the drop leaves a keyframe request pending so the decoder can
         // resynchronise once the gate allows it.
         assert!(pipeline.keyframe_pending());
+    }
+
+    #[test]
+    fn test_reconfigure_needs_a_configured_encoder_and_a_new_size() {
+        let pipeline = EncodePipeline::new();
+        assert!(pipeline.reconfigure(960, 544).is_err());
+        if pipeline.init(1920, 1080, 4_000, "hevc", 60).is_err() {
+            return; // no hardware encoder here
+        }
+        assert_eq!(pipeline.encoded_size(), Some((1920, 1080)));
+        assert!(!pipeline.reconfigure(1920, 1080).unwrap());
+        assert!(pipeline.reconfigure(960, 544).unwrap());
+        assert_eq!(pipeline.encoded_size(), Some((960, 544)));
+        pipeline.shutdown();
+        assert_eq!(pipeline.encoded_size(), None);
+    }
+
+    #[test]
+    fn test_monotonic_pts_never_goes_backwards() {
+        let pipeline = EncodePipeline::new();
+        assert_eq!(pipeline.monotonic_pts(5_000_000), 5_000_000);
+        assert_eq!(pipeline.monotonic_pts(9_000_000), 9_000_000);
+        // A capture timestamp older than a re-encode pass already submitted.
+        assert_eq!(pipeline.monotonic_pts(8_000_000), 9_001_000);
     }
 
     #[test]

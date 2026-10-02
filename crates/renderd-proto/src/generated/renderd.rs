@@ -2,7 +2,7 @@
 /// Main message envelope wrapping all control plane messages on Stream 0
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct Envelope {
-    #[prost(oneof = "envelope::Payload", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9")]
+    #[prost(oneof = "envelope::Payload", tags = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")]
     pub payload: ::core::option::Option<envelope::Payload>,
 }
 /// Nested message and enum types in `Envelope`.
@@ -27,6 +27,8 @@ pub mod envelope {
         StreamReconfigure(super::StreamReconfigure),
         #[prost(message, tag = "9")]
         Error(super::Error),
+        #[prost(message, tag = "10")]
+        Nack(super::Nack),
     }
 }
 /// Display specifications sent by viewer
@@ -142,6 +144,23 @@ pub struct KeyframeRequest {
     /// Viewer's current estimated receive BW
     #[prost(uint32, tag = "2")]
     pub bandwidth_hint_kbps: u32,
+}
+/// Viewer -> Host: Retransmit request for fragments lost in transit. Resending
+/// a few fragments costs one round trip; the keyframe a loss would otherwise
+/// need costs the whole picture.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct Nack {
+    #[prost(message, repeated, tag = "1")]
+    pub frames: ::prost::alloc::vec::Vec<FrameNack>,
+}
+/// The missing fragments of one frame.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct FrameNack {
+    #[prost(uint64, tag = "1")]
+    pub frame_id: u64,
+    /// Empty: no fragment of the frame arrived, resend all of it
+    #[prost(uint32, repeated, tag = "2")]
+    pub frag_ids: ::prost::alloc::vec::Vec<u32>,
 }
 /// Host -> Viewer: Dynamic bitrate adjustment decision
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]

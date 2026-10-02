@@ -53,7 +53,7 @@ pub use session::{
 };
 
 #[cfg(target_os = "macos")]
-pub use surface::IoSurface;
+pub use surface::{HeldSurface, IoSurface};
 
 #[cfg(target_os = "macos")]
 pub use bindings::ENCODE_INFO_FRAME_DROPPED;

@@ -14,6 +14,7 @@ message Envelope {
     BitrateAdjust     bitrate_adjust     = 7;
     StreamReconfigure stream_reconfigure = 8;
     Error             error              = 9;
+    Nack              nack               = 10;
   }
 }
 
@@ -77,6 +78,19 @@ message PeriodicStats {
 message KeyframeRequest {
   uint64 after_frame_id      = 1;
   uint32 bandwidth_hint_kbps = 2;  // Viewer's current estimated receive BW
+}
+
+// Viewer -> Host: Retransmit request for fragments lost in transit. Resending
+// a few fragments costs one round trip; the keyframe a loss would otherwise
+// need costs the whole picture.
+message Nack {
+  repeated FrameNack frames = 1;
+}
+
+// The missing fragments of one frame.
+message FrameNack {
+  uint64          frame_id = 1;
+  repeated uint32 frag_ids = 2;  // Empty: no fragment of the frame arrived, resend all of it
 }
 
 // Host -> Viewer: Dynamic bitrate adjustment decision

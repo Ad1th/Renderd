@@ -177,3 +177,29 @@ fn test_bitrate_never_leaves_bounds_under_any_capacity() {
         assert!((1_500.0..=10_000.0).contains(&tick.bitrate_kbps));
     }
 }
+
+/// Wi-Fi drops packets at random whether or not the link is full. Those
+/// losses are resent, so they must not drag the bitrate down: on a 4 Mbps link
+/// with 1-3% random loss the encoder should still use most of it, instead of
+/// sinking to the floor one backoff at a time.
+#[test]
+fn test_random_loss_does_not_sink_the_bitrate() {
+    let mut engine = engine(3_000);
+    let mut link = Link { queue_kbit: 0.0 };
+    let mut signals = Signals::default();
+    let mut rates = Vec::new();
+    for t in 0..600u32 {
+        let decision = engine.update_signals(&signals);
+        let tick = link.step(f64::from(decision.target_bitrate_kbps.0), 4_000.0);
+        signals = Signals {
+            loss_rate: 0.01 + f64::from(t % 5) * 0.005,
+            queue_delay_ms: tick.delay_ms,
+            receive_rate_kbps: tick.received_kbps,
+            ..Signals::default()
+        };
+        rates.push(tick.bitrate_kbps);
+    }
+    let late = mean(rates[300..].iter().copied());
+    println!("4 Mbps with 1-3% random loss: bitrate {late:.0} kbps");
+    assert!(late > 2_800.0, "sank to {late:.0} kbps under random loss");
+}
