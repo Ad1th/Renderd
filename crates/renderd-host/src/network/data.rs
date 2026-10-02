@@ -36,9 +36,14 @@ const MAX_CONSECUTIVE_SEND_ERRORS: u32 = 120;
 /// next frame does that within one frame interval; once it goes still nothing
 /// would, and the lost tail would stay lost until the next change. Resending
 /// the last datagram once the stream goes quiet tells the viewer what it is
-/// missing. The wait is at least one round trip, so the probe never races a
-/// retransmit the viewer already asked for.
-const TAIL_PROBE_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(30);
+/// missing.
+///
+/// The wait is long enough that a desktop updating at 10 fps or more never
+/// triggers a probe — the next frame does the job for free — and at least two
+/// round trips, so the probe never races a retransmit the viewer already
+/// asked for. At 30 ms a desktop redrawing at ~25 fps drew a probe after every
+/// frame, doubling the packet rate for nothing.
+const TAIL_PROBE_MIN_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
 
 /// Frames allowed to queue up behind the sender before it skips ahead.
 ///
@@ -321,7 +326,7 @@ impl DataSender {
                 Ok((num_frags, fragments)) => {
                     let now = std::time::Instant::now();
                     retransmits.insert(frame_id, fragments, now);
-                    tail_probe_at = Some(now + connection.rtt().max(TAIL_PROBE_MIN_DELAY));
+                    tail_probe_at = Some(now + (connection.rtt() * 2).max(TAIL_PROBE_MIN_DELAY));
                     consecutive_errors = 0;
                     sent_frames += 1;
                     interval_frames += 1;
