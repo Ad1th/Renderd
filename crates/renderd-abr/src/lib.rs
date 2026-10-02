@@ -8,8 +8,9 @@
 //!
 //! The crate contains three modules:
 //!
-//! - [`engine`] — [`AbrEngine`]: the core decision engine that maps loss metrics to
-//!   [`BitrateDecision`] outputs. Stateless with respect to I/O; driven by the caller.
+//! - [`engine`] — [`AbrEngine`]: the core decision engine that maps loss and
+//!   queuing-delay [`Signals`] to [`BitrateDecision`] outputs. Stateless with
+//!   respect to I/O; driven by the caller.
 //! - [`state`] — [`AbrState`]: the four-state FSM (`Steady` → `ProbeUp` ↔ `Backoff`
 //!   → `Panic`). Transitions are deterministic pure functions, enabling property-based
 //!   testing without side effects.

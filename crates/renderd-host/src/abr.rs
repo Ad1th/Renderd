@@ -4,14 +4,20 @@
 //! from the connected viewer and drives the `AbrEngine` to adjust encoder bitrate and
 //! request IDR keyframes.
 //!
-//! Only measured loss drives the bitrate. An earlier version also capped the bitrate
-//! at 80% of the viewer's *received* bandwidth, but on a still desktop the encoder
-//! sends almost nothing, so "received bandwidth" collapsed and dragged the bitrate to
-//! its floor — and the moment a video started playing it looked like a slideshow.
+//! Loss, the viewer's one-way queuing delay, this host's own send-queue depth and
+//! the viewer's receive rate all drive the bitrate (see `renderd_abr::Signals`).
+//!
+//! An earlier version capped the bitrate at 80% of the viewer's *received*
+//! bandwidth at all times, but on a still desktop the encoder sends almost
+//! nothing, so "received bandwidth" collapsed and dragged the bitrate to its
+//! floor — and the moment a video started playing it looked like a slideshow.
+//! The receive rate is now only consulted while backing off, when a queue is
+//! building and the path is demonstrably the bottleneck; and probing upward is
+//! suspended while the encoder is app-limited, rather than capped by it.
 
 use std::sync::{Arc, Mutex};
 
-use renderd_abr::{AbrEngine, BitrateDecision};
+use renderd_abr::{AbrEngine, BitrateDecision, Signals};
 use renderd_config::{AbrConfig, HostConfig};
 use renderd_proto::generated::renderd::{PeriodicStats, ReactiveStats};
 use renderd_proto::types::BitrateKbps;
@@ -100,8 +106,9 @@ impl AbrManager {
 
     /// Processes a short-term [`ReactiveStats`] report (100 ms loop) from the viewer.
     ///
-    /// Updates `AbrEngine` with the loss rate. If the decision calls for a bitrate change
-    /// or keyframe, updates `encode_pipeline`.
+    /// Combines the report with this host's own send-queue depth and send rate,
+    /// updates the `AbrEngine`, and applies any bitrate change or keyframe
+    /// request to `pipeline`.
     ///
     /// # Errors
     /// Returns [`HostError::Initialization`] if `encode_pipeline.set_bitrate` fails.
@@ -110,14 +117,22 @@ impl AbrManager {
         stats: &ReactiveStats,
         pipeline: &EncodePipeline,
     ) -> Result<BitrateDecision, HostError> {
-        let loss_rate = f64::from(stats.loss_rate.clamp(0.0, 1.0));
+        let target = pipeline.current_bitrate();
+        let link = pipeline.link();
+        let signals = Signals {
+            loss_rate: f64::from(stats.loss_rate.clamp(0.0, 1.0)),
+            queue_delay_ms: f64::from(stats.queue_delay_us) / 1_000.0,
+            send_queue_ms: link.queue_delay(target).as_secs_f64() * 1_000.0,
+            receive_rate_kbps: f64::from(stats.receive_rate_kbps),
+            app_limited: link.is_app_limited(target),
+        };
 
         let mut engine = self
             .engine
             .lock()
             .map_err(|_| HostError::Initialization("AbrManager mutex poisoned".into()))?;
 
-        let decision = engine.update(loss_rate);
+        let decision = engine.update_signals(&signals);
         drop(engine);
 
         // `set_bitrate` is a no-op for an unchanged value, so this is cheap to call
@@ -130,6 +145,10 @@ impl AbrManager {
 
         tracing::debug!(
             loss_rate = stats.loss_rate,
+            queue_delay_ms = signals.queue_delay_ms,
+            send_queue_ms = signals.send_queue_ms,
+            receive_kbps = stats.receive_rate_kbps,
+            app_limited = signals.app_limited,
             target_kbps = decision.target_bitrate_kbps.0,
             state = ?decision.state,
             request_keyframe = decision.request_keyframe,
@@ -170,6 +189,7 @@ impl AbrManager {
             frames_dropped = stats.frames_dropped,
             target_kbps = decision.target_bitrate_kbps.0,
             encoder_skipped = pipeline.encoder_skipped_frames(),
+            capture_skipped = pipeline.link().skipped_frames(),
             "VIEWER TELEMETRY"
         );
 
@@ -221,6 +241,7 @@ mod tests {
             loss_rate: 0.10,
             jitter_us: 100,
             last_frame_id: 1,
+            ..Default::default()
         };
 
         let decision = manager.on_reactive_stats(&stats, &pipeline).unwrap();
@@ -276,5 +297,38 @@ mod tests {
         };
         let manager = AbrManager::from_config(&abr, &host);
         assert_eq!(manager.current_bitrate().0, 20_000);
+    }
+
+    /// A queue building on the path with zero loss must pull the encoder down.
+    #[test]
+    fn test_queuing_delay_reduces_bitrate_without_loss() {
+        let manager = AbrManager::new();
+        let pipeline = EncodePipeline::new();
+        pipeline.set_bitrate(15_000).unwrap();
+        pipeline.link().set_sent_kbps(15_000);
+        let stats = ReactiveStats {
+            queue_delay_us: 90_000,
+            receive_rate_kbps: 9_000,
+            ..Default::default()
+        };
+        let decision = manager.on_reactive_stats(&stats, &pipeline).unwrap();
+        assert_eq!(decision.target_bitrate_kbps.0, 8_550);
+        assert_eq!(pipeline.current_bitrate(), 8_550);
+    }
+
+    /// A still desktop must not probe the bitrate up just because the link is
+    /// quiet.
+    #[test]
+    fn test_idle_encoder_does_not_probe() {
+        let manager = AbrManager::new();
+        let pipeline = EncodePipeline::new();
+        pipeline.set_bitrate(15_000).unwrap();
+        pipeline.link().set_sent_kbps(300);
+        for _ in 0..30 {
+            manager
+                .on_reactive_stats(&ReactiveStats::default(), &pipeline)
+                .unwrap();
+        }
+        assert_eq!(manager.current_bitrate().0, 15_000);
     }
 }

@@ -65,6 +65,7 @@ mod tests {
             loss_rate: 0.05,
             jitter_us: 1000,
             last_frame_id: 100,
+            ..Default::default()
         };
 
         let report = TelemetryReport::from_reactive(&stats);
