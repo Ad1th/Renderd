@@ -31,6 +31,9 @@ pub struct CapturePipeline {
     is_running: Arc<AtomicBool>,
     #[cfg(target_os = "macos")]
     stream: Option<renderd_sc_sys::ScreenStream>,
+    /// Re-encodes the newest frame once the screen goes still.
+    #[cfg(target_os = "macos")]
+    refiner: Option<Arc<crate::refine::StaticRefiner>>,
 }
 
 impl std::fmt::Debug for CapturePipeline {
@@ -55,6 +58,8 @@ impl CapturePipeline {
             is_running: Arc::new(AtomicBool::new(false)),
             #[cfg(target_os = "macos")]
             stream: None,
+            #[cfg(target_os = "macos")]
+            refiner: None,
         }
     }
 
@@ -120,6 +125,10 @@ impl CapturePipeline {
                 "Capture target selected"
             );
 
+            let refiner = Arc::new(crate::refine::StaticRefiner::start(Arc::clone(
+                &encode_pipeline,
+            )));
+            let refiner_ref = Arc::clone(&refiner);
             let pipeline_ref = encode_pipeline;
 
             let stream = ScreenStream::with_dimensions(
@@ -143,6 +152,9 @@ impl CapturePipeline {
                             tracing::warn!("encode_surface failed: {e}");
                         }
                     }
+                    // Encoded or skipped for a deep queue, this is now the
+                    // screen; the refiner makes sure the viewer ends up with it.
+                    refiner_ref.on_capture(&frame.surface, frame.pts_ns);
                 },
             )
             .map_err(|e| HostError::Initialization(format!("ScreenStream creation failed: {e}")))?;
@@ -152,6 +164,7 @@ impl CapturePipeline {
             })?;
 
             self.stream = Some(stream);
+            self.refiner = Some(refiner);
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -200,6 +213,10 @@ impl CapturePipeline {
         {
             if let Some(stream) = self.stream.take() {
                 let _ = stream.stop();
+            }
+            // After the stream, so no capture callback can feed it again.
+            if let Some(refiner) = self.refiner.take() {
+                refiner.stop();
             }
         }
 
