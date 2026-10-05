@@ -179,16 +179,20 @@ fn scale_nv12(
     }
 }
 
-// BT.601 full-range YUV->RGB coefficients in 16.16 fixed point, shared by both the
-// per-pixel and per-pixel-pair conversion below.
-/// 1.402 << 16
-const YUV_R_CR: i32 = 91_881;
-/// 0.344136 << 16
-const YUV_G_CB: i32 = 22_554;
-/// 0.714136 << 16
-const YUV_G_CR: i32 = 46_802;
-/// 1.772 << 16
-const YUV_B_CB: i32 = 116_130;
+// BT.709 limited-range (16-235) YUV->RGB coefficients in 16.16 fixed point, shared by
+// both the per-pixel and per-pixel-pair conversion below. This is how the host tags
+// its stream (`ScreenCaptureKit` `420v` capture, BT.709 matrix); decoding it as
+// full-range BT.601 lifted every black to grey, dimmed every white and shifted hues.
+/// 255/219 << 16: stretches limited-range luma to full range.
+const YUV_Y_SCALE: i32 = 76_309;
+/// 1.792741 << 16
+const YUV_R_CR: i32 = 117_489;
+/// 0.213249 << 16
+const YUV_G_CB: i32 = 13_975;
+/// 0.532909 << 16
+const YUV_G_CR: i32 = 34_925;
+/// 2.112402 << 16
+const YUV_B_CB: i32 = 138_438;
 /// 0.5 in 16.16 fixed point — added before the final `>> 16` so the divide rounds
 /// to the nearest integer instead of always truncating toward zero. A plain
 /// right-shift is a floor, which biased every reconstructed pixel darker by up to
@@ -202,14 +206,14 @@ const YUV_HALF: i32 = 1 << 15;
 /// Returns 1 if the resulting pixel has any colour, 0 if it is pure black; the caller
 /// uses this to report how much of a frame was non-blank.
 ///
-/// Uses BT.601 full-range coefficients in 16.16 fixed point. This runs once per pixel
+/// Uses BT.709 limited-range coefficients in 16.16 fixed point. This runs once per pixel
 /// per frame — over two million times per frame at 1080p — so the scalar float form it
 /// replaces dominated the frame budget on the software path. Where two horizontally
 /// adjacent pixels share one chroma sample (true for every pair in 4:2:0), prefer
 /// [`nv12_pair_to_bgra`], which computes the chroma terms once instead of twice.
 #[inline]
 fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
-    let luma = i32::from(luma) << 16;
+    let luma = (i32::from(luma) - 16) * YUV_Y_SCALE;
     let chroma_b = i32::from(chroma_b) - 128;
     let chroma_r = i32::from(chroma_r) - 128;
 
@@ -226,7 +230,7 @@ fn nv12_to_bgra(luma: u8, chroma_b: u8, chroma_r: u8, out: &mut u32) -> u8 {
 /// Converts two horizontally adjacent NV12 pixels that share one chroma sample —
 /// true for every pixel pair in 4:2:0 — to two `0RGB` words in one call.
 ///
-/// The three chroma-derived terms in the BT.601 matrix depend only on `(chroma_b,
+/// The three chroma-derived terms in the BT.709 matrix depend only on `(chroma_b,
 /// chroma_r)`, which is identical for both pixels of the pair; computing them once
 /// here instead of once per pixel removes three of the six fixed-point
 /// multiplications from what is the hottest loop in the software render path —
@@ -248,7 +252,7 @@ fn nv12_pair_to_bgra(
     let b_term = YUV_B_CB * chroma_b + YUV_HALF;
 
     for (luma, out) in [(luma0, out0), (luma1, out1)] {
-        let luma = i32::from(luma) << 16;
+        let luma = (i32::from(luma) - 16) * YUV_Y_SCALE;
         let red = ((luma + r_term) >> 16).clamp(0, 255);
         let green = ((luma + g_term) >> 16).clamp(0, 255);
         let blue = ((luma + b_term) >> 16).clamp(0, 255);
@@ -614,7 +618,7 @@ mod tests {
         assert!(!renderer.is_initialized());
     }
 
-    /// The fixed-point BT.601 conversion must agree with the float form it replaced.
+    /// The fixed-point BT.709 limited-range conversion must agree with the float form.
     #[test]
     fn test_nv12_to_bgra_matches_float_reference() {
         #[allow(
@@ -623,13 +627,13 @@ mod tests {
             clippy::suboptimal_flops
         )]
         fn reference(luma: u8, chroma_b: u8, chroma_r: u8) -> (u32, u32, u32) {
-            let luma = f32::from(luma);
+            let luma = (f32::from(luma) - 16.0) * (255.0 / 219.0);
             let chroma_b = f32::from(chroma_b) - 128.0;
             let chroma_r = f32::from(chroma_r) - 128.0;
             (
-                (luma + 1.402 * chroma_r).clamp(0.0, 255.0) as u32,
-                (luma - 0.344_136 * chroma_b - 0.714_136 * chroma_r).clamp(0.0, 255.0) as u32,
-                (luma + 1.772 * chroma_b).clamp(0.0, 255.0) as u32,
+                (luma + 1.792_741 * chroma_r).clamp(0.0, 255.0) as u32,
+                (luma - 0.213_249 * chroma_b - 0.532_909 * chroma_r).clamp(0.0, 255.0) as u32,
+                (luma + 2.112_402 * chroma_b).clamp(0.0, 255.0) as u32,
             )
         }
 
@@ -652,15 +656,20 @@ mod tests {
         }
     }
 
-    /// Neutral chroma with zero luma is black and reports as blank.
+    /// Limited-range black (16) and white (235) must land on 0 and 255, not on
+    /// grey: that was the whole point of leaving full-range BT.601.
     #[test]
-    fn test_nv12_to_bgra_black_is_reported_blank() {
+    fn test_nv12_to_bgra_limited_range_black_and_white() {
         let mut out = 0u32;
-        assert_eq!(nv12_to_bgra(0, 128, 128, &mut out), 0);
+        assert_eq!(nv12_to_bgra(16, 128, 128, &mut out), 0);
         assert_eq!(out & 0x00FF_FFFF, 0);
 
-        assert_eq!(nv12_to_bgra(255, 128, 128, &mut out), 1);
+        assert_eq!(nv12_to_bgra(235, 128, 128, &mut out), 1);
         assert_eq!(out & 0x00FF_FFFF, 0x00FF_FFFF);
+
+        // Below black clamps instead of wrapping.
+        assert_eq!(nv12_to_bgra(0, 128, 128, &mut out), 0);
+        assert_eq!(out & 0x00FF_FFFF, 0);
     }
 
     /// The pair fast path must produce byte-identical output to the per-pixel

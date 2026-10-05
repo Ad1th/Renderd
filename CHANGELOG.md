@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Performance
+- **Sharpen on idle.** On a slow link the encoder runs below the display's resolution, and a
+  still screen stayed soft however long it sat there: no refinement pass restores pixels that were
+  never encoded. Once the screen has been still for 500 ms the host now moves the encoder up to
+  the display's native size for one full-resolution keyframe plus two refinement passes, and drops
+  back to the link's size when the screen moves again (four captures within 300 ms, so a blinking
+  cursor does not undo it; 2 s cooldown before sharpening again). Skipped when the keyframe would
+  take over 1.2 s to drain at the current bitrate. ([`host::refine`](crates/renderd-host/src/refine.rs),
+  [`EncodePipeline::sharpen`](crates/renderd-host/src/encode.rs))
+
+### Fixed
+- **Software renderer used the wrong colour maths.** The Windows software path (and the fallback
+  when the D3D11 presenter cannot start) converted NV12 as full-range BT.601, but the stream is
+  BT.709 limited range. Every black came out grey (16 instead of 0), every white dim (235 instead
+  of 255) and hues shifted, which reads as washed-out text. It now converts BT.709 limited range,
+  matching the D3D11 presenter.
+- **Capture colour space is pinned.** `ScreenCaptureKit` is asked for sRGB with the BT.709 matrix
+  instead of inheriting the display's colour space, so a wide-gamut Mac cannot send Display P3
+  values the viewer reads as sRGB. The capture's colour tags are logged for the first frames, and
+  `cargo run -p renderd-sc-sys --example colour_probe` prints them.
+
 ---
 
 ## [1.0.0] — 2026-10-05
