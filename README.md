@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D11` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` streams a macOS desktop to a Windows viewer end to end: zero-copy `ScreenCaptureKit` capture, `VideoToolbox` hardware HEVC/H.264 encoding, QUIC datagram transport with BBR congestion control, in-order reassembly with retransmit-based loss recovery, delay- and loss-aware adaptive bitrate and resolution, and DXVA hardware decode with a zero-copy `Direct3D11` presenter on Windows. Latest release: **`v0.11.0-loss-recovery`**. Current focus: pixel-sharp text and fine detail at every resolution step.
+> `Renderd` streams a macOS desktop to a Windows viewer end to end: zero-copy `ScreenCaptureKit` capture, `VideoToolbox` hardware HEVC/H.264 encoding, QUIC datagram transport with BBR congestion control, in-order reassembly with retransmit-based loss recovery, delay- and loss-aware adaptive bitrate and resolution, and DXVA hardware decode with a zero-copy `Direct3D11` presenter on Windows. Latest release: **`v0.11.0-loss-recovery`**, the first stable release. Current focus: pixel-sharp text and fine detail at every resolution step.
 
 ---
 

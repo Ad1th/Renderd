@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.11.0-loss-recovery] — 2026-10-05
 
-> Loss recovery by retransmit, resolution that follows the link, and a still screen that always ends on the current picture.
+> **First stable release.** Streaming now holds up end to end: low latency, clean quality across screen changes, and sessions that no longer stall after ~10 minutes. This release adds loss recovery by retransmit, resolution that follows the link, and a still screen that always ends on the current picture.
 
 ### Added
 - **`Nack` control message** (`renderd.proto`): the viewer asks the host to resend specific lost fragments. Backward-compatible, so a minor bump.
