@@ -58,9 +58,10 @@ pub const MAX_QUEUE: Duration = Duration::from_millis(10);
 
 /// Stillness before the encoder is moved up to the display's native size.
 ///
-/// Long enough that typing and cursor movement do not trigger it, short
-/// enough to feel like the picture sharpening as soon as you stop.
-pub const SHARPEN_AFTER: Duration = Duration::from_millis(500);
+/// Short enough to feel like the picture sharpening as soon as you stop. A
+/// pause between keystrokes or mid-read can still start one; that costs a
+/// keyframe and is undone by [`MotionDetector`] when the screen moves again.
+pub const SHARPEN_AFTER: Duration = Duration::from_millis(200);
 
 /// Minimum time at the link's size after moving, before sharpening again.
 pub const SHARPEN_COOLDOWN: Duration = Duration::from_secs(2);
@@ -379,39 +380,41 @@ mod macos {
                 }
             }
             let now = Instant::now();
+            // A full-resolution keyframe supersedes the low-resolution passes, so
+            // while one is coming they are held back rather than queued ahead of it.
+            match sharpen_wanted(&state, encode, now) {
+                SharpenPlan::Now => {
+                    state.sharpen_done = true;
+                    let native = state.native;
+                    drop(state);
+                    let landed = match encode.sharpen(native) {
+                        Ok(changed) => changed,
+                        Err(e) => {
+                            tracing::debug!("sharpen failed: {e}");
+                            false
+                        }
+                    };
+                    state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
+                    if landed {
+                        // The new session starts with a keyframe of the still
+                        // screen, then refines it like any other.
+                        state.schedule.on_capture(Instant::now());
+                        state.pending = None;
+                    }
+                    continue;
+                }
+                SharpenPlan::At(at) => {
+                    state = shared
+                        .wake
+                        .wait_timeout(state, at.saturating_duration_since(now))
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .0;
+                    continue;
+                }
+                SharpenPlan::Never => {}
+            }
             match state.schedule.next_at() {
                 None => {
-                    match sharpen_wanted(&state, encode, now) {
-                        SharpenPlan::Now => {
-                            state.sharpen_done = true;
-                            let native = state.native;
-                            drop(state);
-                            let landed = match encode.sharpen(native) {
-                                Ok(changed) => changed,
-                                Err(e) => {
-                                    tracing::debug!("sharpen failed: {e}");
-                                    false
-                                }
-                            };
-                            state = shared.state.lock().unwrap_or_else(PoisonError::into_inner);
-                            if landed {
-                                // The new session starts with a keyframe of the
-                                // still screen, then refines it like any other.
-                                state.schedule.on_capture(Instant::now());
-                                state.pending = None;
-                            }
-                            continue;
-                        }
-                        SharpenPlan::At(at) => {
-                            state = shared
-                                .wake
-                                .wait_timeout(state, at.saturating_duration_since(now))
-                                .unwrap_or_else(PoisonError::into_inner)
-                                .0;
-                            continue;
-                        }
-                        SharpenPlan::Never => {}
-                    }
                     // Every pass ran: hand the surface back to the capture pool.
                     state.latest = None;
                     state = shared

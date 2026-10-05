@@ -10,11 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Performance
 - **Sharpen on idle.** On a slow link the encoder runs below the display's resolution, and a
   still screen stayed soft however long it sat there: no refinement pass restores pixels that were
-  never encoded. Once the screen has been still for 500 ms the host now moves the encoder up to
+  never encoded. Once the screen has been still for 200 ms the host now moves the encoder up to
   the display's native size for one full-resolution keyframe plus two refinement passes, and drops
   back to the link's size when the screen moves again (four captures within 300 ms, so a blinking
   cursor does not undo it; 2 s cooldown before sharpening again). Skipped when the keyframe would
-  take over 1.2 s to drain at the current bitrate. ([`host::refine`](crates/renderd-host/src/refine.rs),
+  take over 1.2 s to drain at the current bitrate. The low-resolution refinement passes are held
+  back while a sharpen is coming, so nothing queues ahead of the full-size keyframe. ([`host::refine`](crates/renderd-host/src/refine.rs),
   [`EncodePipeline::sharpen`](crates/renderd-host/src/encode.rs))
 
 ### Fixed
