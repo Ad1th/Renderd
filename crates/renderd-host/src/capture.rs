@@ -125,9 +125,10 @@ impl CapturePipeline {
                 "Capture target selected"
             );
 
-            let refiner = Arc::new(crate::refine::StaticRefiner::start(Arc::clone(
-                &encode_pipeline,
-            )));
+            let refiner = Arc::new(crate::refine::StaticRefiner::start(
+                Arc::clone(&encode_pipeline),
+                (width, height),
+            ));
             let refiner_ref = Arc::clone(&refiner);
             let pipeline_ref = encode_pipeline;
 
@@ -147,14 +148,16 @@ impl CapturePipeline {
                             "CapturePipeline: forwarding first captured frame to VideoToolbox encoder"
                         );
                     }
+                    // Whether it is encoded or skipped for a deep queue, this is
+                    // now the screen: the refiner makes sure the viewer ends up
+                    // with it, and, before the frame is encoded, takes the encoder
+                    // back to the link's size if a sharpened still has ended.
+                    refiner_ref.on_capture(&frame.surface, frame.pts_ns);
                     if let Err(e) = pipeline_ref.encode_surface(&frame.surface, frame.pts_ns) {
                         if count % 300 == 1 {
                             tracing::warn!("encode_surface failed: {e}");
                         }
                     }
-                    // Encoded or skipped for a deep queue, this is now the
-                    // screen; the refiner makes sure the viewer ends up with it.
-                    refiner_ref.on_capture(&frame.surface, frame.pts_ns);
                 },
             )
             .map_err(|e| HostError::Initialization(format!("ScreenStream creation failed: {e}")))?;
