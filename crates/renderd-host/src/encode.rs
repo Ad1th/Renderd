@@ -224,6 +224,9 @@ pub struct EncodePipeline {
     /// Presentation timestamp of the last surface submitted, in nanoseconds.
     last_pts_ns: AtomicI64,
     params: std::sync::Mutex<Option<EncoderParams>>,
+    /// The size the link calls for, while the encoder is temporarily running at
+    /// a larger one to sharpen a still screen (see [`EncodePipeline::sharpen`]).
+    base_size: std::sync::Mutex<Option<(u32, u32)>>,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -262,6 +265,7 @@ impl EncodePipeline {
             link: Arc::new(LinkPressure::new()),
             last_pts_ns: AtomicI64::new(i64::MIN),
             params: std::sync::Mutex::new(None),
+            base_size: std::sync::Mutex::new(None),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
         }
@@ -359,6 +363,70 @@ impl EncodePipeline {
     /// configured or the new session cannot be created; the old one keeps
     /// running in that case.
     pub fn reconfigure(&self, width: u32, height: u32) -> Result<bool, HostError> {
+        // A size the link asked for replaces whatever sharpening was in use.
+        if let Ok(mut base) = self.base_size.lock() {
+            *base = None;
+        }
+        self.resize(width, height, "Encoder resized to follow the link")
+    }
+
+    /// Runs the encoder at `native` until [`restore_size`](Self::restore_size),
+    /// remembering the size the link called for. Returns `false` if it already
+    /// runs at that size.
+    ///
+    /// The viewer follows the stream's size, so this is how a screen that has
+    /// stopped changing gets the full-resolution picture the link could not
+    /// afford while it was moving.
+    ///
+    /// # Errors
+    ///
+    /// As [`reconfigure`](Self::reconfigure).
+    pub fn sharpen(&self, native: (u32, u32)) -> Result<bool, HostError> {
+        let current = self
+            .encoded_size()
+            .ok_or_else(|| HostError::Initialization("encoder was never configured".into()))?;
+        if current == native || self.is_sharpened() {
+            return Ok(false);
+        }
+        if let Ok(mut base) = self.base_size.lock() {
+            *base = Some(current);
+        }
+        match self.resize(native.0, native.1, "Encoder sharpened for a still screen") {
+            Ok(changed) => Ok(changed),
+            Err(e) => {
+                if let Ok(mut base) = self.base_size.lock() {
+                    *base = None;
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// Whether the encoder is running at a sharpened size.
+    #[must_use]
+    pub fn is_sharpened(&self) -> bool {
+        self.base_size.lock().is_ok_and(|b| b.is_some())
+    }
+
+    /// Returns to the size the link calls for after [`sharpen`](Self::sharpen).
+    /// Returns `false` if the encoder was not sharpened.
+    ///
+    /// # Errors
+    ///
+    /// As [`reconfigure`](Self::reconfigure); the sharpened size stays in use
+    /// if the new session cannot be created.
+    pub fn restore_size(&self) -> Result<bool, HostError> {
+        let Some(base) = self.base_size.lock().ok().and_then(|b| *b) else {
+            return Ok(false);
+        };
+        let changed = self.resize(base.0, base.1, "Encoder back to the link's size")?;
+        if let Ok(mut b) = self.base_size.lock() {
+            *b = None;
+        }
+        Ok(changed)
+    }
+
+    fn resize(&self, width: u32, height: u32, why: &str) -> Result<bool, HostError> {
         let mut params = self
             .params
             .lock()
@@ -372,7 +440,7 @@ impl EncodePipeline {
         params.height = height;
         self.keyframes.reset();
         self.start_session(&params, self.current_bitrate().max(1))?;
-        tracing::info!(width, height, "Encoder resized to follow the link");
+        tracing::info!(width, height, "{why}");
         if let Ok(mut guard) = self.params.lock() {
             *guard = Some(params);
         }
@@ -793,6 +861,35 @@ mod tests {
         assert_eq!(pipeline.encoded_size(), Some((960, 544)));
         pipeline.shutdown();
         assert_eq!(pipeline.encoded_size(), None);
+    }
+
+    #[test]
+    fn test_sharpen_runs_at_native_and_restores_the_links_size() {
+        let pipeline = EncodePipeline::new();
+        assert!(pipeline.sharpen((1920, 1080)).is_err());
+        assert!(!pipeline.restore_size().unwrap());
+        if pipeline.init(960, 544, 4_000, "hevc", 60).is_err() {
+            return; // no hardware encoder here
+        }
+        assert!(pipeline.sharpen((1920, 1080)).unwrap());
+        assert!(pipeline.is_sharpened());
+        assert_eq!(pipeline.encoded_size(), Some((1920, 1080)));
+        assert!(
+            !pipeline.sharpen((1920, 1080)).unwrap(),
+            "already sharpened"
+        );
+
+        assert!(pipeline.restore_size().unwrap());
+        assert!(!pipeline.is_sharpened());
+        assert_eq!(pipeline.encoded_size(), Some((960, 544)));
+
+        // A size the link asks for wins over a sharpened one.
+        assert!(pipeline.sharpen((1920, 1080)).unwrap());
+        assert!(pipeline.reconfigure(1280, 720).unwrap());
+        assert!(!pipeline.is_sharpened());
+        assert!(!pipeline.restore_size().unwrap());
+        assert_eq!(pipeline.encoded_size(), Some((1280, 720)));
+        pipeline.shutdown();
     }
 
     #[test]

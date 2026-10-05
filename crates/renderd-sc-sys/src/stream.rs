@@ -51,6 +51,32 @@ const fn to_raw_cmtime(t: CMTime) -> RawCMTime {
     }
 }
 
+/// A `CFStringRef` as an Objective-C argument: the runtime checks the type
+/// encoding, and a bare `*const c_void` does not match `^{__CFString=}`.
+#[repr(transparent)]
+#[derive(Clone, Copy)]
+struct CfString(CFTypeRef);
+
+// SAFETY: transparent over a pointer, encoded as the pointer-to-struct type
+// Objective-C uses for `CFStringRef`.
+unsafe impl Encode for CfString {
+    const ENCODING: Encoding = Encoding::Pointer(&Encoding::Struct("__CFString", &[]));
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    static kCGColorSpaceSRGB: CFTypeRef;
+    static kCGDisplayStreamYCbCrMatrix_ITU_R_709_2: CFTypeRef;
+    static kCVImageBufferYCbCrMatrixKey: CFTypeRef;
+    static kCVImageBufferColorPrimariesKey: CFTypeRef;
+    static kCVImageBufferTransferFunctionKey: CFTypeRef;
+    fn CVBufferCopyAttachment(
+        buffer: *const std::ffi::c_void,
+        key: CFTypeRef,
+        attachment_mode: *mut u32,
+    ) -> CFTypeRef;
+}
+
 extern "C" {
     fn CMSampleBufferGetImageBuffer(sbuf: CFTypeRef) -> *const std::ffi::c_void;
     fn CVPixelBufferGetIOSurface(
@@ -85,6 +111,21 @@ extern "C" {
         pixel_buffer: *const std::ffi::c_void,
         lock_flags: u64,
     ) -> i32;
+}
+
+/// The colour tag `key` carries on `image_buf`, if it is a string.
+///
+/// # Safety
+/// `image_buf` must be a valid `CVImageBufferRef`.
+unsafe fn colour_tag(image_buf: *const std::ffi::c_void, key: CFTypeRef) -> String {
+    use core_foundation::base::TCFType;
+    use core_foundation::string::{CFString, CFStringRef};
+
+    let value = CVBufferCopyAttachment(image_buf, key, std::ptr::null_mut());
+    if value.is_null() {
+        return "none".into();
+    }
+    CFString::wrap_under_create_rule(value as CFStringRef).to_string()
 }
 
 fn inspect_captured_image_buf(image_buf: *const std::ffi::c_void, count: u64) {
@@ -128,8 +169,15 @@ fn inspect_captured_image_buf(image_buf: *const std::ffi::c_void, count: u64) {
             let _ = CVPixelBufferUnlockBaseAddress(image_buf, 1);
         }
 
+        let matrix = colour_tag(image_buf, kCVImageBufferYCbCrMatrixKey);
+        let primaries = colour_tag(image_buf, kCVImageBufferColorPrimariesKey);
+        let transfer = colour_tag(image_buf, kCVImageBufferTransferFunctionKey);
+
         tracing::info!(
             count = count,
+            colour_matrix = %matrix,
+            colour_primaries = %primaries,
+            colour_transfer = %transfer,
             width = w,
             height = h,
             format_fourcc = format!("{:#x}", fmt),
@@ -338,6 +386,17 @@ impl ScreenStream {
 
             // '420v' bi-planar YCbCr 4:2:0 video range NV12 pixel format
             config.setPixelFormat(0x3432_3076);
+
+            // Capture in sRGB with the BT.709 matrix, which is what the viewer
+            // converts with. Left alone, ScreenCaptureKit hands over the
+            // display's own colour space; on a wide-gamut Mac that is Display P3,
+            // and P3 values read as sRGB look flat and dull. The tags travel in
+            // the encoded stream, so the decoder knows what it was given too.
+            let _: () = msg_send![&config, setColorSpaceName: CfString(kCGColorSpaceSRGB)];
+            let _: () = msg_send![
+                &config,
+                setColorMatrix: CfString(kCGDisplayStreamYCbCrMatrix_ITU_R_709_2)
+            ];
         }
 
         // SAFETY: allocate RenderdStreamOutput delegate with callback ivar.
