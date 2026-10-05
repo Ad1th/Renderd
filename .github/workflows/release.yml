@@ -43,9 +43,10 @@ jobs:
         id: changelog
         run: |
           TAG_NAME="${{ github.event.inputs.tag_name || github.ref_name }}"
-          SECTION=$(awk -v tag="## \[$TAG_NAME\]" -v tag_plain="## \[\(${TAG_NAME#v}\)\]" '
-            $0 ~ tag || $0 ~ tag_plain {flag=1; next}
+          SECTION=$(awk -v tag="## [$TAG_NAME]" -v tag_plain="## [${TAG_NAME#v}]" '
+            index($0, tag) == 1 || index($0, tag_plain) == 1 {flag=1; next}
             /^## \[/ {flag=0}
+            /^---$/ {next}
             flag {print}
           ' CHANGELOG.md)
 

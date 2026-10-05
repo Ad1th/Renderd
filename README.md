@@ -15,10 +15,10 @@
 
 ---
 
-`Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D12` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
+`Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D11` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` has achieved its first **end-to-end macOS remote desktop stream**! The complete real-time host-to-viewer pipeline is verified working: zero-copy `ScreenCaptureKit` screen capture, `VideoToolbox` hardware HEVC encoding, QUIC datagram transport, mDNS service discovery, session handshake, sliding-window datagram reassembly, `VideoToolbox` hardware decoding, BGRA pixel buffer extraction, and `SoftRenderer` presentation with continuous live desktop updates. All 147 workspace unit & integration tests pass.
+> `Renderd` streams a macOS desktop to a Windows viewer end to end: zero-copy `ScreenCaptureKit` capture, `VideoToolbox` hardware HEVC/H.264 encoding, QUIC datagram transport with BBR congestion control, in-order reassembly with retransmit-based loss recovery, delay- and loss-aware adaptive bitrate and resolution, and DXVA hardware decode with a zero-copy `Direct3D11` presenter on Windows. Latest release: **`v0.11.0-loss-recovery`**. Current focus: pixel-sharp text and fine detail at every resolution step.
 
 ---
 
@@ -98,7 +98,7 @@ flowchart LR
 - **`renderd-keychain`:** Platform-agnostic `KeychainStore` interface with macOS Keychain Services (`kSecClassGenericPassword`), Windows Credential Manager (`CredWriteW`/`CredReadW`), and headless mock stores.
 - **`renderd-discovery`:** mDNS peer discovery with macOS Bonjour (`dns_sd.h`), Windows Win32 mDNS (`DnsServiceRegister`/`DnsServiceBrowse`), and static IP resolution fallbacks.
 - **`renderd-host`:** macOS host daemon orchestrating all subsystems via `HostApp::run()`: `CapturePipeline` (zero-copy ScreenCaptureKit frames), `EncodePipeline` (VideoToolbox HEVC hardware encoder with SPSC ring buffer), `ClockController` (vsync pacing from `VsyncReport`), `AbrManager` (dual-timescale bitrate decisions), `HostSession` (`IDLE → PAIRING → CONNECTED → STREAMING` state machine), `NetworkManager`, and `UiManager` (macOS menu bar and user notifications). Runs persistently via SIGINT/SIGTERM signal handler.
-- **`renderd-viewer`:** Windows viewer display application featuring native `winit` event loop management, Per-Monitor v2 DPI awareness, D3D12 swap chain and YUV-to-RGB shader renderer, `ID3D12VideoDecoder` hardware video decoder, datagram receiver and sliding-window reassembly task, DWM vsync phase reporter (`VsyncReport` via QUIC Stream 0), dual-timescale ABR feedback exporter (`ReactiveStats` at 100 ms / `PeriodicStats` at 500 ms), SPAKE2+ prover pairing UI with PIN entry, reconnect watchdog with mDNS re-discovery, semi-transparent "Reconnecting" status overlay, Windows system tray icon via `Shell_NotifyIcon`, and CI release packaging workflow.
+- **`renderd-viewer`:** Windows viewer display application featuring native `winit` event loop management, Per-Monitor v2 DPI awareness, DXVA hardware decode through Media Foundation (HEVC offered first when the GPU decodes it) with a zero-copy `D3d11Presenter` (software renderer fallback), in-order `ReceiveWindow` that recovers lost fragments via `Nack` retransmit, one-way queuing-delay and jitter estimation, DWM vsync phase reporter (`VsyncReport` via QUIC Stream 0), dual-timescale ABR feedback exporter (`ReactiveStats` at 100 ms / `PeriodicStats` at 500 ms), SPAKE2+ prover pairing UI with PIN entry, reconnect watchdog with mDNS re-discovery, semi-transparent "Reconnecting" status overlay, Windows system tray icon via `Shell_NotifyIcon`, and CI release packaging workflow.
 
 ---
 
@@ -153,11 +153,14 @@ renderd/
 - [x] **Milestone 7: Host Application (`renderd-host`)** (`v0.7.0-host`)
 - [x] **Milestone 8: Viewer Application (`renderd-viewer`)** (`v0.8.0-viewer`)
 - [x] **Milestone 9: End-to-End macOS Integration & Validation** (`v0.9.0-integration`)
+- [x] **Hardening & performance releases:** `v0.9.1-viewer-stabilization`, `v0.9.2-latency-hardening`, `v0.10.0-low-bandwidth`, `v0.11.0-loss-recovery`
 
 ### Project Feature Roadmap
 
 - [x] **End-to-end macOS streaming** (`ScreenCaptureKit` → `VideoToolbox` HW Encode → QUIC → `VideoToolbox` HW Decode → `SoftRenderer`)
-- [ ] **Cross-platform support** (macOS host ↔ Windows D3D12/MediaFoundation viewer integration)
+- [x] **Cross-platform support** (macOS host ↔ Windows MediaFoundation/D3D11 viewer, GPU decode and presentation)
+- [x] **Low-bandwidth & lossy links** (delay-based ABR, adaptive resolution, `Nack` loss recovery, still-screen refinement) (`v0.10.0-low-bandwidth`, `v0.11.0-loss-recovery`)
+- [ ] **Sharp text at every resolution** (current focus: encoder/scaler quality for text and fine detail)
 - [ ] **Input injection** (Low-latency mouse, keyboard, and touch input event forwarding)
 - [ ] **Audio streaming** (CoreAudio capture & WASAPI / DirectSound playback)
 - [ ] **Clipboard sync** (Bidirectional text and image pasteboard synchronization)
