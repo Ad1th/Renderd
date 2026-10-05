@@ -1,12 +1,13 @@
 version: 2
 updates:
+  # Both ecosystems run on the 1st and 15th of each month (04:00 UTC), roughly
+  # fortnightly. Security updates are separate and still arrive immediately.
   # Cargo workspace dependencies (Rust)
   - package-ecosystem: "cargo"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "04:00"
+      interval: "cron"
+      cronjob: "0 4 1,15 * *"
     open-pull-requests-limit: 5
     labels:
       - "type: chore"
@@ -23,9 +24,8 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
-      time: "04:00"
+      interval: "cron"
+      cronjob: "0 4 1,15 * *"
     open-pull-requests-limit: 5
     labels:
       - "type: ci"
