@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Performance
 - **Lost fragments are resent, not paid for with a keyframe.** A lost fragment used to go
-  unnoticed until four incomplete frames had piled up — on a mostly clean link, never — while the
+  unnoticed until four incomplete frames had piled up (on a mostly clean link, never) while the
   frames after it were decoded against a reference the decoder never got, smearing the picture
   until the next keyframe, which on a 3 Mbps link is a quarter of a second of link time. The
   viewer's new `ReceiveWindow` hands frames to the decoder strictly in order, notices a missing
@@ -30,14 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   keyframe request. ([`renderd-frame::receive`](crates/renderd-frame/src/receive.rs),
   [`host::network::retransmit`](crates/renderd-host/src/network/retransmit.rs))
 - **Bitrate steers on real packet loss.** The ABR loop used the viewer's frame-loss rate per
-  100 ms report — one lost frame among six read as 14%, two as 25% — which walked the bitrate
+  100 ms report (one lost frame among six read as 14%, two as 25%), which walked the bitrate
   down to the floor on any Wi-Fi link. The host now reads QUIC's own packet-loss counters over the
   last second; loss above `abr.loss_threshold` only stops probing, and the bitrate is cut at five
   times that (or on queuing delay, as before). A 4 Mbps link with 1-3% random loss now holds
   3 Mbps in simulation instead of sinking to 1.5.
 - **Encoded resolution follows the link.** With the default 10 Mbps ceiling a 3 Mbps link still
   got 1080p, and at 2 Mbps a full-screen change of 1080p text is an 83 KB frame (a third of a
-  second) against 25 KB at 544p — no `VideoToolbox` setting bounds it with low-latency rate
+  second) against 25 KB at 544p, and no `VideoToolbox` setting bounds it with low-latency rate
   control. The host now steps the encoder down to 896, 720 or 544 lines when the bitrate falls
   below 75% of what the size needs for 2 s, and back up a rung after 8 s of room, without
   touching capture (`VideoToolbox` scales). The viewer follows from the stream. On by default;
@@ -50,7 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **HEVC on Windows where the GPU decodes it.** `--codec auto` now offers HEVC first when the GPU
   has the HEVC Main profile and the Media Foundation HEVC decoder runs on it, H.264 otherwise.
 - **Frames are presented on arrival.** The viewer presented through `request_redraw`, which on
-  Windows is a WM_PAINT — the lowest-priority message. It now presents from the wake itself, and
+  Windows is a WM_PAINT, the lowest-priority message. It now presents from the wake itself, and
   connects at `network.quic_mtu` instead of QUIC's 1200-byte minimum.
 
 ### Fixed
