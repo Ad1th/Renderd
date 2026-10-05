@@ -18,7 +18,7 @@
 `Renderd` is an open-source, ultra-low-latency peer-to-peer display streaming system designed specifically for using a Windows PC (Windows 10 or later) as a secondary high-refresh-rate desktop display for a macOS host workstation. Operating directly over QUIC/UDP with hardware-accelerated video pipelines (`ScreenCaptureKit` and `VideoToolbox` on macOS; `Direct3D11` and `MediaFoundation` on Windows), `Renderd` delivers sub-16ms latency display mirroring without cloud relays or intermediary servers.
 
 > [!NOTE]
-> `Renderd` streams a macOS desktop to a Windows viewer end to end: zero-copy `ScreenCaptureKit` capture, `VideoToolbox` hardware HEVC/H.264 encoding, QUIC datagram transport with BBR congestion control, in-order reassembly with retransmit-based loss recovery, delay- and loss-aware adaptive bitrate and resolution, and DXVA hardware decode with a zero-copy `Direct3D11` presenter on Windows. Latest release: **`v0.11.0-loss-recovery`**, the first stable release. Current focus: pixel-sharp text and fine detail at every resolution step.
+> `Renderd` streams a macOS desktop to a Windows viewer end to end: zero-copy `ScreenCaptureKit` capture, `VideoToolbox` hardware HEVC/H.264 encoding, QUIC datagram transport with BBR congestion control, in-order reassembly with retransmit-based loss recovery, delay- and loss-aware adaptive bitrate and resolution, and DXVA hardware decode with a zero-copy `Direct3D11` presenter on Windows. Latest release: **`v1.0.0`**, the first stable release. Current focus: pixel-sharp text and fine detail at every resolution step.
 
 ---
 
@@ -153,13 +153,13 @@ renderd/
 - [x] **Milestone 7: Host Application (`renderd-host`)** (`v0.7.0-host`)
 - [x] **Milestone 8: Viewer Application (`renderd-viewer`)** (`v0.8.0-viewer`)
 - [x] **Milestone 9: End-to-End macOS Integration & Validation** (`v0.9.0-integration`)
-- [x] **Hardening & performance releases:** `v0.9.1-viewer-stabilization`, `v0.9.2-latency-hardening`, `v0.10.0-low-bandwidth`, `v0.11.0-loss-recovery`
+- [x] **Hardening & performance releases:** `v0.9.1-viewer-stabilization`, `v0.9.2-latency-hardening`, `v0.10.0-low-bandwidth`, `v1.0.0` (first stable release)
 
 ### Project Feature Roadmap
 
 - [x] **End-to-end macOS streaming** (`ScreenCaptureKit` → `VideoToolbox` HW Encode → QUIC → `VideoToolbox` HW Decode → `SoftRenderer`)
 - [x] **Cross-platform support** (macOS host ↔ Windows MediaFoundation/D3D11 viewer, GPU decode and presentation)
-- [x] **Low-bandwidth & lossy links** (delay-based ABR, adaptive resolution, `Nack` loss recovery, still-screen refinement) (`v0.10.0-low-bandwidth`, `v0.11.0-loss-recovery`)
+- [x] **Low-bandwidth & lossy links** (delay-based ABR, adaptive resolution, `Nack` loss recovery, still-screen refinement) (`v0.10.0-low-bandwidth`, `v1.0.0`)
 - [ ] **Sharp text at every resolution** (current focus: encoder/scaler quality for text and fine detail)
 - [ ] **Input injection** (Low-latency mouse, keyboard, and touch input event forwarding)
 - [ ] **Audio streaming** (CoreAudio capture & WASAPI / DirectSound playback)

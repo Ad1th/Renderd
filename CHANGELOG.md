@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.11.0-loss-recovery] — 2026-10-05
+## [1.0.0] — 2026-10-05
 
 > **First stable release.** Streaming now holds up end to end: low latency, clean quality across screen changes, and sessions that no longer stall after ~10 minutes. This release adds loss recovery by retransmit, resolution that follows the link, and a still screen that always ends on the current picture.
 
