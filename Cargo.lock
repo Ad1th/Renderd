@@ -2457,6 +2457,7 @@ dependencies = [
  "renderd-vt-sys",
  "thiserror 2.0.19",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
