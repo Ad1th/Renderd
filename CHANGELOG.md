@@ -7,9 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Full resolution by default, motion included.** On a slow link the encoder dropped below
+  the session's size whenever the bitrate looked too small for it, within seconds of
+  connecting and on a link that was keeping up, and the bitrate seldom climbs back on a
+  desktop (it only probes while the encoder is busy). The picture was only sharp on a still
+  screen, once sharpen on idle kicked in. The stream now stays at full size and drops only
+  while the link is unstable: congestion reported for 2 s with no calm half-second in between.
+  A shorter burst, such as a keyframe draining, does not count. It goes straight back to full
+  size 8 s after the link was last unstable; a return the link loses within 30 s doubles the
+  next wait, up to 64 s. On a link too slow for full-size motion,
+  `--smooth` (or `host.smooth_motion = true`) brings back the old behaviour.
+  ([`host::scale`](crates/renderd-host/src/scale.rs))
+
 ### Performance
-- **Sharpen on idle.** On a slow link the encoder runs below the display's resolution, and a
-  still screen stayed soft however long it sat there: no refinement pass restores pixels that were
+- **Sharpen on idle.** When the encoder runs below the display's resolution (with `--smooth`,
+  or after the link has been unstable), a still screen stayed soft however long it sat there: no refinement pass restores pixels that were
   never encoded. Once the screen has been still for 200 ms the host now moves the encoder up to
   the display's native size for one full-resolution keyframe plus two refinement passes, and drops
   back to the link's size when the screen moves again (four captures within 300 ms, so a blinking

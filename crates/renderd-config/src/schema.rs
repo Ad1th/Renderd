@@ -27,6 +27,8 @@ pub struct RenderdConfig {
 }
 
 /// Host display capture and video encoding parameters.
+// Each bool is a `true`/`false` switch in the TOML file.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostConfig {
     /// Display index to capture (0 = primary display).
@@ -57,12 +59,21 @@ pub struct HostConfig {
     #[serde(default)]
     pub max_stream_height: u32,
 
-    /// Lower the encoded resolution while the link carries less than the
-    /// session's size needs, and raise it again when it carries more. On a slow
-    /// link a full-screen change at 1080p is a frame of 80 KB or more — a third
-    /// of a second at 2 Mbps — so fewer pixels is what keeps it responsive.
+    /// Let the encoded resolution drop below the session's size when the link
+    /// calls for it, and come back up after; `smooth_motion` decides when.
+    /// `false` keeps every frame at the session's size.
     #[serde(default = "default_adaptive_resolution")]
     pub adaptive_resolution: bool,
+
+    /// Favour smooth motion over a sharp picture on a slow link. `false` (the
+    /// default) keeps the stream at full size, motion included, and drops the
+    /// resolution only while the link is unstable. `true` drops it whenever the
+    /// bitrate cannot feed the full size, even on a steady link, and sharpens
+    /// the screen once it is still: on a slow link a full-screen change at
+    /// 1080p is a frame of 80 KB or more, a third of a second at 2 Mbps, so
+    /// fewer pixels keep motion responsive.
+    #[serde(default)]
+    pub smooth_motion: bool,
 }
 
 const fn default_extend_display() -> bool {
@@ -84,6 +95,7 @@ impl Default for HostConfig {
             extend_display: true,
             max_stream_height: 0,
             adaptive_resolution: true,
+            smooth_motion: false,
         }
     }
 }
@@ -217,6 +229,8 @@ mod tests {
         assert_eq!(config.viewer.window_width, 1920);
         assert_eq!(config.network.listen_port, 4433);
         assert!(config.crypto.require_auth);
+        assert!(config.host.adaptive_resolution);
+        assert!(!config.host.smooth_motion, "sharp unless asked for smooth");
         assert!((config.abr.loss_threshold - 0.02).abs() < f32::EPSILON);
     }
 }

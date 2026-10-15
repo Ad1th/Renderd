@@ -286,6 +286,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--display-id <ID>` | 0 | Which display to capture. |
 | `--config <PATH>` | — | TOML config file. |
 | `--log-level <LEVEL>` | `info` | Logging verbosity. |
+| `--smooth` | off | Favour smooth motion over a sharp picture on a slow link (see below). |
 
 #### If nothing appears
 
@@ -307,16 +308,21 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 
 Renderd adapts on its own. The bitrate backs off as soon as queuing delay builds, frames
 are skipped at capture rather than queued, lost packets are resent instead of costing a
-keyframe, and the encoded resolution steps down (896, 720, 544 lines) while the link
-carries less than the picture needs and back up when it carries more. You can still help
-it on a link you know is slow:
+keyframe, and the encoded resolution steps down (896, 720, 544 lines) while the link is
+unstable and back to full size once it settles. You can still help it on a link you know is
+slow:
 
 1. **Tell it the ceiling.** Set `abr.max_bitrate_kbps` to roughly what the link sustains,
    e.g. `3000` for a link that tops out around 3 Mbps. With `host.max_stream_height = 0`
    (the default) this sets the largest resolution the stream will use: 1080p60 of
    desktop text needs about 8-10 Mbps. Setting `host.max_bitrate_kbps` (the starting
    bitrate) near the link's speed too makes the very first picture arrive quickly.
-2. **Read the lag off the logs.** Each second the host logs `HOST METRICS` with
+2. **Choose smooth over sharp.** By default the stream stays at full resolution while you
+   scroll or drag. On a link too slow for that (a full-screen change of 1080p text is a
+   frame of 80 KB or more, a third of a second at 2 Mbps), run the host with `--smooth`:
+   the resolution then follows the bitrate so motion stays responsive, and the screen
+   sharpens to full size a moment after it goes still.
+3. **Read the lag off the logs.** Each second the host logs `HOST METRICS` with
    `send_queue_kb` (video waiting on the host), and every half-second `VIEWER TELEMETRY`
    with `capture_skipped` and `encoder_skipped`. A `send_queue_kb` that stays high means
    the link is the bottleneck. Run the host with `--log-level debug` to see the ABR

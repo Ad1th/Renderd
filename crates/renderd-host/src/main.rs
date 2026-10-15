@@ -79,6 +79,9 @@ fn main() -> Result<(), HostError> {
     if let Some(mode) = cli.mode {
         config.host.extend_display = mode == cli::DisplayMode::Extend;
     }
+    if cli.smooth {
+        config.host.smooth_motion = true;
+    }
 
     // Validate after CLI overrides, not just the loaded file: a bad --port or
     // out-of-range flag should be rejected the same as a bad config file value,
@@ -92,6 +95,7 @@ fn main() -> Result<(), HostError> {
         target_fps = config.host.target_fps,
         listen_port = config.network.listen_port,
         extend_display = config.host.extend_display,
+        smooth_motion = config.host.smooth_motion,
         "Configuration loaded successfully"
     );
 
@@ -134,6 +138,12 @@ mod tests {
         let cli = HostCli::try_parse_from(["renderd-host", "--log-level", "debug"]).unwrap();
         assert_eq!(cli.log_level, "debug");
         assert!(cli.config.is_none());
+        assert!(!cli.smooth);
+        assert!(
+            HostCli::try_parse_from(["renderd-host", "--smooth"])
+                .unwrap()
+                .smooth
+        );
     }
 
     #[test]
