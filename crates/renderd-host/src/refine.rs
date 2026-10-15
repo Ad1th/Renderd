@@ -24,9 +24,10 @@
 //! detail the motion frames could not afford. A still screen costs nothing
 //! once the passes are done.
 //!
-//! On a slow link the encoder also runs below the display's resolution (see
-//! [`crate::scale`]), and no number of passes brings back pixels that were
-//! never encoded: text stays soft however long the screen is still. So once
+//! The encoder may also run below the display's resolution (see
+//! [`crate::scale`]: on a slow link with `--smooth`, or while the link is
+//! unstable), and no number of passes brings back pixels that were never
+//! encoded: text stays soft however long the screen is still. So once
 //! the screen has settled, the refiner moves the encoder up to the display's
 //! native size for one full-resolution keyframe and a couple of refinement
 //! passes ([`plan_sharpen`]), and drops back to the link's size as soon as the

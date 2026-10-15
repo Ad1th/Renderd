@@ -10,6 +10,10 @@
 //! rate the ceiling can feed at that density, and lets `ScreenCaptureKit`
 //! scale the display down to it. The virtual display itself stays at the
 //! viewer's native size, so windows and text keep their layout.
+//!
+//! That size is the most a session encodes. [`ResolutionGovernor`] moves the
+//! encoder below it mid-session when the link calls for it, as its
+//! [`SizePolicy`] decides.
 
 /// Bits per pixel per frame the encoder needs for a clean desktop picture.
 ///
@@ -126,14 +130,51 @@ pub fn fits(size: (u32, u32), fps: u32, codec: &str, bitrate_kbps: u32, margin: 
 /// and a still desktop never gives the bitrate a reason to climb.
 pub const STAY_MARGIN: f64 = 0.75;
 
-/// Picture must be too big for the bitrate this long before the encoder steps down.
+/// How long the encoder waits before stepping down: the picture too big for
+/// the bitrate ([`SizePolicy::Smooth`]), or the link congested
+/// ([`SizePolicy::Sharp`]).
 pub const DOWN_AFTER: std::time::Duration = std::time::Duration::from_secs(2);
 
-/// Bitrate must afford a bigger picture this long before the encoder steps up.
+/// How long the encoder waits before stepping up: the bitrate affording a
+/// bigger picture without congestion ([`SizePolicy::Smooth`]), or the link
+/// stable since it was last unstable ([`SizePolicy::Sharp`]).
 pub const UP_AFTER: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// Least time between two size changes. Each one costs a keyframe.
 pub const MIN_CHANGE_GAP: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// A break in congestion this long ends a run of it.
+///
+/// A link that is falling behind does not report congestion on every tick:
+/// capture skips frames while the send queue is deep, the queue drains, and a
+/// report or two comes back clean before it fills again.
+pub const CALM_GAP: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// How long a return to full size must hold before it counts as having
+/// worked. With [`SizePolicy::Sharp`], one the link loses sooner doubles the
+/// wait before the next try, so a link too slow for full-size motion is not
+/// put through the same lag every few seconds.
+pub const RETRY_HOLD: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Longest a sharp session waits after the link was last unstable before
+/// trying full size again.
+pub const MAX_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(64);
+
+/// What the encoded size gives way to on a slow link.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SizePolicy {
+    /// Stay at the session's size, motion included, and step down only while
+    /// the link is unstable: congested for [`DOWN_AFTER`] with no
+    /// [`CALM_GAP`] in between. Back to full size [`UP_AFTER`] after it was
+    /// last unstable, or longer if the last return did not hold (see
+    /// [`RETRY_HOLD`]). A shorter run of congestion, such as a keyframe
+    /// draining, neither lowers the size nor delays its return.
+    Sharp,
+    /// Follow the bitrate: step down to the size it can feed, even on a steady
+    /// link, so motion stays smooth, and leave a still screen to the refiner
+    /// to sharpen (see [`crate::refine`]).
+    Smooth,
+}
 
 /// Which way the encoded size wants to move, and since when.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -142,45 +183,135 @@ enum Pressure {
     Up(std::time::Instant),
 }
 
-/// Follows the session's bitrate with the encoded picture size.
+/// What [`SizePolicy::Sharp`] tracks about the link.
+#[derive(Debug, Clone)]
+struct Stability {
+    /// First report of the current run of congestion.
+    run_start: Option<std::time::Instant>,
+    last_congested: Option<std::time::Instant>,
+    /// When a run of congestion was last [`DOWN_AFTER`] long or more.
+    last_unstable: Option<std::time::Instant>,
+    /// When the encoder last went back to full size.
+    last_return: Option<std::time::Instant>,
+    /// How long after the link was last unstable to go back to full size.
+    retry_after: std::time::Duration,
+}
+
+impl Stability {
+    const fn new() -> Self {
+        Self {
+            run_start: None,
+            last_congested: None,
+            last_unstable: None,
+            last_return: None,
+            retry_after: UP_AFTER,
+        }
+    }
+
+    /// Records one report; returns whether the link is unstable.
+    fn on_report(&mut self, congested: bool, now: std::time::Instant) -> bool {
+        if !congested {
+            return false;
+        }
+        if !self.settling(now) {
+            self.run_start = Some(now);
+        }
+        self.last_congested = Some(now);
+        let unstable = self
+            .run_start
+            .is_some_and(|start| now.saturating_duration_since(start) >= DOWN_AFTER);
+        if unstable {
+            self.last_unstable = Some(now);
+        }
+        unstable
+    }
+
+    /// Whether the link reported congestion within the last [`CALM_GAP`].
+    fn settling(&self, now: std::time::Instant) -> bool {
+        self.last_congested
+            .is_some_and(|at| now.saturating_duration_since(at) < CALM_GAP)
+    }
+
+    /// Whether the link has been stable long enough to go back to full size.
+    fn settled(&self, now: std::time::Instant) -> bool {
+        !self.settling(now)
+            && !self
+                .last_unstable
+                .is_some_and(|at| now.saturating_duration_since(at) < self.retry_after)
+    }
+
+    /// The encoder went back to full size at `now`.
+    const fn on_return(&mut self, now: std::time::Instant) {
+        self.last_return = Some(now);
+    }
+
+    /// The encoder left full size at `now`. A return the link lost within
+    /// [`RETRY_HOLD`] doubles the wait before the next one.
+    fn on_leave(&mut self, now: std::time::Instant) {
+        let failed = self
+            .last_return
+            .is_some_and(|at| now.saturating_duration_since(at) < RETRY_HOLD);
+        self.retry_after = if failed {
+            (self.retry_after * 2).min(MAX_UP_AFTER)
+        } else {
+            UP_AFTER
+        };
+    }
+}
+
+/// Moves the encoded picture size with the link.
 ///
 /// The session's size is set once, from the bitrate *ceiling*, before anything
 /// is known about the link. When the link turns out to carry far less, every
 /// full-screen change is still coded at that size: measured on an M3 at
 /// 2 Mbps, 83 KB at 1080p against 25 KB at 544p — a third of a second of link
-/// time against a tenth. The governor moves the encoder down the [`ladder`]
-/// once the bitrate has been too low for the current size for
+/// time against a tenth.
+///
+/// With [`SizePolicy::Smooth`] the governor moves the encoder down the
+/// [`ladder`] once the bitrate has been too low for the current size for
 /// [`DOWN_AFTER`], and back up one rung at a time once it has afforded the
-/// next one for [`UP_AFTER`] without congestion. Down is quick because every
-/// moment at the wrong size is latency; up is slow because every change costs
-/// a keyframe.
+/// next one for [`UP_AFTER`] without congestion. With [`SizePolicy::Sharp`]
+/// it ignores what the bitrate could feed, and moves down only once the link
+/// has been congested for [`DOWN_AFTER`], then straight back to the session's
+/// size [`UP_AFTER`] after that. Down is quick because every moment at the
+/// wrong size is latency; up is slow because every change costs a keyframe.
 #[derive(Debug, Clone)]
 pub struct ResolutionGovernor {
     ladder: Vec<(u32, u32)>,
     fps: u32,
     codec: String,
+    policy: SizePolicy,
     current: usize,
     pressure: Option<Pressure>,
     last_change: Option<std::time::Instant>,
+    stability: Stability,
 }
 
 impl ResolutionGovernor {
-    /// A governor for a session of `native` size at `fps`, encoding `codec`.
+    /// A governor for a session of `native` size at `fps`, encoding `codec`,
+    /// that moves the size as `policy` says.
     #[must_use]
-    pub fn new(native: (u32, u32), fps: u32, codec: &str) -> Self {
+    pub fn new(native: (u32, u32), fps: u32, codec: &str, policy: SizePolicy) -> Self {
         Self {
             ladder: ladder(native),
             fps,
             codec: codec.to_string(),
+            policy,
             current: 0,
             pressure: None,
             last_change: None,
+            stability: Stability::new(),
         }
     }
 
-    /// The size to start encoding at, given the session's starting bitrate.
+    /// The size to start encoding at: the session's size under
+    /// [`SizePolicy::Sharp`], or the largest the starting bitrate affords
+    /// under [`SizePolicy::Smooth`].
     pub fn start(&mut self, bitrate_kbps: u32) -> (u32, u32) {
-        self.current = self.largest_fitting(bitrate_kbps, STAY_MARGIN);
+        self.current = match self.policy {
+            SizePolicy::Sharp => 0,
+            SizePolicy::Smooth => self.largest_fitting(bitrate_kbps, STAY_MARGIN),
+        };
         self.ladder[self.current]
     }
 
@@ -210,50 +341,116 @@ impl ResolutionGovernor {
         congested: bool,
         now: std::time::Instant,
     ) -> Option<(u32, u32)> {
-        let too_big = !self.fits(self.ladder[self.current], bitrate_kbps, STAY_MARGIN);
-        let room_above = self.current > 0
-            && !congested
-            && self.fits(self.ladder[self.current - 1], bitrate_kbps, 1.0);
-        let pressure = if too_big {
-            match self.pressure {
-                Some(Pressure::Down(since)) => Some(Pressure::Down(since)),
-                _ => Some(Pressure::Down(now)),
-            }
-        } else if room_above {
-            match self.pressure {
-                Some(Pressure::Up(since)) => Some(Pressure::Up(since)),
-                _ => Some(Pressure::Up(now)),
-            }
-        } else {
-            None
-        };
-        self.pressure = pressure;
-
-        if self
+        let may_change = !self
             .last_change
-            .is_some_and(|at| now.saturating_duration_since(at) < MIN_CHANGE_GAP)
-        {
+            .is_some_and(|at| now.saturating_duration_since(at) < MIN_CHANGE_GAP);
+        let next = match self.policy {
+            SizePolicy::Sharp => self.sharp_next(bitrate_kbps, congested, now, may_change),
+            SizePolicy::Smooth => self.smooth_next(bitrate_kbps, congested, now, may_change),
+        }?;
+        self.current = next;
+        self.last_change = Some(now);
+        Some(self.ladder[next])
+    }
+
+    /// [`SizePolicy::Smooth`]: the rung to move to, if it is time to.
+    fn smooth_next(
+        &mut self,
+        bitrate_kbps: u32,
+        congested: bool,
+        now: std::time::Instant,
+        may_change: bool,
+    ) -> Option<usize> {
+        self.pressure = self.bitrate_pressure(bitrate_kbps, congested, now);
+        if !may_change {
             return None;
         }
-        let next = match pressure? {
-            // Straight to a size that fits outright, with room to spare.
-            Pressure::Down(since) if now.saturating_duration_since(since) >= DOWN_AFTER => self
-                .largest_fitting(bitrate_kbps, 1.0)
-                .max(self.current + 1)
-                .min(self.ladder.len() - 1),
+        let next = match self.pressure? {
+            Pressure::Down(since) if now.saturating_duration_since(since) >= DOWN_AFTER => {
+                self.rung_below(bitrate_kbps)
+            }
             Pressure::Up(since) if now.saturating_duration_since(since) >= UP_AFTER => {
                 self.current - 1
             }
             _ => return None,
         };
-        if next == self.current {
-            self.pressure = None;
+        self.pressure = None;
+        (next != self.current).then_some(next)
+    }
+
+    /// [`SizePolicy::Sharp`]: the rung to move to, if it is time to.
+    fn sharp_next(
+        &mut self,
+        bitrate_kbps: u32,
+        congested: bool,
+        now: std::time::Instant,
+        may_change: bool,
+    ) -> Option<usize> {
+        let unstable = self.stability.on_report(congested, now);
+        if !may_change {
             return None;
         }
-        self.current = next;
-        self.pressure = None;
-        self.last_change = Some(now);
-        Some(self.ladder[next])
+        let next = if unstable {
+            self.rung_below(bitrate_kbps)
+        } else if self.current > 0 && self.stability.settled(now) {
+            0
+        } else {
+            return None;
+        };
+        if next == self.current {
+            return None;
+        }
+        if next == 0 {
+            self.stability.on_return(now);
+        } else if self.current == 0 {
+            self.stability.on_leave(now);
+        }
+        Some(next)
+    }
+
+    /// Where a step down goes: straight to a size the bitrate fits outright,
+    /// with room to spare, and at least one rung down.
+    fn rung_below(&self, bitrate_kbps: u32) -> usize {
+        self.largest_fitting(bitrate_kbps, 1.0)
+            .max(self.current + 1)
+            .min(self.ladder.len() - 1)
+    }
+
+    /// [`SizePolicy::Smooth`]: down while the bitrate cannot feed the current
+    /// size, up while it can feed the next one.
+    fn bitrate_pressure(
+        &self,
+        bitrate_kbps: u32,
+        congested: bool,
+        now: std::time::Instant,
+    ) -> Option<Pressure> {
+        let too_big = !self.fits(self.ladder[self.current], bitrate_kbps, STAY_MARGIN);
+        let room_above = self.current > 0
+            && !congested
+            && self.fits(self.ladder[self.current - 1], bitrate_kbps, 1.0);
+        if too_big {
+            Some(self.down_since(now))
+        } else if room_above {
+            Some(self.up_since(now))
+        } else {
+            None
+        }
+    }
+
+    /// Down pressure, keeping its start if it was already pushing down.
+    const fn down_since(&self, now: std::time::Instant) -> Pressure {
+        match self.pressure {
+            Some(Pressure::Down(since)) => Pressure::Down(since),
+            _ => Pressure::Down(now),
+        }
+    }
+
+    /// Up pressure, keeping its start if it was already pushing up.
+    const fn up_since(&self, now: std::time::Instant) -> Pressure {
+        match self.pressure {
+            Some(Pressure::Up(since)) => Pressure::Up(since),
+            _ => Pressure::Up(now),
+        }
     }
 }
 
@@ -278,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_start_picks_the_largest_rung_the_bitrate_affords() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         assert_eq!(gov.start(10_000), (1920, 1080));
         // The default starting bitrate keeps a LAN session at full size.
         assert_eq!(gov.start(8_000), (1920, 1080));
@@ -290,7 +487,7 @@ mod tests {
     /// A session sitting just under its size's full need must not drift down.
     #[test]
     fn test_holds_size_inside_the_hysteresis_band() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(8_000);
         let t0 = Instant::now();
         for s in 0..30 {
@@ -301,7 +498,7 @@ mod tests {
 
     #[test]
     fn test_steps_down_after_a_sustained_drop() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(10_000);
         let t0 = Instant::now();
         assert_eq!(gov.update(3_000, true, t0), None);
@@ -315,7 +512,7 @@ mod tests {
 
     #[test]
     fn test_a_brief_dip_does_not_change_size() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(10_000);
         let t0 = Instant::now();
         assert_eq!(gov.update(3_000, true, t0), None);
@@ -326,7 +523,7 @@ mod tests {
 
     #[test]
     fn test_steps_up_one_rung_at_a_time_and_only_uncongested() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(2_000);
         let t0 = Instant::now();
         assert_eq!(gov.update(10_000, false, t0), None);
@@ -342,7 +539,7 @@ mod tests {
 
     #[test]
     fn test_changes_are_spaced_out() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(10_000);
         let t0 = Instant::now();
         gov.update(6_000, false, t0);
@@ -358,12 +555,157 @@ mod tests {
 
     #[test]
     fn test_bottom_rung_never_steps_further_down() {
-        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc");
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Smooth);
         gov.start(1_000);
         let t0 = Instant::now();
         for s in 0..20 {
             assert_eq!(gov.update(1_000, false, t0 + Duration::from_secs(s)), None);
         }
+    }
+
+    /// Feeds one report every 100 ms from `from` for `ticks` reports, congested
+    /// where `congested(tick)` says so; returns the first size change and when.
+    fn run_reports(
+        gov: &mut ResolutionGovernor,
+        bitrate_kbps: u32,
+        from: Instant,
+        ticks: u32,
+        congested: impl Fn(u32) -> bool,
+    ) -> Option<(Duration, (u32, u32))> {
+        (0..ticks).find_map(|tick| {
+            let after = Duration::from_millis(u64::from(tick) * 100);
+            gov.update(bitrate_kbps, congested(tick), from + after)
+                .map(|size| (after, size))
+        })
+    }
+
+    /// Reports at 2 Mbps, congested or not, every 100 ms from `from` until the
+    /// size changes; returns when, and to what.
+    fn until_change(
+        gov: &mut ResolutionGovernor,
+        from: Instant,
+        congested: bool,
+    ) -> (Instant, (u32, u32)) {
+        let (after, size) =
+            run_reports(gov, 2_000, from, 2_000, |_| congested).expect("the size changes");
+        (from + after, size)
+    }
+
+    /// A sharp 1080p60 HEVC session, started.
+    fn sharp_governor() -> ResolutionGovernor {
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Sharp);
+        gov.start(8_000);
+        gov
+    }
+
+    #[test]
+    fn test_sharp_starts_at_full_size_whatever_the_bitrate() {
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Sharp);
+        assert_eq!(gov.start(2_000), (1920, 1080));
+        assert_eq!(gov.start(500), (1920, 1080));
+    }
+
+    /// A slow link that keeps up is not a reason to blur the picture.
+    #[test]
+    fn test_sharp_holds_full_size_on_a_steady_slow_link() {
+        let mut gov = sharp_governor();
+        assert_eq!(
+            run_reports(&mut gov, 2_000, Instant::now(), 600, |_| false),
+            None
+        );
+        assert_eq!(gov.current(), (1920, 1080));
+    }
+
+    /// Congestion on and off, never a calm half-second, is an unstable link.
+    #[test]
+    fn test_sharp_steps_down_once_the_link_stays_unstable() {
+        let mut gov = sharp_governor();
+        let change = run_reports(&mut gov, 2_000, Instant::now(), 100, |tick| tick % 3 != 1);
+        assert_eq!(
+            change,
+            Some((DOWN_AFTER, (960, 544))),
+            "straight to the rung the bitrate fits"
+        );
+    }
+
+    #[test]
+    fn test_sharp_rides_out_bursts_of_congestion() {
+        let mut gov = sharp_governor();
+        // 1.8 s congested, then a calm 600 ms, over and over: a big frame
+        // draining now and then, not a link that cannot keep up.
+        let change = run_reports(&mut gov, 2_000, Instant::now(), 600, |tick| tick % 24 < 18);
+        assert_eq!(change, None);
+        assert_eq!(gov.current(), (1920, 1080));
+    }
+
+    #[test]
+    fn test_sharp_goes_straight_back_to_full_size_once_stable() {
+        let mut gov = sharp_governor();
+        let (down_at, _) = until_change(&mut gov, Instant::now(), true);
+        // The bitrate never recovers on a still desktop.
+        let (up_at, size) = until_change(&mut gov, down_at + CALM_GAP, false);
+        assert_eq!((up_at - down_at, size), (UP_AFTER, (1920, 1080)));
+    }
+
+    /// A keyframe draining (a sharpened still screen, a periodic IDR) queues
+    /// for a moment; that does not make the link unstable again.
+    #[test]
+    fn test_sharp_a_short_burst_does_not_delay_the_return() {
+        let mut gov = sharp_governor();
+        let (down_at, _) = until_change(&mut gov, Instant::now(), true);
+        let from = down_at + CALM_GAP;
+        let change = run_reports(&mut gov, 2_000, from, 200, |tick| (35..42).contains(&tick));
+        assert_eq!(
+            change.map(|(after, size)| (from + after, size)),
+            Some((down_at + UP_AFTER, (1920, 1080)))
+        );
+    }
+
+    #[test]
+    fn test_sharp_stays_down_while_the_link_stays_unstable() {
+        let mut gov = sharp_governor();
+        let (down_at, _) = until_change(&mut gov, Instant::now(), true);
+        let from = down_at + Duration::from_millis(100);
+        assert_eq!(
+            run_reports(&mut gov, 2_000, from, 200, |tick| tick % 4 == 0),
+            None
+        );
+        assert_eq!(gov.current(), (960, 544));
+    }
+
+    #[test]
+    fn test_sharp_waits_longer_each_time_full_size_fails_again() {
+        let mut gov = sharp_governor();
+        let mut t = Instant::now();
+        for wait in [
+            UP_AFTER,
+            UP_AFTER * 2,
+            UP_AFTER * 4,
+            MAX_UP_AFTER,
+            MAX_UP_AFTER,
+        ] {
+            let (down_at, size) = until_change(&mut gov, t, true);
+            assert_eq!(size, (960, 544));
+            let (up_at, size) = until_change(&mut gov, down_at + CALM_GAP, false);
+            assert_eq!((up_at - down_at, size), (wait, (1920, 1080)));
+            // The link falters again as soon as it is back at full size.
+            t = up_at + Duration::from_millis(100);
+        }
+    }
+
+    #[test]
+    fn test_sharp_retry_wait_resets_once_full_size_holds() {
+        let mut gov = sharp_governor();
+        let (down_at, _) = until_change(&mut gov, Instant::now(), true);
+        let (up_at, _) = until_change(&mut gov, down_at + CALM_GAP, false);
+        let (down_at, _) = until_change(&mut gov, up_at + Duration::from_millis(100), true);
+        let (up_at, _) = until_change(&mut gov, down_at + CALM_GAP, false);
+        assert_eq!(up_at - down_at, UP_AFTER * 2, "the first return failed");
+
+        // This time full size holds before the link falters.
+        let (down_at, _) = until_change(&mut gov, up_at + RETRY_HOLD, true);
+        let (up_at, _) = until_change(&mut gov, down_at + CALM_GAP, false);
+        assert_eq!(up_at - down_at, UP_AFTER);
     }
 
     #[test]
