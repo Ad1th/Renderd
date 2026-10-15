@@ -157,7 +157,7 @@ pub const RETRY_HOLD: std::time::Duration = std::time::Duration::from_secs(30);
 pub const MAX_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(64);
 
 /// What the encoded size gives way to on a slow link.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SizePolicy {
     /// Stay at the session's size, motion included, and step down only while
     /// the link is unstable: congested for [`DOWN_AFTER`] with no
@@ -165,7 +165,6 @@ pub enum SizePolicy {
     /// last unstable, or longer if the last return did not hold (see
     /// [`RETRY_HOLD`]). A shorter run of congestion, such as a keyframe
     /// draining, neither lowers the size nor delays its return.
-    #[default]
     Sharp,
     /// Follow the bitrate: step down to the size it can feed, even on a steady
     /// link, so motion stays smooth, and leave a still screen to the refiner
