@@ -10,6 +10,10 @@
 //! rate the ceiling can feed at that density, and lets `ScreenCaptureKit`
 //! scale the display down to it. The virtual display itself stays at the
 //! viewer's native size, so windows and text keep their layout.
+//!
+//! That size is the most a session encodes. [`ResolutionGovernor`] moves the
+//! encoder below it mid-session when the link calls for it, as its
+//! [`SizePolicy`] decides.
 
 /// Bits per pixel per frame the encoder needs for a clean desktop picture.
 ///
@@ -284,7 +288,8 @@ pub struct ResolutionGovernor {
 }
 
 impl ResolutionGovernor {
-    /// A governor for a session of `native` size at `fps`, encoding `codec`.
+    /// A governor for a session of `native` size at `fps`, encoding `codec`,
+    /// that moves the size as `policy` says.
     #[must_use]
     pub fn new(native: (u32, u32), fps: u32, codec: &str, policy: SizePolicy) -> Self {
         Self {
@@ -299,7 +304,9 @@ impl ResolutionGovernor {
         }
     }
 
-    /// The size to start encoding at, given the session's starting bitrate.
+    /// The size to start encoding at: the session's size under
+    /// [`SizePolicy::Sharp`], or the largest the starting bitrate affords
+    /// under [`SizePolicy::Smooth`].
     pub fn start(&mut self, bitrate_kbps: u32) -> (u32, u32) {
         self.current = match self.policy {
             SizePolicy::Sharp => 0,
