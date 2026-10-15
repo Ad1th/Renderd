@@ -227,6 +227,10 @@ pub struct EncodePipeline {
     /// The size the link calls for, while the encoder is temporarily running at
     /// a larger one to sharpen a still screen (see [`EncodePipeline::sharpen`]).
     base_size: std::sync::Mutex<Option<(u32, u32)>>,
+    /// Held through every size change. The link's resize and a sharpen or
+    /// restore run on different threads; interleaved, a restore that read the
+    /// old base size could land after the link's resize and undo it.
+    resizing: std::sync::Mutex<()>,
     #[cfg(target_os = "macos")]
     session: std::sync::Mutex<Option<renderd_vt_sys::CompressionSession>>,
 }
@@ -266,6 +270,7 @@ impl EncodePipeline {
             last_pts_ns: AtomicI64::new(i64::MIN),
             params: std::sync::Mutex::new(None),
             base_size: std::sync::Mutex::new(None),
+            resizing: std::sync::Mutex::new(()),
             #[cfg(target_os = "macos")]
             session: std::sync::Mutex::new(None),
         }
@@ -363,6 +368,7 @@ impl EncodePipeline {
     /// configured or the new session cannot be created; the old one keeps
     /// running in that case.
     pub fn reconfigure(&self, width: u32, height: u32) -> Result<bool, HostError> {
+        let _resizing = self.lock_resizing();
         // A size the link asked for replaces whatever sharpening was in use.
         if let Ok(mut base) = self.base_size.lock() {
             *base = None;
@@ -382,6 +388,7 @@ impl EncodePipeline {
     ///
     /// As [`reconfigure`](Self::reconfigure).
     pub fn sharpen(&self, native: (u32, u32)) -> Result<bool, HostError> {
+        let _resizing = self.lock_resizing();
         let current = self
             .encoded_size()
             .ok_or_else(|| HostError::Initialization("encoder was never configured".into()))?;
@@ -416,6 +423,7 @@ impl EncodePipeline {
     /// As [`reconfigure`](Self::reconfigure); the sharpened size stays in use
     /// if the new session cannot be created.
     pub fn restore_size(&self) -> Result<bool, HostError> {
+        let _resizing = self.lock_resizing();
         let Some(base) = self.base_size.lock().ok().and_then(|b| *b) else {
             return Ok(false);
         };
@@ -424,6 +432,13 @@ impl EncodePipeline {
             *b = None;
         }
         Ok(changed)
+    }
+
+    /// Serialises size changes (see `resizing`).
+    fn lock_resizing(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.resizing
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn resize(&self, width: u32, height: u32, why: &str) -> Result<bool, HostError> {
