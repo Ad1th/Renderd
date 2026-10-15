@@ -30,6 +30,15 @@ pub struct HostCli {
     /// streams the display selected by `--display-id` instead.
     #[arg(long, value_name = "MODE")]
     pub mode: Option<DisplayMode>,
+
+    /// Favour smooth motion over a sharp picture on a slow link.
+    ///
+    /// By default the stream stays at full size and drops its resolution only
+    /// while the link is unstable. With `--smooth` it drops whenever the bitrate
+    /// cannot feed the full size, and sharpens the screen once it is still.
+    /// Same as `host.smooth_motion = true` in the config file.
+    #[arg(long)]
+    pub smooth: bool,
 }
 
 /// Whether the viewer extends or mirrors the host desktop.
