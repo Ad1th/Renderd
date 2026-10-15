@@ -331,6 +331,7 @@ impl HostApp {
                                     (cfg.width, cfg.height),
                                     target_fps,
                                     &cfg.selected_codec,
+                                    crate::scale::SizePolicy::Smooth,
                                 )
                             });
                             let (encode_width, encode_height) = governor
