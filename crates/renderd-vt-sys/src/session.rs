@@ -92,7 +92,8 @@ extern "C" {
 /// - Frame reordering disabled (B-frames disabled, 0-frame latency)
 /// - The low-latency rate controller, where the encoder offers it (see
 ///   [`CompressionSession::is_low_latency`])
-/// - `MaxKeyFrameIntervalDuration` set to 20 seconds
+/// - `MaxKeyFrameInterval` set to 20 seconds' worth of frames, so a still
+///   screen never runs into a periodic keyframe
 ///
 /// Implements [`Drop`] to invalidate and release the underlying session handle.
 pub struct CompressionSession {
