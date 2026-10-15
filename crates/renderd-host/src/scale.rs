@@ -146,13 +146,24 @@ pub const MIN_CHANGE_GAP: std::time::Duration = std::time::Duration::from_secs(5
 /// report or two comes back clean before it fills again.
 pub const CALM_GAP: std::time::Duration = std::time::Duration::from_millis(500);
 
+/// How long a return to full size must hold before it counts as having
+/// worked. With [`SizePolicy::Sharp`], one the link loses sooner doubles the
+/// wait before the next try, so a link too slow for full-size motion is not
+/// put through the same lag every few seconds.
+pub const RETRY_HOLD: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Longest a sharp session waits without congestion before trying full size
+/// again.
+pub const MAX_UP_AFTER: std::time::Duration = std::time::Duration::from_secs(64);
+
 /// What the encoded size gives way to on a slow link.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SizePolicy {
     /// Stay at the session's size, motion included, and step down only while
     /// the link is unstable: congested for [`DOWN_AFTER`] with no
     /// [`CALM_GAP`] in between. Back to full size after [`UP_AFTER`] without
-    /// congestion.
+    /// congestion, or longer if the last return did not hold (see
+    /// [`RETRY_HOLD`]).
     #[default]
     Sharp,
     /// Follow the bitrate: step down to the size it can feed, even on a steady
@@ -195,6 +206,10 @@ pub struct ResolutionGovernor {
     pressure: Option<Pressure>,
     last_change: Option<std::time::Instant>,
     last_congested: Option<std::time::Instant>,
+    /// When the encoder last stepped up.
+    last_up: Option<std::time::Instant>,
+    /// Calm needed before stepping up; only [`SizePolicy::Sharp`] stretches it.
+    up_after: std::time::Duration,
 }
 
 impl ResolutionGovernor {
@@ -210,6 +225,8 @@ impl ResolutionGovernor {
             pressure: None,
             last_change: None,
             last_congested: None,
+            last_up: None,
+            up_after: UP_AFTER,
         }
     }
 
@@ -271,7 +288,7 @@ impl ResolutionGovernor {
                     .max(self.current + 1)
                     .min(self.ladder.len() - 1)
             }
-            Pressure::Up(since) if now.saturating_duration_since(since) >= UP_AFTER => {
+            Pressure::Up(since) if now.saturating_duration_since(since) >= self.up_after => {
                 match self.policy {
                     SizePolicy::Sharp => 0,
                     SizePolicy::Smooth => self.current - 1,
@@ -282,6 +299,11 @@ impl ResolutionGovernor {
         if next == self.current {
             self.pressure = None;
             return None;
+        }
+        if next < self.current {
+            self.last_up = Some(now);
+        } else if self.policy == SizePolicy::Sharp && self.current == 0 {
+            self.up_after = self.retry_wait(now);
         }
         self.current = next;
         self.pressure = None;
@@ -327,6 +349,20 @@ impl ResolutionGovernor {
                 .filter(|pressure| matches!(pressure, Pressure::Down(_)));
         }
         (self.current > 0).then(|| self.up_since(now))
+    }
+
+    /// [`SizePolicy::Sharp`], leaving full size at `now`: the calm to wait for
+    /// before coming back. Twice the last wait if full size did not hold for
+    /// [`RETRY_HOLD`].
+    fn retry_wait(&self, now: std::time::Instant) -> std::time::Duration {
+        let failed = self
+            .last_up
+            .is_some_and(|at| now.saturating_duration_since(at) < RETRY_HOLD);
+        if failed {
+            (self.up_after * 2).min(MAX_UP_AFTER)
+        } else {
+            UP_AFTER
+        }
     }
 
     /// Down pressure, keeping its start if it was already pushing down.
@@ -541,6 +577,58 @@ mod tests {
             None
         );
         assert_eq!(gov.current(), (960, 544));
+    }
+
+    /// Reports congested (or not) every 100 ms from `from` until the size
+    /// changes; returns when, and to what.
+    fn until_change(
+        gov: &mut ResolutionGovernor,
+        from: Instant,
+        congested: bool,
+    ) -> (Instant, (u32, u32)) {
+        let (after, size) =
+            run_reports(gov, 2_000, from, 2_000, |_| congested).expect("the size changes");
+        (from + after, size)
+    }
+
+    #[test]
+    fn test_sharp_waits_longer_each_time_full_size_fails_again() {
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Sharp);
+        gov.start(8_000);
+        let mut t = Instant::now();
+        for wait in [
+            UP_AFTER,
+            UP_AFTER * 2,
+            UP_AFTER * 4,
+            MAX_UP_AFTER,
+            MAX_UP_AFTER,
+        ] {
+            let (down_at, size) = until_change(&mut gov, t, true);
+            assert_eq!(size, (960, 544));
+            let calm_from = down_at + CALM_GAP;
+            let (up_at, size) = until_change(&mut gov, calm_from, false);
+            assert_eq!((up_at - calm_from, size), (wait, (1920, 1080)));
+            // The link falters again as soon as it is back at full size.
+            t = up_at + Duration::from_millis(100);
+        }
+    }
+
+    #[test]
+    fn test_sharp_retry_wait_resets_once_full_size_holds() {
+        let mut gov = ResolutionGovernor::new((1920, 1080), 60, "hevc", SizePolicy::Sharp);
+        gov.start(8_000);
+        let (down_at, _) = until_change(&mut gov, Instant::now(), true);
+        let (up_at, _) = until_change(&mut gov, down_at + CALM_GAP, false);
+        let (down_at, _) = until_change(&mut gov, up_at + Duration::from_millis(100), true);
+        let calm_from = down_at + CALM_GAP;
+        let (up_at, _) = until_change(&mut gov, calm_from, false);
+        assert_eq!(up_at - calm_from, UP_AFTER * 2, "the first return failed");
+
+        // This time full size holds before the link falters.
+        let (down_at, _) = until_change(&mut gov, up_at + RETRY_HOLD, true);
+        let calm_from = down_at + CALM_GAP;
+        let (up_at, _) = until_change(&mut gov, calm_from, false);
+        assert_eq!(up_at - calm_from, UP_AFTER);
     }
 
     #[test]
