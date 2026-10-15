@@ -14,8 +14,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   desktop (it only probes while the encoder is busy). The picture was only sharp on a still
   screen, once sharpen on idle kicked in. The stream now stays at full size and drops only
   while the link is unstable: congestion reported for 2 s with no calm half-second in between.
-  It goes straight back to full size after 8 s without congestion; a return the link loses
-  within 30 s doubles the next wait, up to 64 s. On a link too slow for full-size motion,
+  A shorter burst, such as a keyframe draining, does not count. It goes straight back to full
+  size 8 s after the link was last unstable; a return the link loses within 30 s doubles the
+  next wait, up to 64 s. On a link too slow for full-size motion,
   `--smooth` (or `host.smooth_motion = true`) brings back the old behaviour.
   ([`host::scale`](crates/renderd-host/src/scale.rs))
 
