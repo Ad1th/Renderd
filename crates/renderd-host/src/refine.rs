@@ -18,11 +18,13 @@
 //! shows where it stopped is one of the dropped ones.
 //!
 //! [`StaticRefiner`] keeps the newest captured surface and, once the screen
-//! has been still for a moment, hands it to the encoder again until a couple
-//! of those passes actually come out of it. The first guarantees the viewer
-//! ends on the current screen; the next spends the now-idle budget on the
-//! detail the motion frames could not afford. A still screen costs nothing
-//! once the passes are done.
+//! has been still for a moment, hands it to the encoder again until the
+//! passes stop adding detail. The first guarantees the viewer ends on the
+//! current screen; the rest spend the now-idle link on the detail the motion
+//! frames could not afford. Each pass codes the residual left by the last, so
+//! the picture converges: measured at 2 Mbps on 1080p HEVC text, 41 dB PSNR
+//! after two passes and 47.5 dB after thirteen, when the passes have shrunk to
+//! a few hundred bytes. A still screen costs nothing once the passes are done.
 //!
 //! The encoder may also run below the display's resolution (see
 //! [`crate::scale`]: on a slow link with `--smooth`, or while the link is
@@ -45,13 +47,22 @@ pub const FIRST_PASS_AFTER: Duration = Duration::from_millis(60);
 /// link, most of a second. Passes are spaced so that a run of them spans that.
 pub const PASS_SPACING: Duration = Duration::from_millis(100);
 
-/// Passes that must actually come out of the encoder after the screen goes
-/// still: the first makes sure the viewer ends on the current screen, the
-/// second spends the idle budget on detail.
-pub const PASSES: u32 = 2;
+/// A pass that comes out smaller than this much link time at the current
+/// bitrate added little detail.
+///
+/// Measured at 1.5-4 Mbps on 1080p text, HEVC and H.264: two such passes in a
+/// row came within 0.1 dB of where the picture converges.
+pub const SETTLED_LINK_TIME: Duration = Duration::from_millis(20);
+
+/// Small passes in a row (see [`SETTLED_LINK_TIME`]) that end the refinement.
+pub const SETTLED_PASSES: u32 = 2;
+
+/// Most passes that come out of the encoder per still screen, converged or
+/// not. At 1.5 Mbps a 1080p page takes about twenty.
+pub const MAX_PASSES: u32 = 24;
 
 /// Passes tried before giving up, whether or not they came out.
-pub const MAX_ATTEMPTS: u32 = 12;
+pub const MAX_ATTEMPTS: u32 = 40;
 
 /// Send-queue depth above which a pass waits: the link is still busy with
 /// real frames, and a pass would only queue behind them.
@@ -157,10 +168,20 @@ impl MotionDetector {
     }
 }
 
+/// Whether a pass of `bytes` at `bitrate_kbps` added little detail (see
+/// [`SETTLED_LINK_TIME`]).
+#[must_use]
+pub fn settled_pass(bytes: usize, bitrate_kbps: u32) -> bool {
+    let link_ms = u64::try_from(SETTLED_LINK_TIME.as_millis()).unwrap_or(u64::MAX);
+    let bits = u64::try_from(bytes).unwrap_or(u64::MAX).saturating_mul(8);
+    bits < u64::from(bitrate_kbps).saturating_mul(link_ms)
+}
+
 /// When the next re-encode pass is due.
 #[derive(Debug, Default)]
 pub struct RefineSchedule {
-    passes_left: u32,
+    landed: u32,
+    settled: u32,
     attempts_left: u32,
     next_at: Option<Instant>,
 }
@@ -168,7 +189,8 @@ pub struct RefineSchedule {
 impl RefineSchedule {
     /// The screen changed at `now`: start over.
     pub fn on_capture(&mut self, now: Instant) {
-        self.passes_left = PASSES;
+        self.landed = 0;
+        self.settled = 0;
         self.attempts_left = MAX_ATTEMPTS;
         self.next_at = Some(now + FIRST_PASS_AFTER);
     }
@@ -177,6 +199,12 @@ impl RefineSchedule {
     #[must_use]
     pub const fn next_at(&self) -> Option<Instant> {
         self.next_at
+    }
+
+    /// Passes that have come out of the encoder since the screen last changed.
+    #[must_use]
+    pub const fn landed(&self) -> u32 {
+        self.landed
     }
 
     /// Whether a pass should run at `now`, consuming an attempt if so. A due
@@ -195,10 +223,17 @@ impl RefineSchedule {
         true
     }
 
-    /// The last pass came out of the encoder rather than being dropped.
-    pub fn on_landed(&mut self) {
-        self.passes_left = self.passes_left.saturating_sub(1);
-        if self.passes_left == 0 {
+    /// The last pass came out of the encoder, `bytes` long at `bitrate_kbps`,
+    /// rather than being dropped. Done once [`SETTLED_PASSES`] of them in a
+    /// row added little, or [`MAX_PASSES`] came out.
+    pub fn on_landed(&mut self, bytes: usize, bitrate_kbps: u32) {
+        self.landed += 1;
+        self.settled = if settled_pass(bytes, bitrate_kbps) {
+            self.settled + 1
+        } else {
+            0
+        };
+        if self.settled >= SETTLED_PASSES || self.landed >= MAX_PASSES {
             self.next_at = None;
         }
     }
@@ -377,7 +412,16 @@ mod macos {
             if let Some(before) = state.pending {
                 if encode.frames_output() > before {
                     state.pending = None;
-                    state.schedule.on_landed();
+                    state
+                        .schedule
+                        .on_landed(encode.last_frame_bytes(), encode.current_bitrate());
+                    if state.schedule.next_at().is_none() {
+                        tracing::debug!(
+                            passes = state.schedule.landed(),
+                            last_bytes = encode.last_frame_bytes(),
+                            "Still screen refined"
+                        );
+                    }
                 }
             }
             let now = Instant::now();
@@ -470,8 +514,16 @@ mod macos {
 mod tests {
     use super::*;
 
+    /// Pass sizes measured with `quality_probe` at 2 Mbps, 1080p HEVC text,
+    /// after a scroll: big passes while detail is still arriving, small ones
+    /// in between, then a run of small ones once the picture has converged.
+    const MEASURED_2MBPS: [usize; 16] = [
+        10_600, 53_200, 1_100, 8_700, 61_400, 2_700, 19_000, 6_400, 35_700, 2_800, 5_500, 3_200,
+        2_500, 1_800, 1_300, 900,
+    ];
+
     #[test]
-    fn test_passes_run_until_enough_of_them_land() {
+    fn test_passes_run_until_the_picture_converges() {
         let mut schedule = RefineSchedule::default();
         let t0 = Instant::now();
         assert!(!schedule.take_pass(t0, false), "nothing captured yet");
@@ -484,16 +536,48 @@ mod tests {
             assert!(schedule.take_pass(at, false));
             at += PASS_SPACING;
         }
-        for _ in 0..PASSES {
+        let mut landed = 0;
+        while schedule.next_at().is_some() {
             assert!(schedule.take_pass(at, false));
-            schedule.on_landed();
+            schedule.on_landed(MEASURED_2MBPS[landed], 2_000);
+            landed += 1;
             at += PASS_SPACING;
         }
-        assert!(
-            schedule.next_at().is_none(),
-            "done until the screen changes"
-        );
+        assert_eq!(landed, 13, "the 3.2 KB and 2.5 KB passes in a row end it");
         assert!(!schedule.take_pass(at + Duration::from_secs(1), false));
+    }
+
+    #[test]
+    fn test_one_small_pass_does_not_end_the_refinement() {
+        let mut schedule = RefineSchedule::default();
+        let t0 = Instant::now();
+        schedule.on_capture(t0);
+        schedule.on_landed(1_100, 2_000);
+        schedule.on_landed(8_700, 2_000);
+        schedule.on_landed(2_700, 2_000);
+        assert!(schedule.next_at().is_some());
+    }
+
+    #[test]
+    fn test_passes_are_capped_even_if_they_never_settle() {
+        let mut schedule = RefineSchedule::default();
+        let t0 = Instant::now();
+        schedule.on_capture(t0);
+        for _ in 1..MAX_PASSES {
+            schedule.on_landed(50_000, 2_000);
+        }
+        assert!(schedule.next_at().is_some());
+        schedule.on_landed(50_000, 2_000);
+        assert!(schedule.next_at().is_none());
+    }
+
+    #[test]
+    fn test_settled_pass_scales_with_the_bitrate() {
+        // 20 ms of link: 5 KB at 2 Mbps, 10 KB at 4 Mbps.
+        assert!(settled_pass(4_999, 2_000));
+        assert!(!settled_pass(5_000, 2_000));
+        assert!(settled_pass(9_999, 4_000));
+        assert!(!settled_pass(1, 0));
     }
 
     #[test]
