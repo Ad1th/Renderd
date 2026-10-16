@@ -4,7 +4,7 @@
 //! and outputs encoded NAL units into a bounded lock-free ring buffer consumed by the
 //! datagram sender.
 
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -216,6 +216,8 @@ pub struct EncodePipeline {
     /// viewer must continue the ids, or the viewer discards everything it
     /// sends as stale.
     output_frames: Arc<AtomicU64>,
+    /// Size in bytes of the newest frame counted in `output_frames`.
+    last_output_bytes: Arc<AtomicUsize>,
     keyframes: Arc<KeyframeGate>,
     dropped_frames: Arc<AtomicU64>,
     encoder_skipped: Arc<AtomicU64>,
@@ -262,6 +264,7 @@ impl EncodePipeline {
             rx,
             frame_counter: AtomicU64::new(1),
             output_frames: Arc::new(AtomicU64::new(0)),
+            last_output_bytes: Arc::new(AtomicUsize::new(0)),
             keyframes: Arc::new(KeyframeGate::new()),
             dropped_frames: Arc::new(AtomicU64::new(0)),
             encoder_skipped: Arc::new(AtomicU64::new(0)),
@@ -547,6 +550,7 @@ impl EncodePipeline {
         let dropped = Arc::clone(&self.dropped_frames);
         let encoder_skipped = Arc::clone(&self.encoder_skipped);
         let count_atomic = Arc::clone(&self.output_frames);
+        let last_bytes = Arc::clone(&self.last_output_bytes);
 
         #[allow(unsafe_code)]
         move |err, flags, sample_buf| {
@@ -573,7 +577,9 @@ impl EncodePipeline {
             if nal_bytes.is_empty() {
                 return;
             }
-            let frame_id = count_atomic.fetch_add(1, Ordering::Relaxed) + 1;
+            // The size first: a reader that sees the new count sees its size.
+            last_bytes.store(nal_bytes.len(), Ordering::Relaxed);
+            let frame_id = count_atomic.fetch_add(1, Ordering::Release) + 1;
             // Recover the capture timestamp VideoToolbox carried through the
             // encode. Without this every frame ships pts_ns = 0 and the viewer
             // has no presentation timing at all.
@@ -797,7 +803,13 @@ impl EncodePipeline {
     /// Frames the hardware encoder has emitted so far.
     #[must_use]
     pub fn frames_output(&self) -> u64 {
-        self.output_frames.load(Ordering::Relaxed)
+        self.output_frames.load(Ordering::Acquire)
+    }
+
+    /// Size in bytes of the newest frame the encoder emitted.
+    #[must_use]
+    pub fn last_frame_bytes(&self) -> usize {
+        self.last_output_bytes.load(Ordering::Relaxed)
     }
 
     /// Returns the number of frames the encoder itself skipped for lack of bit budget.
