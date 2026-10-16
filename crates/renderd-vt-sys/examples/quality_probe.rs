@@ -7,12 +7,17 @@
 //!     <width> <height> <hevc|h264> <kbps> <fps> <script> <out-dir>
 //! ```
 //!
-//! Each line of `<script>` is `<frame.bgra> <pts_ms> <sleep_ms> [key]`: a raw
-//! BGRA frame of `width` × `height`, its presentation time, how long to wait
-//! after submitting it, and whether to force a keyframe. `<out-dir>` gets
-//! `stream.<codec>` (Annex B, decodable with ffmpeg) and `frames.csv` with one
-//! row per submitted frame: whether it came out, its size, and whether it was
-//! a keyframe.
+//! Each line of `<script>` is `<frame.bgra> <pts_ms> <sleep_ms> [key|pass]`: a
+//! raw BGRA frame of `width` × `height`, its presentation time, how long to
+//! wait after submitting it, and whether to force a keyframe. A `pass` line
+//! is a re-encode the way the host's refiner sends one: `<pts_ms>` is then the
+//! spacing after the previous frame, pushed back a spacing at a time while a
+//! link of `kbps` would still hold more than 10 ms of the frames before it.
+//! A trailing `@<kbps>` sets the encoder's bitrate before that frame (the
+//! simulated link keeps `kbps`).
+//! `<out-dir>` gets `stream.<codec>` (Annex B, decodable with ffmpeg) and
+//! `frames.csv` with one row per submitted frame: the presentation time used,
+//! whether it came out, its size, and whether it was a keyframe.
 #![cfg_attr(not(target_os = "macos"), allow(unused))]
 #![allow(unsafe_code)]
 
@@ -57,7 +62,12 @@ mod macos {
         pts_ms: f64,
         sleep_ms: u64,
         key: bool,
+        pass: bool,
+        encoder_kbps: Option<u32>,
     }
+
+    /// Send-queue depth above which the host's refiner holds a pass back.
+    const MAX_QUEUE_MS: f64 = 10.0;
 
     fn surface_from_file(path: &str, width: usize, height: usize) -> Result<IoSurface, String> {
         let pixels = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
@@ -113,6 +123,12 @@ mod macos {
                     pts_ms: f[1].parse().map_err(|_| format!("bad pts: {line}"))?,
                     sleep_ms: f[2].parse().map_err(|_| format!("bad sleep: {line}"))?,
                     key: f.get(3) == Some(&"key"),
+                    pass: f.get(3) == Some(&"pass"),
+                    encoder_kbps: f[3..]
+                        .iter()
+                        .find_map(|t| t.strip_prefix('@'))
+                        .map(|k| k.parse().map_err(|_| format!("bad bitrate: {line}")))
+                        .transpose()?,
                 })
             })
             .collect()
@@ -173,32 +189,79 @@ mod macos {
         .map_err(|e| format!("encoder: {e}"))?;
         eprintln!("low-latency rate control: {}", session.is_low_latency());
 
-        for step in &steps {
+        let used_pts = feed(&session, &steps, &outputs, (width, height), kbps)?;
+        drop(session);
+
+        let ext = if args[3] == "h264" { "h264" } else { "hevc" };
+        let stream = std::mem::take(&mut *stream.lock().unwrap());
+        std::fs::write(out_dir.join(format!("stream.{ext}")), stream).map_err(|e| e.to_string())?;
+        let outputs = std::mem::take(&mut *outputs.lock().unwrap());
+        write_csv(&out_dir, &steps, &outputs, &used_pts)
+    }
+
+    /// Submits every step; returns the presentation time each one used.
+    fn feed(
+        session: &CompressionSession,
+        steps: &[Step],
+        outputs: &Mutex<Vec<Output>>,
+        (width, height): (usize, usize),
+        kbps: u32,
+    ) -> Result<Vec<f64>, String> {
+        // When a link of `kbps` would finish sending what has come out so far.
+        let mut link_free_ms = 0.0_f64;
+        let mut last_ms = 0.0_f64;
+        let mut seen = 0;
+        let mut used = Vec::with_capacity(steps.len());
+        for step in steps {
+            let at_ms = if step.pass {
+                // Whole spacings until the queue is down to MAX_QUEUE_MS.
+                let first = last_ms + step.pts_ms;
+                let waits = ((link_free_ms - MAX_QUEUE_MS - first) / step.pts_ms).ceil();
+                waits.max(0.0).mul_add(step.pts_ms, first)
+            } else {
+                step.pts_ms
+            };
+            if let Some(encoder_kbps) = step.encoder_kbps {
+                session
+                    .set_bitrate(encoder_kbps)
+                    .map_err(|e| format!("bitrate: {e}"))?;
+            }
             let surface = surface_from_file(&step.frame, width, height)?;
             #[allow(clippy::cast_possible_truncation)]
-            let pts_ns = (step.pts_ms * 1_000_000.0) as i64;
+            let pts_ns = (at_ms * 1_000_000.0) as i64;
             session
                 .encode_surface(&surface, pts_ns, step.key)
                 .map_err(|e| format!("encode {}: {e}", step.frame))?;
             std::thread::sleep(std::time::Duration::from_millis(step.sleep_ms));
+            let outs = outputs.lock().unwrap();
+            for out in outs[seen..].iter().filter(|o| o.landed) {
+                #[allow(clippy::cast_precision_loss)]
+                let send_ms = (out.bytes * 8) as f64 / f64::from(kbps.max(1));
+                link_free_ms = link_free_ms.max(at_ms) + send_ms;
+            }
+            seen = outs.len();
+            drop(outs);
+            last_ms = at_ms;
+            used.push(at_ms);
         }
-        drop(session);
+        Ok(used)
+    }
 
-        let ext = if args[3] == "h264" { "h264" } else { "hevc" };
-        std::fs::write(
-            out_dir.join(format!("stream.{ext}")),
-            &*stream.lock().unwrap(),
-        )
-        .map_err(|e| e.to_string())?;
+    fn write_csv(
+        out_dir: &std::path::Path,
+        steps: &[Step],
+        outputs: &[Output],
+        used_pts: &[f64],
+    ) -> Result<(), String> {
         let mut csv =
             std::fs::File::create(out_dir.join("frames.csv")).map_err(|e| e.to_string())?;
         writeln!(csv, "index,frame,pts_ms,landed,bytes,keyframe").map_err(|e| e.to_string())?;
-        for (i, (step, out)) in steps.iter().zip(outputs.lock().unwrap().iter()).enumerate() {
+        for (i, ((step, out), pts_ms)) in steps.iter().zip(outputs).zip(used_pts).enumerate() {
             writeln!(
                 csv,
                 "{i},{},{},{},{},{}",
                 step.frame,
-                step.pts_ms,
+                pts_ms,
                 u8::from(out.landed),
                 out.bytes,
                 u8::from(out.keyframe)
