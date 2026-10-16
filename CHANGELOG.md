@@ -20,11 +20,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `--smooth` (or `host.smooth_motion = true`) brings back the old behaviour.
   ([`host::scale`](crates/renderd-host/src/scale.rs))
 
+### Added
+- **`quality_probe`** (`cargo run -p renderd-vt-sys --example quality_probe`): runs scripted
+  frames through the production `VideoToolbox` settings and writes the stream and per-frame
+  sizes, so picture quality can be measured offline with ffmpeg. It can hold refinement passes
+  back on a simulated link the way the host does.
+
 ### Performance
+- **Still screens refine to full detail.** The refiner stopped after two passes, but each pass
+  codes what the last one left out, and the picture keeps sharpening well past that. It now runs
+  until two passes in a row each come out under 20 ms of link time (or 24 have). Measured on a
+  still 1080p text page after a scroll, with passes held back on a simulated link as the host
+  does: HEVC at 2 Mbps goes from 38.2 to 47.4 dB PSNR, at 1.5 Mbps from 34.5 to 47.2 dB, and
+  H.264 at 2 Mbps from 36.9 to 47.9 dB. Later passes are larger, and a frame of motion waits for
+  one in flight, so only the first two run as soon as the screen stops; the rest wait until it
+  has been still for a second. ([`host::refine`](crates/renderd-host/src/refine.rs))
+- **No keyframe on the first frame after a pause.** The 20 s periodic keyframe interval was a
+  duration, and a still desktop sends nothing, so the first frame after any 20 s pause was a
+  keyframe: at 2 Mbps, 124 KB (half a second of link time) on the first scroll after reading a
+  page, and the frames after it 6-12 dB worse while the encoder repaid it. The interval now counts
+  20 s worth of frames, which only sustained motion reaches.
+  ([`renderd-vt-sys` shim](crates/renderd-vt-sys/c-shims/videotoolbox_shim.c))
 - **Sharpen on idle.** When the encoder runs below the display's resolution (with `--smooth`,
   or after the link has been unstable), a still screen stayed soft however long it sat there: no refinement pass restores pixels that were
   never encoded. Once the screen has been still for 200 ms the host now moves the encoder up to
-  the display's native size for one full-resolution keyframe plus two refinement passes, and drops
+  the display's native size for one full-resolution keyframe and its refinement passes, and drops
   back to the link's size when the screen moves again (four captures within 300 ms, so a blinking
   cursor does not undo it; 2 s cooldown before sharpening again). Skipped when the keyframe would
   take over 1.2 s to drain at the current bitrate. The low-resolution refinement passes are held
