@@ -26,6 +26,12 @@
 //! after two passes and 47.5 dB after thirteen, when the passes have shrunk to
 //! a few hundred bytes. A still screen costs nothing once the passes are done.
 //!
+//! The next frame of motion waits behind whatever pass is in flight, and the
+//! passes after the first couple are the large ones. So only
+//! [`QUICK_PASSES`] run as soon as the screen stops; the rest wait until it
+//! has been still for [`MORE_PASSES_AFTER`], long enough that someone is
+//! reading rather than pausing mid-scroll.
+//!
 //! The encoder may also run below the display's resolution (see
 //! [`crate::scale`]: on a slow link with `--smooth`, or while the link is
 //! unstable), and no number of passes brings back pixels that were never
@@ -63,6 +69,18 @@ pub const MAX_PASSES: u32 = 24;
 
 /// Passes tried before giving up, whether or not they came out.
 pub const MAX_ATTEMPTS: u32 = 40;
+
+/// Passes that run as soon as the screen goes still. The first makes sure the
+/// viewer ends on the current screen; together they are small enough not to
+/// hold up the next motion for long.
+pub const QUICK_PASSES: u32 = 2;
+
+/// Stillness before refining past [`QUICK_PASSES`].
+///
+/// The later passes are larger: measured at 1.5-2 Mbps on 1080p text, the
+/// largest took 206-366 ms of link against 83-151 ms for the first two, and
+/// a frame of motion that comes along meanwhile waits for it.
+pub const MORE_PASSES_AFTER: Duration = Duration::from_secs(1);
 
 /// Send-queue depth above which a pass waits: the link is still busy with
 /// real frames, and a pass would only queue behind them.
@@ -180,6 +198,7 @@ pub fn settled_pass(bytes: usize, bitrate_kbps: u32) -> bool {
 /// When the next re-encode pass is due.
 #[derive(Debug, Default)]
 pub struct RefineSchedule {
+    captured: Option<Instant>,
     landed: u32,
     settled: u32,
     attempts_left: u32,
@@ -189,6 +208,7 @@ pub struct RefineSchedule {
 impl RefineSchedule {
     /// The screen changed at `now`: start over.
     pub fn on_capture(&mut self, now: Instant) {
+        self.captured = Some(now);
         self.landed = 0;
         self.settled = 0;
         self.attempts_left = MAX_ATTEMPTS;
@@ -225,7 +245,8 @@ impl RefineSchedule {
 
     /// The last pass came out of the encoder, `bytes` long at `bitrate_kbps`,
     /// rather than being dropped. Done once [`SETTLED_PASSES`] of them in a
-    /// row added little, or [`MAX_PASSES`] came out.
+    /// row added little, or [`MAX_PASSES`] came out; after [`QUICK_PASSES`],
+    /// the next waits for [`MORE_PASSES_AFTER`] of stillness.
     pub fn on_landed(&mut self, bytes: usize, bitrate_kbps: u32) {
         self.landed += 1;
         self.settled = if settled_pass(bytes, bitrate_kbps) {
@@ -235,6 +256,10 @@ impl RefineSchedule {
         };
         if self.settled >= SETTLED_PASSES || self.landed >= MAX_PASSES {
             self.next_at = None;
+        } else if self.landed == QUICK_PASSES {
+            if let Some(captured) = self.captured {
+                self.next_at = self.next_at.map(|at| at.max(captured + MORE_PASSES_AFTER));
+            }
         }
     }
 }
@@ -537,14 +562,33 @@ mod tests {
             at += PASS_SPACING;
         }
         let mut landed = 0;
-        while schedule.next_at().is_some() {
+        while let Some(due) = schedule.next_at() {
+            at = at.max(due);
             assert!(schedule.take_pass(at, false));
+            if landed == QUICK_PASSES as usize {
+                assert_eq!(
+                    at,
+                    t0 + MORE_PASSES_AFTER,
+                    "the large passes wait for a reader"
+                );
+            }
             schedule.on_landed(MEASURED_2MBPS[landed], 2_000);
             landed += 1;
             at += PASS_SPACING;
         }
         assert_eq!(landed, 13, "the 3.2 KB and 2.5 KB passes in a row end it");
         assert!(!schedule.take_pass(at + Duration::from_secs(1), false));
+    }
+
+    #[test]
+    fn test_quick_passes_that_settle_end_it_without_waiting() {
+        let mut schedule = RefineSchedule::default();
+        let t0 = Instant::now();
+        schedule.on_capture(t0);
+        // A keystroke: the passes have almost nothing left to add.
+        schedule.on_landed(900, 2_000);
+        schedule.on_landed(700, 2_000);
+        assert!(schedule.next_at().is_none());
     }
 
     #[test]
