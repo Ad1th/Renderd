@@ -26,16 +26,10 @@ fi
 
 node scripts/release.mjs
 
-# Zola writes absolute links from base_url. Production uses renderd.xyz (config.toml);
-# a Vercel preview uses its own address, or its CSS and fonts would load from
-# production. RENDERD_BASE_URL overrides both, for example while DNS is not ready.
-base_url="${RENDERD_BASE_URL:-}"
-if [ -z "$base_url" ] && [ "${VERCEL_ENV:-}" = "preview" ] && [ -n "${VERCEL_URL:-}" ]; then
-  base_url="https://$VERCEL_URL"
-fi
-if [ -n "$base_url" ]; then
-  echo "base_url: $base_url"
-  "$zola" build --base-url "$base_url"
+# Pages link to CSS, fonts and images with root-relative paths, so they load on
+# any host. base_url (renderd.xyz) is only for canonical, og and sitemap URLs.
+if [ -n "${RENDERD_BASE_URL:-}" ]; then
+  "$zola" build --base-url "$RENDERD_BASE_URL"
 else
   "$zola" build
 fi

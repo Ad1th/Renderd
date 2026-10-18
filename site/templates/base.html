@@ -16,26 +16,26 @@
 <meta property="og:title" content="{{ page_title }}">
 <meta property="og:description" content="{{ page_desc }}">
 <meta property="og:url" content="{{ page_url }}">
-<meta property="og:image" content="{{ get_url(path='img/social-home.png') }}">
+<meta property="og:image" content="{{ config.base_url }}/img/social-home.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="icon" href="{{ get_url(path='img/favicon.svg') }}" type="image/svg+xml">
-<link rel="preload" href="{{ get_url(path='fonts/newsreader-roman.woff2') }}" as="font" type="font/woff2" crossorigin>
-<link rel="preload" href="{{ get_url(path='fonts/archivo.woff2') }}" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="{{ get_url(path='css/site.css', cachebust=true) }}">
+<link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+<link rel="preload" href="/fonts/newsreader-roman.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/archivo.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/css/site.css?h={{ get_hash(path='css/site.css', sha_type=256, base64=false) | truncate(length=20, end='') }}">
 {% block head %}{% endblock head %}
 </head>
 <body>
 <a class="skip" href="#main">Skip to the content</a>
 <header class="mast">
-  <a class="mast-mark" href="{{ get_url(path='/') }}" aria-label="Renderd, home">Renderd</a>
+  <a class="mast-mark" href="/" aria-label="Renderd, home">Renderd</a>
   <nav class="mast-nav" aria-label="Main">
-    <a href="{{ get_url(path='download/') }}">Download</a>
-    <a href="{{ get_url(path='download/') }}#first-run">First run</a>
-    <a href="{{ get_url(path='/') }}#how">How it works</a>
-    <a href="{{ get_url(path='/') }}#security">Security</a>
-    <a href="{{ get_url(path='/') }}#compare">Compare</a>
+    <a href="/download/">Download</a>
+    <a href="/download/#first-run">First run</a>
+    <a href="/#how">How it works</a>
+    <a href="/#security">Security</a>
+    <a href="/#compare">Compare</a>
     <a href="{{ config.extra.repo }}">GitHub<span class="arrow" aria-hidden="true">&#8599;</span></a>
   </nav>
 </header>
