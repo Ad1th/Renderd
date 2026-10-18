@@ -7,9 +7,9 @@
 {%- set page_title = src.title | default(value=config.title) -%}
 {%- set page_desc = src.description | default(value=config.description) -%}
 {%- set page_url = current_url | default(value=config.base_url) -%}
-<title>{{ page_title }}</title>
+<title>{% block title %}{{ page_title }}{% endblock title %}</title>
 <meta name="description" content="{{ page_desc }}">
-<link rel="canonical" href="{{ page_url }}">
+{% block canonical %}<link rel="canonical" href="{{ page_url }}">{% endblock canonical %}
 <meta name="theme-color" content="#F5EACE">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Renderd">
@@ -31,8 +31,8 @@
 <header class="mast">
   <a class="mast-mark" href="{{ get_url(path='/') }}" aria-label="Renderd, home">Renderd</a>
   <nav class="mast-nav" aria-label="Main">
-    <a href="{{ get_url(path='/') }}#download">Download</a>
-    <a href="{{ get_url(path='/') }}#first-run">First run</a>
+    <a href="{{ get_url(path='download/') }}">Download</a>
+    <a href="{{ get_url(path='download/') }}#first-run">First run</a>
     <a href="{{ get_url(path='/') }}#how">How it works</a>
     <a href="{{ get_url(path='/') }}#security">Security</a>
     <a href="{{ get_url(path='/') }}#compare">Compare</a>

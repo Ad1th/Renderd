@@ -6,18 +6,18 @@
   "notes_url": "https://github.com/Ad1th/Renderd/releases/tag/v1.0.0",
   "mac": {
     "name": "renderd-host-v1.0.0-aarch64-apple-darwin.tar.gz",
-    "size": 2207775,
-    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-host-v1.0.0-aarch64-apple-darwin.tar.gz"
+    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-host-v1.0.0-aarch64-apple-darwin.tar.gz",
+    "size": 2207775
   },
   "win_x64": {
     "name": "renderd-viewer-v1.0.0-x86_64-pc-windows-msvc.zip",
-    "size": 2264589,
-    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-viewer-v1.0.0-x86_64-pc-windows-msvc.zip"
+    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-viewer-v1.0.0-x86_64-pc-windows-msvc.zip",
+    "size": 2264589
   },
   "win_arm64": {
     "name": "renderd-viewer-v1.0.0-aarch64-pc-windows-msvc.zip",
-    "size": 2140895,
-    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-viewer-v1.0.0-aarch64-pc-windows-msvc.zip"
+    "url": "https://github.com/Ad1th/Renderd/releases/download/v1.0.0/renderd-viewer-v1.0.0-aarch64-pc-windows-msvc.zip",
+    "size": 2140895
   },
   "sums": {
     "name": "SHA256SUMS.txt",
