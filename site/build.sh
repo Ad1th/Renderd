@@ -5,7 +5,7 @@
 #   2. Write data/release.json from the latest GitHub release.
 #   3. zola build.
 #   4. Add rustdoc at /api/. If that fails, the site still ships without it.
-# Set RENDERD_SKIP_API=1 to skip step 4.
+# Set RENDERD_SKIP_API=1 to skip step 4. RENDERD_BASE_URL sets the site address.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -25,7 +25,20 @@ fi
 "$zola" --version
 
 node scripts/release.mjs
-"$zola" build
+
+# Zola writes absolute links from base_url. Production uses renderd.xyz (config.toml);
+# a Vercel preview uses its own address, or its CSS and fonts would load from
+# production. RENDERD_BASE_URL overrides both, for example while DNS is not ready.
+base_url="${RENDERD_BASE_URL:-}"
+if [ -z "$base_url" ] && [ "${VERCEL_ENV:-}" = "preview" ] && [ -n "${VERCEL_URL:-}" ]; then
+  base_url="https://$VERCEL_URL"
+fi
+if [ -n "$base_url" ]; then
+  echo "base_url: $base_url"
+  "$zola" build --base-url "$base_url"
+else
+  "$zola" build
+fi
 
 if [ "${RENDERD_SKIP_API:-0}" != "1" ]; then
   # set -e does not work inside an if condition, so each step is chained with &&.
