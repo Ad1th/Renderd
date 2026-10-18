@@ -376,7 +376,7 @@ figcaption .label { color: var(--ink); font-size: 11px; margin-right: 0.6em; }
 .plate-notes h2 { font-size: 11.5px; color: var(--ink); margin: 0 0 10px; border-bottom: var(--rule); padding-bottom: 7px; font-weight: 600; }
 .notes { margin: 0; padding-left: 1.4em; font-size: 14.5px; line-height: 1.45; columns: 2; column-gap: 48px; }
 .notes li { break-inside: avoid; margin-bottom: 6px; }
-.notes a[aria-label] { text-decoration: none; }
+.notes a[aria-label] { text-underline-offset: 0.12em; }
 
 /* ───────── colophon ───────── */
 .colophon { max-width: var(--maxw); margin: clamp(80px, 10vw, 150px) auto 0; padding: 0 var(--gutter) 40px; }
@@ -395,7 +395,24 @@ figcaption .label { color: var(--ink); font-size: 11px; margin-right: 0.6em; }
 }
 .colophon-cols { display: grid; grid-template-columns: 5fr 3fr 4fr; gap: clamp(20px, 3vw, 48px); margin-top: 18px; font-size: 14.5px; line-height: 1.5; }
 .colophon-cols p { margin: 0; }
+.colophon-cols a { display: inline-block; padding: 2px 0; } /* 24 px tap targets */
 .colophon-cols .label { display: block; font-size: 11px; color: var(--ink); margin-bottom: 6px; }
+
+/* ───────── download page ───────── */
+.plate-dl, .lost-page { padding-top: clamp(18px, 2vw, 26px); }
+.req-list { margin: 0; }
+.req-list > div { border-top: 1px dotted var(--ink); padding: 10px 0; }
+.req-list dt { font-size: 11px; color: var(--ink); margin-bottom: 2px; }
+.req-list dd { margin: 0; line-height: 1.42; }
+.run-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: clamp(28px, 4vw, 64px); align-items: start; }
+.run-head { font-size: 11.5px; color: var(--ink); margin: 0 0 8px; }
+.cmd-label { font-size: 11px; color: var(--ink); margin: 18px 0 6px; }
+.cmd { margin: 0; padding: 10px 12px; border-left: 3px solid var(--signal); background: rgba(255, 255, 255, 0.28); overflow-x: auto; line-height: 1.55; font-size: 12.5px; color: var(--ink-deep); }
+
+/* ───────── 404 ───────── */
+.lost-page .title-box { margin-bottom: 0.4em; }
+.lost-page .section-lede { margin-bottom: 12px; }
+.lost-page ul { padding-left: 1.2em; }
 
 /* ───────── narrow screens ───────── */
 @media (max-width: 1100px) {
@@ -407,6 +424,7 @@ figcaption .label { color: var(--ink); font-size: 11px; margin-right: 0.6em; }
   .stations li:nth-child(4)::before { left: 0; }
   .index-grid { grid-template-columns: minmax(0, 1fr); }
   .get-grid { grid-template-columns: minmax(0, 1fr); }
+  .run-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 760px) {
   .mast { flex-direction: column; align-items: flex-start; gap: 10px; }
