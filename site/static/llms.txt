@@ -1,0 +1,16 @@
+# Renderd
+
+> Renderd is a free, open-source app that turns a Windows PC into a second monitor for a Mac, peer to peer on your local network.
+
+The Mac (Apple Silicon, macOS 13 or later) runs the host, which makes a real extra display and streams it as hardware-encoded HEVC or H.264 over QUIC. The Windows 10 or 11 PC (x64 or ARM64) runs the viewer, which decodes it on the GPU and shows it. Pairing uses a six-digit PIN and SPAKE2+. There is no account, no cloud and no relay server. MIT licence, written in Rust.
+
+## Pages
+
+- [Home](https://renderd.xyz/): what Renderd does, how a frame travels, limits, security, other tools compared, FAQ
+- [Download](https://renderd.xyz/download/): files, checksums, requirements and the first run, step by step
+
+## Source
+
+- [GitHub repository](https://github.com/Ad1th/Renderd)
+- [Releases](https://github.com/Ad1th/Renderd/releases)
+- [Security policy](https://github.com/Ad1th/Renderd/blob/main/SECURITY.md)

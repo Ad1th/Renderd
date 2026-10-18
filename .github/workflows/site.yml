@@ -1,0 +1,60 @@
+name: Site
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# The site itself deploys on Vercel (vercel.json). This workflow checks it,
+# and on main it replaces the old GitHub Pages site with redirects to renderd.xyz.
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build (same script as Vercel)
+        run: RENDERD_SKIP_API=1 bash site/build.sh
+      - name: Words (banned words, exclamation marks, em dashes, unmeasured claims)
+        run: python3 site/scripts/check_words.py site/public
+      - name: Internal links and anchors
+        env:
+          LYCHEE_VERSION: "0.20.1"
+          LYCHEE_SHA256: 1dd08bb064e2114c2c9d0c9009f51577de24e805361d6332162807972d8e9474
+        run: |
+          curl -fsSL -o /tmp/lychee.tgz "https://github.com/lycheeverse/lychee/releases/download/lychee-v${LYCHEE_VERSION}/lychee-x86_64-unknown-linux-gnu.tar.gz"
+          echo "${LYCHEE_SHA256}  /tmp/lychee.tgz" | sha256sum -c -
+          tar -xzf /tmp/lychee.tgz -C /tmp lychee
+          /tmp/lychee --offline --no-progress --include-fragments --index-files index.html \
+            --remap "https://renderd\.xyz/(.*) file://$PWD/site/public/\$1" \
+            'site/public/**/*.html'
+      - name: Lighthouse (mobile budgets)
+        run: |
+          # build.sh left Zola here; rebuild with a local address so the assets load.
+          (cd site && /tmp/renderd-site-tools/zola-0.23.6 build --base-url http://127.0.0.1:8090 -o /tmp/renderd-site-lh --force)
+          npx --yes @lhci/cli@0.15.1 autorun --config=site/lighthouserc.json
+      - name: Keep the Lighthouse reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: lighthouse
+          path: /tmp/renderd-site-lh-report
+          if-no-files-found: ignore
+
+  pages-redirects:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && !github.event.repository.fork
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - run: site/scripts/pages-redirects.sh pages
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: pages
+      - uses: actions/deploy-pages@v5
+        with:
+          artifact-name: github-pages
