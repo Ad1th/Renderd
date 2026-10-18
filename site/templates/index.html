@@ -61,7 +61,7 @@
     <figure class="specimen" aria-labelledby="fig1">
       <div class="specimen-art">
         <div class="art">
-        <img src="{{ get_url(path='img/desk-halftone.png') }}" width="1560" height="960" alt="A MacBook and a Windows PC monitor side by side. One window is half on the MacBook screen and half on the monitor, because the monitor is now the Mac's second display.">
+        <img src="/img/desk-halftone.png" width="1560" height="960" alt="A MacBook and a Windows PC monitor side by side. One window is half on the MacBook screen and half on the monitor, because the monitor is now the Mac's second display.">
         <svg class="specimen-lines" viewBox="0 0 1560 960" aria-hidden="true">
           <defs>
             <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="26" orient="auto-start-reverse"><path d="M0.5 1 L9 5 L0.5 9" fill="none" stroke="currentColor" stroke-width="1.3"/></marker>
@@ -130,7 +130,7 @@ cd {{ rel.mac.name | replace(from=".tar.gz", to="") }}
     {%- set fw = 300 -%}{%- set fh = 168.75 -%}{%- set sh = fh / 8 -%}
     <svg viewBox="0 0 1200 384" role="img" aria-label="A frame of the desktop is captured whole on the Mac, cut into eight datagrams that cross the network, one is lost and sent again, and the frame is put back together on the PC.">
       <defs>
-        <image id="frm" href="{{ get_url(path='img/frame-halftone.png') }}" width="{{ fw }}" height="{{ fh }}" preserveAspectRatio="none"/>
+        <image id="frm" href="/img/frame-halftone.png" width="{{ fw }}" height="{{ fh }}" preserveAspectRatio="none"/>
         {%- for i in range(end=8) %}
         <clipPath id="s{{ i }}"><rect x="0" y="{{ i * sh }}" width="{{ fw }}" height="{{ sh - 0.6 }}"/></clipPath>
         {%- endfor %}
