@@ -1,0 +1,17 @@
+# Zola site for renderd.xyz. Build: `zola build` in this folder.
+base_url = "https://renderd.xyz"
+title = "Renderd"
+description = "Renderd is a free, open-source app that turns a Windows PC into a second monitor for a Mac, peer to peer on your local network."
+default_language = "en"
+compile_sass = false
+minify_html = false
+build_search_index = false
+generate_feeds = false
+
+[markdown]
+smart_punctuation = true
+
+[extra]
+repo = "https://github.com/Ad1th/Renderd"
+author = "Adith"
+author_url = "https://github.com/Ad1th"
