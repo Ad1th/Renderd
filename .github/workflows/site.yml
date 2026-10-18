@@ -27,12 +27,13 @@ jobs:
           echo "${LYCHEE_SHA256}  /tmp/lychee.tgz" | sha256sum -c -
           tar -xzf /tmp/lychee.tgz -C /tmp lychee
           /tmp/lychee --offline --no-progress --include-fragments --index-files index.html \
+            --root-dir "$PWD/site/public" \
             --remap "https://renderd\.xyz/(.*) file://$PWD/site/public/\$1" \
             'site/public/**/*.html'
       - name: Lighthouse (mobile budgets)
         run: |
-          # build.sh left Zola here; rebuild with a local address so the assets load.
-          (cd site && /tmp/renderd-site-tools/zola-0.23.6 build --base-url http://127.0.0.1:8090 -o /tmp/renderd-site-lh --force)
+          # Serve the build output as is, the same files Vercel serves.
+          cp -r site/public /tmp/renderd-site-lh
           npx --yes @lhci/cli@0.15.1 autorun --config=site/lighthouserc.json
       - name: Keep the Lighthouse reports
         if: always()
