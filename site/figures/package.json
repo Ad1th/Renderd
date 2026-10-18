@@ -1,0 +1,8 @@
+{
+  "private": true,
+  "description": "Renders the halftone figures in site/static/img. See make.sh.",
+  "dependencies": {
+    "playwright": "1.56.1",
+    "three": "0.169.0"
+  }
+}
