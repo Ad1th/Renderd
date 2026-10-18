@@ -5,7 +5,7 @@
 #   2. Write data/release.json from the latest GitHub release.
 #   3. zola build.
 #   4. Add rustdoc at /api/. If that fails, the site still ships without it.
-# Set RENDERD_SKIP_API=1 to skip step 4.
+# Set RENDERD_SKIP_API=1 to skip step 4. RENDERD_BASE_URL sets the site address.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -25,7 +25,14 @@ fi
 "$zola" --version
 
 node scripts/release.mjs
-"$zola" build
+
+# Pages link to CSS, fonts and images with root-relative paths, so they load on
+# any host. base_url (renderd.xyz) is only for canonical, og and sitemap URLs.
+if [ -n "${RENDERD_BASE_URL:-}" ]; then
+  "$zola" build --base-url "$RENDERD_BASE_URL"
+else
+  "$zola" build
+fi
 
 if [ "${RENDERD_SKIP_API:-0}" != "1" ]; then
   # set -e does not work inside an if condition, so each step is chained with &&.
