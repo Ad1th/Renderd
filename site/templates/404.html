@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}Page not found, Renderd{% endblock title %}
+{% block canonical %}<meta name="robots" content="noindex">{% endblock canonical %}
+
+{% block content %}
+<section class="plate lost-page" aria-labelledby="h1">
+  <div class="plate-rail">
+    <span>Plate 404</span>
+    <span>Not in this book</span>
+    <span>Missing</span>
+  </div>
+  <h1 id="h1" class="title-box">This page is not in the book.</h1>
+  <p class="section-lede">The address may be old, or it may have a typo. These pages are here:</p>
+  <ul>
+    <li><a href="{{ get_url(path='/') }}">Renderd, use a Windows PC as a second monitor for your Mac</a></li>
+    <li><a href="{{ get_url(path='download/') }}">Download, and the first run step by step</a></li>
+    <li><a href="{{ config.extra.repo }}">The source on GitHub</a></li>
+  </ul>
+</section>
+{% endblock content %}
