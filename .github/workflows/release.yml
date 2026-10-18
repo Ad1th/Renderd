@@ -166,3 +166,16 @@ jobs:
             release-assets/SHA256SUMS.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Rebuild renderd.xyz with the new release
+        # The site reads the latest release at build time. VERCEL_DEPLOY_HOOK is a
+        # Vercel deploy hook URL (Project Settings, Git, Deploy Hooks); skipped if unset.
+        if: needs.prepare-release-notes.outputs.is_prerelease != 'true'
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -n "$VERCEL_DEPLOY_HOOK" ]; then
+            curl -fsS -X POST "$VERCEL_DEPLOY_HOOK" >/dev/null && echo "Vercel rebuild requested"
+          else
+            echo "VERCEL_DEPLOY_HOOK is not set; the site updates on the next push to main"
+          fi

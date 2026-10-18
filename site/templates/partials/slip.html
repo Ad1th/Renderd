@@ -1,0 +1,29 @@
+{# The download slip: one row per OS and CPU, from data/release.json.
+   Needs rel, repo and mb set by the page. #}
+    <div class="slip">
+      <div class="slip-head">
+        <h2 id="h-download">Download</h2>
+        <p class="slip-no">Nº {{ rel.version }}<br><span>{{ rel.date_human }}</span></p>
+      </div>
+      <ul class="slip-rows">
+        <li>
+          <span class="os">Mac</span>
+          <span class="spec">Apple Silicon, macOS 13 or later</span>
+          <a class="file" href="{{ rel.mac.url }}">{{ rel.mac.name }}</a>
+          <span class="size">{{ (rel.mac.size / mb) | round(precision=1) }} MB</span>
+        </li>
+        <li>
+          <span class="os">Windows</span>
+          <span class="spec">x64, Windows 10 or 11</span>
+          <a class="file" href="{{ rel.win_x64.url }}">{{ rel.win_x64.name }}</a>
+          <span class="size">{{ (rel.win_x64.size / mb) | round(precision=1) }} MB</span>
+        </li>
+        <li>
+          <span class="os">Windows</span>
+          <span class="spec">ARM64, Windows 10 or 11</span>
+          <a class="file" href="{{ rel.win_arm64.url }}">{{ rel.win_arm64.name }}</a>
+          <span class="size">{{ (rel.win_arm64.size / mb) | round(precision=1) }} MB</span>
+        </li>
+      </ul>
+      <p class="slip-foot"><a href="{{ rel.sums.url }}">SHA256SUMS.txt</a> to check the files. <a href="{{ rel.notes_url }}">Release notes</a>. Older versions on <a href="{{ repo }}/releases">GitHub</a>.</p>
+    </div>

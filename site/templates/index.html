@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block head %}
+{%- set rel = load_data(path="data/release.json") -%}
+{%- set repo = config.extra.repo -%}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "WebSite",
+      "@id": "{{ config.base_url }}/#website",
+      "url": "{{ config.base_url }}/",
+      "name": "Renderd"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "name": "Renderd",
+      "description": "{{ config.description }}",
+      "applicationCategory": "UtilitiesApplication",
+      "operatingSystem": "macOS 13 or later (Apple Silicon), Windows 10, Windows 11",
+      "softwareVersion": "{{ rel.version }}",
+      "datePublished": "{{ rel.date }}",
+      "downloadUrl": "{{ rel.notes_url }}",
+      "license": "https://opensource.org/licenses/MIT",
+      "isAccessibleForFree": true,
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "{{ config.extra.author }}", "url": "{{ config.extra.author_url }}" },
+      "sameAs": ["{{ repo }}"]
+    }
+  ]
+}
+</script>
+{% endblock head %}
+
+{% block content %}
+{%- set rel = load_data(path="data/release.json") -%}
+{%- set repo = config.extra.repo -%}
+{%- set mb = 1000000 -%}
+
+{# ───────────────────────── PLATE I: the setup ───────────────────────── #}
+<section class="plate plate-hero" aria-labelledby="h1">
+  <div class="plate-rail">
+    <span>Plate I</span>
+    <span>Display streaming, Mac to Windows</span>
+    <span>Nº {{ rel.version }}</span>
+  </div>
+
+  <h1 id="h1" class="title-box">Use your Windows&nbsp;PC as a second monitor for your&nbsp;Mac.</h1>
+
+  <div class="hero-grid">
+    <div class="hero-copy">
+      <p class="lede">Renderd adds a real extra display to macOS and streams it to a Windows 10 or 11 PC on your network. Peer to peer, hardware video on both ends, no account, no cloud.</p>
+      <div class="cta">
+        <a class="btn btn-ink" href="#download">Download for Mac<small>Apple Silicon &middot; {{ (rel.mac.size / mb) | round(precision=1) }} MB</small></a>
+        <a class="btn btn-line" href="#download">Download for Windows<small>x64 or ARM64 &middot; {{ (rel.win_x64.size / mb) | round(precision=1) }} MB</small></a>
+      </div>
+      <p class="fine">Free and open source, MIT licence. Version {{ rel.version }}, released {{ rel.date_human }}.</p>
+    </div>
+
+    <figure class="specimen" aria-labelledby="fig1">
+      <div class="specimen-art">
+        <div class="art">
+        <img src="{{ get_url(path='img/desk-halftone.png') }}" width="1560" height="960" alt="A MacBook and a Windows PC monitor side by side. One window is half on the MacBook screen and half on the monitor, because the monitor is now the Mac's second display.">
+        <svg class="specimen-lines" viewBox="0 0 1560 960" aria-hidden="true">
+          <defs>
+            <marker id="tip" viewBox="0 0 10 10" refX="8" refY="5" markerUnits="userSpaceOnUse" markerWidth="26" markerHeight="26" orient="auto-start-reverse"><path d="M0.5 1 L9 5 L0.5 9" fill="none" stroke="currentColor" stroke-width="1.3"/></marker>
+          </defs>
+          <g class="lead">
+            <path pathLength="1" d="M252 418 V300 H214"/>
+            <path pathLength="1" d="M1080 236 V176"/>
+            <path pathLength="1" d="M1214 712 V808 H1250"/>
+          </g>
+          <path class="halo" d="M528 500 C 540 420, 556 352, 590 306"/>
+          <path class="drag" pathLength="1" d="M528 500 C 540 420, 556 352, 590 306" marker-end="url(#tip)"/>
+          <path class="net" pathLength="1" d="M700 812 C 760 760, 812 726, 880 716"/>
+          <g class="dots">
+            <circle cx="252" cy="418" r="6"/><circle cx="1080" cy="236" r="6"/><circle cx="1214" cy="712" r="6"/><circle cx="528" cy="500" r="6"/><circle cx="700" cy="812" r="6"/><circle cx="880" cy="716" r="6"/>
+          </g>
+          <g class="codes">
+            <text x="268" y="440">1A</text><text x="1096" y="262">1B</text><text x="548" y="420">1C</text><text x="1230" y="700">1D</text><text x="760" y="752">1E</text>
+          </g>
+          <text class="turned" transform="translate(1528 70) rotate(90)">renderd.xyz</text>
+          <text class="turned" transform="translate(30 940) rotate(-90)">v{{ rel.version }}, {{ rel.date_human | lower }}</text>
+        </svg>
+        </div>
+        <ol class="callouts">
+          <li class="c1a"><b><span>1A</span> Host</b>your Mac, Apple Silicon, macOS&nbsp;13 or later</li>
+          <li class="c1c"><b><span>1C</span> One window, two screens</b>drag it across like any monitor</li>
+          <li class="c1b"><b><span>1B</span> Renderd Display</b>a real second display; arrange it in System Settings</li>
+          <li class="c1d"><b><span>1D</span> Viewer</b>a Windows 10 or 11 PC and its screen</li>
+          <li class="c1e"><b><span>1E</span> The link</b>your own Wi-Fi or Ethernet, and nothing else</li>
+        </ol>
+      </div>
+      <figcaption id="fig1"><span class="label">Fig. 1</span> One Mac, one PC, one desk. The PC's screen joins the Mac's desktop as a second display.</figcaption>
+    </figure>
+  </div>
+</section>
+
+{# ───────────────────────── Download slip + first run ───────────────────────── #}
+<section class="plate plate-get" id="download" aria-labelledby="h-download">
+  <div class="get-grid">
+    {% include "partials/slip.html" %}
+
+    <div class="first-run" id="first-run">
+      <h2 class="h2">First run, in four steps</h2>
+      <ol class="steps">
+        <li><span class="step-no">1</span><div><b>On the Mac,</b> unpack the download and start the host in Terminal.<pre><code>tar -xzf {{ rel.mac.name }}
+cd {{ rel.mac.name | replace(from=".tar.gz", to="") }}
+./renderd-host</code></pre></div></li>
+        <li><span class="step-no">2</span><div><b>Allow Screen Recording</b> when macOS asks, then start <code>renderd-host</code> again. macOS only applies the permission after a restart.</div></li>
+        <li><span class="step-no">3</span><div><b>On the PC,</b> unzip and run <code>renderd-viewer.exe</code>. It finds the Mac on its own. If it does not, give it the address the Mac printed:<pre><code>renderd-viewer --host 192.168.1.20:4433</code></pre></div></li>
+        <li><span class="step-no">4</span><div><b>Type the PIN.</b> The Mac shows a six-digit PIN once. Type it on the PC and the two are paired.</div></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+{# ───────────────────────── PLATE II: one frame, taken apart ───────────────────────── #}
+<section class="plate plate-frame" id="how" aria-labelledby="h-how">
+  <div class="plate-rail">
+    <span>Plate II</span>
+    <span>How it works</span>
+    <span>Fig. 2</span>
+  </div>
+  <h2 id="h-how" class="h2 h2-big">One frame, taken apart.</h2>
+  <p class="section-lede">Sixty times a second, this happens to the picture on Renderd Display. Everything runs on hardware that both computers already have.</p>
+
+  <figure class="dissect" aria-labelledby="fig2">
+    {%- set fw = 300 -%}{%- set fh = 168.75 -%}{%- set sh = fh / 8 -%}
+    <svg viewBox="0 0 1200 384" role="img" aria-label="A frame of the desktop is captured whole on the Mac, cut into eight datagrams that cross the network, one is lost and sent again, and the frame is put back together on the PC.">
+      <defs>
+        <image id="frm" href="{{ get_url(path='img/frame-halftone.png') }}" width="{{ fw }}" height="{{ fh }}" preserveAspectRatio="none"/>
+        {%- for i in range(end=8) %}
+        <clipPath id="s{{ i }}"><rect x="0" y="{{ i * sh }}" width="{{ fw }}" height="{{ sh - 0.6 }}"/></clipPath>
+        {%- endfor %}
+        <marker id="tip2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 1 L9 5 L0 9" fill="none" stroke="currentColor" stroke-width="1.6"/></marker>
+      </defs>
+
+      <g class="zones">
+        <path d="M0 40 V30 H360 V40"/><text x="0" y="20">On the Mac</text>
+        <path d="M400 40 V30 H800 V40"/><text x="400" y="20">Your network</text>
+        <path d="M840 40 V30 H1200 V40"/><text x="840" y="20">On the PC</text>
+      </g>
+
+      {# whole frame, on the Mac #}
+      <g transform="translate(30 130)">
+        <use href="#frm"/>
+        <rect class="frame-line" width="{{ fw }}" height="{{ fh }}"/>
+        <text class="mini" x="0" y="-12">2A, 2B &middot; captured, then encoded</text>
+      </g>
+
+      {# exploded: eight datagrams in flight, one lost #}
+      {%- set xs = [0, 22, 8, 30, 12, 36, 4, 26] -%}
+      <g class="flight" transform="translate(440 70)">
+        {%- for i in range(end=8) %}
+        {%- set dy = i * (sh + 13) - i * sh -%}
+        {%- if i == 4 %}
+        <g class="strip lost" style="--dx:{{ 0 - xs[i] }}px; --dy:{{ 0 - dy }}px" transform="translate({{ xs[i] }} {{ dy }})">
+          <rect class="lost-box" x="0" y="{{ i * sh }}" width="{{ fw }}" height="{{ sh }}"/>
+          <g class="resent"><use href="#frm" clip-path="url(#s{{ i }})"/></g>
+        </g>
+        {%- else %}
+        <g class="strip" style="--dx:{{ 0 - xs[i] }}px; --dy:{{ 0 - dy }}px" transform="translate({{ xs[i] }} {{ dy }})">
+          <use href="#frm" clip-path="url(#s{{ i }})"/>
+          <rect class="hdr" x="-12" y="{{ i * sh }}" width="9" height="{{ sh - 0.6 }}"/>
+        </g>
+        {%- endif %}
+        {%- endfor %}
+        <text class="mini" x="-12" y="-14">2C &middot; cut into datagrams, each with a 16-byte header</text>
+        <path class="lead-thin" d="M{{ 12 + fw + 6 }} {{ 4 * (sh + 13) + sh / 2 }} H{{ fw + 34 }} V{{ 8 * (sh + 13) + 14 }} H{{ fw + 22 }}"/>
+        <text class="mini mini-lost" x="{{ fw + 16 }}" y="{{ 8 * (sh + 13) + 18 }}" text-anchor="end">2D &middot; one lost on the way, asked for again</text>
+      </g>
+
+      {# reassembled, on the PC #}
+      <g transform="translate(870 130)">
+        <use href="#frm"/>
+        <rect class="frame-line" width="{{ fw }}" height="{{ fh }}"/>
+        <text class="mini" x="0" y="-12">2E, 2F &middot; decoded, then shown</text>
+      </g>
+
+      <path class="arrow" d="M345 215 H420" marker-end="url(#tip2)"/>
+      <path class="arrow" d="M790 215 H858" marker-end="url(#tip2)"/>
+    </svg>
+    <figcaption id="fig2"><span class="label">Fig. 2</span> A frame on its way from the Mac to the PC. Drawn to show the order of events, not to scale.</figcaption>
+  </figure>
+
+  <ol class="stations">
+    <li><span class="code">2A</span><b>Capture</b><span class="tech">ScreenCaptureKit</span>The Mac hands over each new picture of Renderd Display straight from the GPU, without a copy.<a class="src" href="{{ repo }}/blob/main/crates/renderd-host/src/capture.rs">capture.rs</a></li>
+    <li><span class="code">2B</span><b>Encode</b><span class="tech">VideoToolbox, HEVC or H.264</span>The Mac's media engine compresses it, so the CPU stays free for your work.<a class="src" href="{{ repo }}/blob/main/crates/renderd-host/src/encode.rs">encode.rs</a></li>
+    <li><span class="code">2C</span><b>Send</b><span class="tech">QUIC datagrams</span>The frame goes out in pieces, each with a 16-byte header that says where it belongs.<a class="src" href="{{ repo }}/blob/main/crates/renderd-frame/src/header.rs">header.rs</a></li>
+    <li><span class="code">2D</span><b>Recover</b><span class="tech">Nack, in order</span>If a piece goes missing, the PC asks for that piece again instead of waiting for a whole new keyframe.<a class="src" href="{{ repo }}/blob/main/crates/renderd-frame/src/receive.rs">receive.rs</a></li>
+    <li><span class="code">2E</span><b>Decode</b><span class="tech">Media Foundation, DXVA</span>The PC's GPU unpacks the video. A CPU path takes over on a GPU that cannot.<a class="src" href="{{ repo }}/blob/main/crates/renderd-viewer/src/decode/mf_decode.rs">mf_decode.rs</a></li>
+    <li><span class="code">2F</span><b>Present</b><span class="tech">Direct3D 11</span>The picture goes on screen the moment it is ready, not at the next paint.<a class="src" href="{{ repo }}/blob/main/crates/renderd-viewer/src/render/d3d11_presenter.rs">d3d11_presenter.rs</a></li>
+  </ol>
+</section>
+
+{# ───────────────────────── PLATE III: what you get / not yet ───────────────────────── #}
+<section class="plate plate-index" aria-labelledby="h-get">
+  <div class="plate-rail">
+    <span>Plate III</span>
+    <span>What it does, what it does not</span>
+    <span>Index</span>
+  </div>
+  <div class="index-grid">
+    <div class="index-yes">
+      <h2 id="h-get" class="h2">What you get</h2>
+      <dl class="entries">
+        <div><dt><span class="code">3A</span>A real display, not a mirror</dt><dd>macOS sees a new display called Renderd Display. Arrange it, pick its resolution, drag windows onto it. If macOS will not make one, Renderd mirrors your main screen instead.<sup><a href="#n1" id="r1">1</a></sup></dd></div>
+        <div><dt><span class="code">3B</span>Hardware video at both ends</dt><dd>Encoded on the Mac's media engine, decoded on the PC's GPU, at 60 frames a second by default.<sup><a href="#n2" id="r2">2</a></sup></dd></div>
+        <div><dt><span class="code">3C</span>Peer to peer</dt><dd>Frames go straight from your Mac to your PC. There is no relay server, no account and nothing to sign in to.</dd></div>
+        <div><dt><span class="code">3D</span>Paired with a PIN</dt><dd>You type a six-digit PIN once. After that the keys live in Keychain on the Mac and in Credential Manager on the PC.</dd></div>
+        <div><dt><span class="code">3E</span>Holds up on poor Wi-Fi</dt><dd>The bitrate backs off when queues build, lost pieces are sent again, and the picture drops to 896, 720 or 544 lines only while the link is unstable. Sharp by default; <code>--smooth</code> if you would rather keep motion fluid.<sup><a href="#n3" id="r3">3</a></sup></dd></div>
+        <div><dt><span class="code">3F</span>Free, and you can read it</dt><dd>MIT licence. Written in Rust. Every part of the pipeline is in the repository.</dd></div>
+      </dl>
+    </div>
+    <aside class="index-no" aria-labelledby="h-not">
+      <h2 id="h-not" class="h2">Not yet</h2>
+      <p class="aside-lede">Renderd is young. Here is what it cannot do today, so you know before you download.</p>
+      <ul class="nots">
+        <li>The Mac must have Apple Silicon (M1 or later) and macOS 13 or later.</li>
+        <li>Both computers must be on the same local network. No use over the internet yet.</li>
+        <li>No sound. Audio stays on the Mac.</li>
+        <li>The PC is a screen only. Its mouse and keyboard do not control the Mac yet.</li>
+        <li>The Mac side runs from Terminal for now.</li>
+      </ul>
+      <p class="next"><span class="label">On the list</span>Sharper text at every resolution (now), then input from the PC, audio, a shared clipboard, file transfer and use across the internet.<sup><a href="#n4" id="r4">4</a></sup></p>
+    </aside>
+  </div>
+</section>
+
+{# ───────────────────────── PLATE IV: security ───────────────────────── #}
+<section class="plate plate-sec" id="security" aria-labelledby="h-sec">
+  <div class="plate-rail">
+    <span>Plate IV</span>
+    <span>Security</span>
+    <span>Fig. 3</span>
+  </div>
+  <div class="sec-grid">
+    <div>
+      <h2 id="h-sec" class="h2 h2-big">Yours, and only yours.</h2>
+      <p class="sec-text">Pairing uses SPAKE2+ (RFC&nbsp;9382), so the PIN proves both computers are yours without the PIN, or anything made from it, crossing the network. Every session then runs over TLS&nbsp;1.3 inside QUIC, with keys kept in Keychain and Credential Manager. There is no Renderd server, so none of your screen ever passes through one.<sup><a href="#n5" id="r5">5</a></sup></p>
+    </div>
+    <figure class="pin" aria-labelledby="fig3">
+      <div class="pin-digits" aria-hidden="true"><span>4</span><span>0</span><span>9</span><span>1</span><span>7</span><span>3</span></div>
+      <figcaption id="fig3"><span class="label">Fig. 3</span> A pairing PIN. Shown once on the Mac, typed once on the PC, never sent.</figcaption>
+    </figure>
+  </div>
+</section>
+
+{# ───────────────────────── PLATE V: compare ───────────────────────── #}
+<section class="plate plate-compare" id="compare" aria-labelledby="h-cmp">
+  <div class="plate-rail">
+    <span>Plate V</span>
+    <span>Other ways to do this</span>
+    <span>Compared</span>
+  </div>
+  <h2 id="h-cmp" class="h2 h2-big">Other ways to get a second screen.</h2>
+  <p class="section-lede">Some are better for some people. Here is the short version.</p>
+  <dl class="compare">
+    <div class="is-us"><dt>Renderd</dt><dd>Free and open source. Turns a Windows PC into a real second display for a Mac, over your own network.</dd></div>
+    <div><dt>Sidecar</dt><dd>Built into macOS and very polished, but the second screen has to be an iPad.</dd></div>
+    <div><dt>Luna Display</dt><dd>Paid hardware: a small adapter that plugs into the Mac. Good if you want a plug-in device.</dd></div>
+    <div><dt>Duet Display</dt><dd>Paid app on many platforms, with an account and a subscription.</dd></div>
+    <div><dt>spacedesk</dt><dd>Free for personal use, but the main computer has to run Windows, so it cannot extend a Mac.</dd></div>
+    <div><dt>Deskreen</dt><dd>Open source and works in any web browser. A true extra display needs a dummy display plug.</dd></div>
+  </dl>
+</section>
+
+{# ───────────────────────── Note from Adith ───────────────────────── #}
+{# DRAFT: Adith rewrites this note in his own words before launch. #}
+<section class="plate plate-note" aria-labelledby="h-note">
+  <div class="note">
+    <h2 id="h-note" class="label">A note from the person who made it</h2>
+    <p>My Mac and my Windows PC sit on the same desk, and for a long time the PC's screen stayed dark while I worked on the Mac. Sidecar wants an iPad. The apps that could do it wanted an account, a subscription, or a trip through somebody's server.</p>
+    <p>So I wrote Renderd. The Mac makes a real display, the PC shows it, and the pictures go over my own network and nowhere else. It is the tool I wanted. If it does not work for you, open an issue and tell me what happened.</p>
+    <p class="sign">Adith<span><a href="{{ config.extra.author_url }}">github.com/Ad1th</a></span></p>
+  </div>
+</section>
+
+{# ───────────────────────── FAQ ───────────────────────── #}
+<section class="plate plate-faq" aria-labelledby="h-faq">
+  <div class="plate-rail">
+    <span>Plate VI</span>
+    <span>Questions</span>
+    <span>Six</span>
+  </div>
+  <h2 id="h-faq" class="h2 h2-big">Questions people ask.</h2>
+  <div class="faq">
+    <details><summary>Does it work over the internet?</summary><p>Not yet. Both computers must be on the same local network, wired or Wi-Fi. Use across the internet is on the list.</p></details>
+    <details><summary>Which Macs and PCs does it support?</summary><p>Macs with Apple Silicon (M1 or later) on macOS 13 Ventura or later. PCs with Windows 10 or 11, on x64 or ARM64. Intel Macs are not supported.</p></details>
+    <details><summary>Is it an extended display, or a mirror?</summary><p>Extended. macOS gets a new display called Renderd Display that you can arrange like any monitor. If macOS will not create it, Renderd falls back to mirroring your main screen.</p></details>
+    <details><summary>How much delay is there?</summary><p>We have not published a measured number yet, and we will not guess one. The test tool is in the repository (<code>tools/latency-bench</code>), and results go on this page once they are measured on real hardware.</p></details>
+    <details><summary>Can I use the PC's mouse and keyboard?</summary><p>Not yet. For now the PC is a screen, and you work with the Mac's own mouse and keyboard. Input from the PC is on the list.</p></details>
+    <details><summary>Does it cost anything?</summary><p>No. Renderd is free and open source under the MIT licence, with no account and no subscription.</p></details>
+  </div>
+</section>
+
+{# ───────────────────────── Notes ───────────────────────── #}
+<section class="plate plate-notes" aria-labelledby="h-notes">
+  <h2 id="h-notes" class="label">Notes and sources</h2>
+  <ol class="notes">
+    <li id="n1">Virtual display and mirror fallback: <a href="{{ repo }}/blob/main/crates/renderd-host/src/app.rs">renderd-host/src/app.rs</a>. <a href="#r1" aria-label="Back to the text">&#8617;</a></li>
+    <li id="n2">Default frame rate: <code>target_fps = 60</code> in <a href="{{ repo }}/blob/main/templates/renderd-host.default.toml">renderd-host.default.toml</a>. <a href="#r2" aria-label="Back to the text">&#8617;</a></li>
+    <li id="n3">Adaptive bitrate, resend and resolution steps: <a href="{{ repo }}/blob/main/CHANGELOG.md">CHANGELOG.md</a>, version 1.0.0 and Unreleased. <a href="#r3" aria-label="Back to the text">&#8617;</a></li>
+    <li id="n4">Roadmap: <a href="{{ repo }}#project-feature-roadmap">README, Project Feature Roadmap</a>. <a href="#r4" aria-label="Back to the text">&#8617;</a></li>
+    <li id="n5">Pairing and keys: <a href="{{ repo }}/blob/main/crates/renderd-crypto/src/lib.rs">renderd-crypto</a>, <a href="{{ repo }}/blob/main/SECURITY.md">SECURITY.md</a>, <a href="{{ repo }}/blob/main/docs/CRYPTO-AUDIT.md">CRYPTO-AUDIT.md</a>. <a href="#r5" aria-label="Back to the text">&#8617;</a></li>
+  </ol>
+</section>
+{% endblock content %}

@@ -44,3 +44,11 @@ lcov.info
 /*.dmg
 /*.exe
 /*.app
+
+# Website figure tooling
+/site/figures/node_modules/
+/site/figures/package-lock.json
+/site/public/
+
+# Lighthouse CI scratch
+/.lighthouseci/

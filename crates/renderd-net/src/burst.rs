@@ -26,8 +26,11 @@ impl FragmentBurst {
     /// before it even leaves the machine.
     #[must_use]
     pub fn queued_bytes(connection: &Connection) -> usize {
+        // quinn-proto 0.11.17+ always holds back room for one more datagram's
+        // bookkeeping (a `Bytes` handle), so an empty queue would read as that many.
         crate::transport::DATAGRAM_BUFFER_BYTES
             .saturating_sub(connection.datagram_send_buffer_space())
+            .saturating_sub(std::mem::size_of::<Bytes>())
     }
 
     /// Sends a slice of fragment byte payloads over a QUIC connection in a non-yielding loop.

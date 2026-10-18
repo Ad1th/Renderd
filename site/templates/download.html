@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block head %}
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Renderd", "item": "{{ config.base_url }}/" },
+    { "@type": "ListItem", "position": 2, "name": "Download", "item": "{{ page.permalink }}" }
+  ]
+}
+</script>
+{% endblock head %}
+
+{% block content %}
+{%- set rel = load_data(path="data/release.json") -%}
+{%- set repo = config.extra.repo -%}
+{%- set mb = 1000000 -%}
+{%- set host_dir = rel.mac.name | replace(from=".tar.gz", to="") -%}
+
+<section class="plate plate-dl" aria-labelledby="h1">
+  <div class="plate-rail">
+    <span>Download</span>
+    <span>Mac host, Windows viewer</span>
+    <span>Nº {{ rel.version }}</span>
+  </div>
+  <h1 id="h1" class="h2 h2-big">Two files, one for each computer.</h1>
+  <p class="section-lede">Renderd has two parts. The host runs on your Mac and makes the second display. The viewer runs on your Windows PC and shows it. Both are free. The Mac file is {{ (rel.mac.size / mb) | round(precision=1) }} MB and the PC file is {{ (rel.win_x64.size / mb) | round(precision=1) }} MB.</p>
+
+  <div class="get-grid">
+    {% include "partials/slip.html" %}
+
+    <aside class="index-no req" aria-labelledby="h-req">
+      <h2 id="h-req" class="h2">What you need</h2>
+      <dl class="req-list">
+        <div><dt class="label">Mac</dt><dd>Apple Silicon (M1 or later) with macOS 13 Ventura or later. Intel Macs are not supported.</dd></div>
+        <div><dt class="label">PC</dt><dd>Windows 10 or 11, on x64 or ARM64. Pick the file that matches the PC's processor.</dd></div>
+        <div><dt class="label">Network</dt><dd>Both computers on the same local network, on Wi-Fi or Ethernet. The Mac listens on UDP port 4433.</dd></div>
+        <div><dt class="label">Video</dt><dd>The PC uses H.264 by default. HEVC needs the HEVC Video Extensions from the Microsoft Store.</dd></div>
+      </dl>
+    </aside>
+  </div>
+</section>
+
+<section class="plate plate-run" id="first-run" aria-labelledby="h-run">
+  <div class="plate-rail">
+    <span>First run</span>
+    <span>From download to second display</span>
+    <span>Six steps</span>
+  </div>
+  <h2 id="h-run" class="h2 h2-big">The first run, step by step.</h2>
+  <p class="section-lede">You do this once. After the PIN, the two computers know each other and connect on their own.</p>
+
+  <div class="run-grid">
+    <div>
+      <h3 class="label run-head">On the Mac</h3>
+      <ol class="steps">
+        <li><span class="step-no">1</span><div><b>Unpack and start the host</b> in Terminal, in the folder with the download.<pre><code>tar -xzf {{ rel.mac.name }}
+cd {{ host_dir }}
+./renderd-host</code></pre></div></li>
+        <li><span class="step-no">2</span><div><b>If macOS blocks it</b> because it cannot check the developer, clear the download flag and start it again.<pre><code>xattr -d com.apple.quarantine renderd-host
+./renderd-host</code></pre></div></li>
+        <li><span class="step-no">3</span><div><b>Allow Screen Recording</b> when macOS asks, or in System Settings, Privacy &amp; Security. Then stop the host with Control-C and start it again. macOS applies the permission only after a restart. The host then prints the address of the Mac.</div></li>
+      </ol>
+    </div>
+    <div>
+      <h3 class="label run-head">On the PC</h3>
+      <ol class="steps" start="4">
+        <li><span class="step-no">4</span><div><b>Unzip and run</b> <code>renderd-viewer.exe</code>. If Windows SmartScreen stops it, click More info, then Run anyway. If Windows Firewall asks, allow it on private networks.</div></li>
+        <li><span class="step-no">5</span><div><b>It finds the Mac on its own.</b> If it does not, for example across a VPN or two subnets, give it the address the Mac printed:<pre><code>renderd-viewer --host 192.168.1.20:4433</code></pre></div></li>
+        <li><span class="step-no">6</span><div><b>Type the PIN.</b> The Mac shows a six-digit PIN once. Type it on the PC. The PC's screen is now a display of the Mac. Arrange it in System Settings, Displays.</div></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section class="plate plate-check" aria-labelledby="h-check">
+  <div class="plate-rail">
+    <span>Checks</span>
+    <span>Before and after</span>
+    <span>SHA-256</span>
+  </div>
+  <div class="index-grid">
+    <div>
+      <h2 id="h-check" class="h2">Check the files</h2>
+      <p>Each release has a <a href="{{ rel.sums.url }}">SHA256SUMS.txt</a>. Make the hash of your download and compare it with the line for that file. If the two are not the same, do not run the file.</p>
+      <p class="cmd-label label">Mac, in Terminal</p>
+      <pre class="cmd"><code>shasum -a 256 {{ rel.mac.name }}</code></pre>
+      <p class="cmd-label label">PC, in PowerShell</p>
+      <pre class="cmd"><code>Get-FileHash .\{{ rel.win_x64.name }}</code></pre>
+      <p class="fine">Or build it yourself from the <a href="{{ repo }}#build-instructions--development-setup">source on GitHub</a>.</p>
+    </div>
+    <aside class="index-no" aria-labelledby="h-help">
+      <h2 id="h-help" class="h2">If nothing appears</h2>
+      <ul class="nots">
+        <li>Check that the host still runs on the Mac and that you allowed Screen Recording, then restarted it.</li>
+        <li>Give the viewer the address with <code>--host</code>. Discovery does not cross subnets or VPNs.</li>
+        <li>On a PC without HEVC, keep the default codec, H.264.</li>
+      </ul>
+      <p class="next">More checks, and what each log line means, are in the <a href="{{ repo }}#if-nothing-appears">README</a>. Still stuck? <a href="{{ repo }}/issues/new">Open an issue</a>.</p>
+    </aside>
+  </div>
+</section>
+{% endblock content %}
