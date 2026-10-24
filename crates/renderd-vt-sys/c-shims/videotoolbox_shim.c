@@ -155,14 +155,21 @@ OSStatus renderd_VTCompressionSessionCreate(
     //    6 Mbps, a mid-stream 1080p desktop IDR is ~100 KB, about 130 ms of link
     //    time: at a 5 s interval that was a visible hitch every five seconds on
     //    a slow path for no benefit while the stream was healthy.
-    double max_keyframe_interval_sec = 20.0;
+    //
+    //    The interval counts frames, not time. A desktop sends nothing while it
+    //    is still, so a 20 s *duration* made the first frame after any 20 s
+    //    pause a keyframe: measured at 2 Mbps, 124 KB (half a second of link
+    //    time) on the first scroll after reading a page, and the starved frames
+    //    after it 6-12 dB worse than resuming from a 1 s pause. 20 s of frames
+    //    at the session's rate only comes round during sustained motion.
+    int32_t max_keyframe_frames = fps * 20;
     CFNumberRef max_keyframe_interval = CFNumberCreate(
         kCFAllocatorDefault,
-        kCFNumberFloat64Type,
-        &max_keyframe_interval_sec
+        kCFNumberSInt32Type,
+        &max_keyframe_frames
     );
     if (max_keyframe_interval != NULL) {
-        VTSessionSetProperty(session, kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, max_keyframe_interval);
+        VTSessionSetProperty(session, kVTCompressionPropertyKey_MaxKeyFrameInterval, max_keyframe_interval);
         CFRelease(max_keyframe_interval);
     }
 
