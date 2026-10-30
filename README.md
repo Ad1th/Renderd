@@ -287,6 +287,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--display-id <ID>` | 0 | Which display to capture. |
 | `--config <PATH>` | — | TOML config file. |
 | `--log-level <LEVEL>` | `info` | Logging verbosity. |
+| `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
 | `--smooth` | off | Favour smooth motion over a sharp picture on a slow link (see below). |
 
 #### If nothing appears
