@@ -201,6 +201,15 @@ mod tests {
     }
 
     #[test]
+    fn test_log_format_defaults_to_text_and_accepts_json() {
+        let cli = ViewerCli::parse_from(["renderd-viewer"]);
+        assert_eq!(cli.log_format, LogFormat::Text);
+        let cli = ViewerCli::parse_from(["renderd-viewer", "--log-format", "json"]);
+        assert_eq!(cli.log_format, LogFormat::Json);
+        assert!(ViewerCli::try_parse_from(["renderd-viewer", "--log-format", "xml"]).is_err());
+    }
+
+    #[test]
     fn test_decoder_backend_defaults_to_media_foundation() {
         let cli = ViewerCli::parse_from(["renderd-viewer"]);
         assert_eq!(cli.decoder, DecoderBackend::Mf);
