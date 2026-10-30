@@ -277,6 +277,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--fullscreen` | off | Start borderless fullscreen. |
 | `--width`, `--height` | 1920×1080 | Initial window size. |
 | `--log-level <LEVEL>` | `info` | `trace`, `debug`, `info`, `warn`, `error`. |
+| `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
 
 #### Host options
 
