@@ -77,6 +77,14 @@ mod tests {
     }
 
     #[test]
+    fn serializes_as_a_lowercase_word() {
+        assert_eq!(serde_json::to_string(&Role::Host).unwrap(), "\"host\"");
+        let role: Role = serde_json::from_str("\"viewer\"").unwrap();
+        assert_eq!(role, Role::Viewer);
+        assert_eq!(Role::Viewer.to_string(), "viewer");
+    }
+
+    #[test]
     fn viewer_is_supported_everywhere() {
         assert!(Role::Viewer.supported_here());
     }
