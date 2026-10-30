@@ -19,7 +19,7 @@ pub use abr::AbrManager;
 pub use app::HostApp;
 pub use autostart::{AutoStart, AutoStartManager, AutoStartStatus};
 pub use capture::CapturePipeline;
-pub use cli::{DisplayMode, HostCli};
+pub use cli::{DisplayMode, HostCli, LogFormat};
 pub use clock::ClockController;
 pub use encode::{EncodePipeline, EncodedFrame};
 pub use error::HostError;

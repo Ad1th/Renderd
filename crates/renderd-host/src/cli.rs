@@ -15,6 +15,13 @@ pub struct HostCli {
     #[arg(short, long, default_value = "info")]
     pub log_level: String,
 
+    /// How log lines are written: `text` for people, `json` for programs.
+    ///
+    /// `json` writes one object per line with the message and its fields, which
+    /// is what the desktop app reads to follow the daemon's state.
+    #[arg(long, value_name = "FORMAT", default_value = "text")]
+    pub log_format: LogFormat,
+
     /// Target display ID override.
     #[arg(long)]
     pub display_id: Option<u32>,
@@ -49,4 +56,14 @@ pub enum DisplayMode {
     Extend,
     /// Stream an existing display.
     Mirror,
+}
+
+/// How log lines are rendered.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    /// Human-readable lines.
+    #[default]
+    Text,
+    /// One JSON object per line.
+    Json,
 }
