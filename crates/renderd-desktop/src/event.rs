@@ -52,3 +52,48 @@ impl Metrics {
         }
     }
 }
+
+/// Something that happened in the child process that the window should react to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Event {
+    /// The host is listening for a viewer on this socket address.
+    Listening {
+        /// Address the QUIC server bound to.
+        addr: String,
+    },
+    /// The address to type on the viewer machine.
+    Address(String),
+    /// The viewer is looking for a host on the network.
+    Searching,
+    /// The viewer is dialling a host.
+    Connecting {
+        /// Address being dialled.
+        addr: String,
+    },
+    /// The other side connected.
+    PeerConnected {
+        /// Address of the other side.
+        peer: String,
+    },
+    /// Both sides agreed on a picture format.
+    Configured(StreamInfo),
+    /// Video is flowing.
+    Streaming,
+    /// Fresh numbers from the running stream.
+    Metrics(Metrics),
+    /// The stream changed size to fit the link.
+    Resized {
+        /// New picture width.
+        width: u32,
+        /// New picture height.
+        height: u32,
+    },
+    /// The other side went away.
+    PeerLost,
+    /// A connection attempt failed and will be retried.
+    ConnectFailed(String),
+    /// Screen capture could not start.
+    CaptureFailed(String),
+    /// The child was asked to stop and is shutting down.
+    Stopping,
+}
