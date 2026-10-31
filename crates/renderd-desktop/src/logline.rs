@@ -127,3 +127,34 @@ impl LogLine {
         })
     }
 }
+
+impl LogLine {
+    /// A field as text, if it is a string.
+    #[must_use]
+    pub fn text(&self, key: &str) -> Option<&str> {
+        self.fields.get(key).and_then(Value::as_str)
+    }
+
+    /// A field as a number.
+    ///
+    /// The daemons format some numbers as strings (`fps = "59.8"`), so a string
+    /// that parses as a number counts too.
+    #[must_use]
+    pub fn number(&self, key: &str) -> Option<f64> {
+        match self.fields.get(key)? {
+            Value::Number(n) => n.as_f64(),
+            Value::String(s) => s.trim().parse().ok(),
+            _ => None,
+        }
+    }
+
+    /// A field as a whole number that fits in `u32`.
+    #[must_use]
+    pub fn integer(&self, key: &str) -> Option<u32> {
+        match self.fields.get(key)? {
+            Value::Number(n) => n.as_u64().and_then(|v| u32::try_from(v).ok()),
+            Value::String(s) => s.trim().parse().ok(),
+            _ => None,
+        }
+    }
+}
