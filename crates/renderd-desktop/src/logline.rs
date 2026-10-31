@@ -17,3 +17,18 @@ pub enum Level {
     /// Something failed.
     Error,
 }
+
+impl Level {
+    /// Reads a level name as tracing writes it, in any letter case.
+    #[must_use]
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "trace" => Some(Self::Trace),
+            "debug" => Some(Self::Debug),
+            "info" => Some(Self::Info),
+            "warn" | "warning" => Some(Self::Warn),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
+}
