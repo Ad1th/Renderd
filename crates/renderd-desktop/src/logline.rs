@@ -35,7 +35,7 @@ impl Level {
 }
 
 /// A log line split into the parts the app cares about.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct LogLine {
     /// Severity.
     pub level: Level,
