@@ -190,4 +190,12 @@ mod tests {
         assert_eq!(line.message, "some stray output");
         assert!(line.fields.is_empty());
     }
+
+    #[test]
+    fn marks_error_text_as_an_error() {
+        let line = LogLine::parse("Error: Initialization(\"Failed to bind QUIC server\")");
+        assert_eq!(line.level, Level::Error);
+        let line = LogLine::parse("thread 'main' panicked at src/main.rs:1:1");
+        assert_eq!(line.level, Level::Error);
+    }
 }
