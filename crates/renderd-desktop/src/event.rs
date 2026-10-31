@@ -5,6 +5,8 @@
 
 use serde::Serialize;
 
+use crate::logline::LogLine;
+
 /// The picture the two sides agreed on.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct StreamInfo {
@@ -96,4 +98,16 @@ pub enum Event {
     CaptureFailed(String),
     /// The child was asked to stop and is shutting down.
     Stopping,
+}
+
+impl StreamInfo {
+    /// Reads the stream description off a handshake line.
+    fn from_line(line: &LogLine) -> Option<Self> {
+        Some(Self {
+            codec: line.text("codec")?.to_string(),
+            width: line.integer("width")?,
+            height: line.integer("height")?,
+            fps: line.number("fps")?,
+        })
+    }
 }
