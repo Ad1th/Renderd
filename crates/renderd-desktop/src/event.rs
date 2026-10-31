@@ -166,3 +166,56 @@ pub fn host_event(line: &LogLine) -> Option<Event> {
     }
     None
 }
+
+/// Interprets a line written by `renderd-viewer`.
+#[must_use]
+pub fn viewer_event(line: &LogLine) -> Option<Event> {
+    let message = line.message.as_str();
+    match message {
+        "Connecting to discovered host..." => {
+            return Some(Event::Connecting {
+                addr: line.text("host_addr")?.to_string(),
+            });
+        }
+        "QUIC connection established with host" => {
+            return Some(Event::PeerConnected {
+                peer: line.text("peer")?.to_string(),
+            });
+        }
+        "Stream 0 handshake completed with host" => {
+            return StreamInfo::from_line(line).map(Event::Configured);
+        }
+        "DatagramReceiver: first decoded frame pushed into FrameQueue" => {
+            return Some(Event::Streaming);
+        }
+        "VIEWER METRICS: presentation" => {
+            return Some(Event::Metrics(Metrics {
+                fps: line.number("present_fps"),
+                decode_ms: line.number("decode_ms"),
+                ..Metrics::default()
+            }));
+        }
+        "VIEWER METRICS: network receive & decode throughput" => {
+            return Some(Event::Metrics(Metrics {
+                bitrate_kbps: line.number("recv_bitrate_kbps"),
+                lost_frames: line.number("lost_total"),
+                ..Metrics::default()
+            }));
+        }
+        "Network connection lost; attempting reconnect to cached IP"
+        | "Cached IP failed; initiating mDNS re-discovery" => return Some(Event::PeerLost),
+        "Close requested by user; shutting down viewer app" => return Some(Event::Stopping),
+        _ => {}
+    }
+
+    if message.starts_with("mDNS browser started") {
+        return Some(Event::Searching);
+    }
+    if message.starts_with("Host stream ended") {
+        return Some(Event::PeerLost);
+    }
+    if message.starts_with("QUIC connection to ") {
+        return Some(Event::ConnectFailed(message.to_string()));
+    }
+    None
+}
