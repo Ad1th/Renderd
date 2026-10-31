@@ -198,4 +198,10 @@ mod tests {
         let line = LogLine::parse("thread 'main' panicked at src/main.rs:1:1");
         assert_eq!(line.level, Level::Error);
     }
+
+    #[test]
+    fn strips_ansi_colour_codes() {
+        let line = LogLine::parse("\u{1b}[32m INFO\u{1b}[0m ready");
+        assert_eq!(line.message, "INFO ready");
+    }
 }
