@@ -182,4 +182,12 @@ mod tests {
         assert_eq!(line.integer("bitrate_kbps"), Some(2712));
         assert_eq!(line.number("missing"), None);
     }
+
+    #[test]
+    fn keeps_plain_text_lines() {
+        let line = LogLine::parse("some stray output");
+        assert_eq!(line.level, Level::Info);
+        assert_eq!(line.message, "some stray output");
+        assert!(line.fields.is_empty());
+    }
 }
