@@ -1,6 +1,7 @@
 //! One line of output from a child process.
 
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 /// How serious a log line is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -31,4 +32,18 @@ impl Level {
             _ => None,
         }
     }
+}
+
+/// A log line split into the parts the app cares about.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LogLine {
+    /// Severity.
+    pub level: Level,
+    /// The human-readable message.
+    pub message: String,
+    /// Module that wrote the line, empty when unknown.
+    pub target: String,
+    /// Structured values attached to the message.
+    #[serde(skip)]
+    pub fields: Map<String, Value>,
 }

@@ -7,5 +7,5 @@
 pub mod logline;
 pub mod role;
 
-pub use logline::Level;
+pub use logline::{Level, LogLine};
 pub use role::Role;
