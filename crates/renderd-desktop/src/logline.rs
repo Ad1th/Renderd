@@ -212,4 +212,13 @@ mod tests {
         let line = LogLine::parse("[1,2,3]");
         assert_eq!(line.message, "[1,2,3]");
     }
+
+    #[test]
+    fn level_names_parse_in_any_case() {
+        assert_eq!(Level::parse("WARN"), Some(Level::Warn));
+        assert_eq!(Level::parse("warning"), Some(Level::Warn));
+        assert_eq!(Level::parse(" error "), Some(Level::Error));
+        assert_eq!(Level::parse("loud"), None);
+        assert!(Level::Error > Level::Warn);
+    }
 }
