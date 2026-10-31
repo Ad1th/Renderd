@@ -47,3 +47,45 @@ pub struct LogLine {
     #[serde(skip)]
     pub fields: Map<String, Value>,
 }
+
+impl LogLine {
+    /// Wraps text that is not JSON, such as a panic or a clap usage error.
+    ///
+    /// Lines that start with `error` are marked as errors so they are not lost
+    /// among the informational ones.
+    #[must_use]
+    pub fn plain(text: &str) -> Self {
+        let message = strip_ansi(text).trim().to_string();
+        let lowered = message.to_ascii_lowercase();
+        let level = if lowered.starts_with("error") || lowered.contains("panicked at") {
+            Level::Error
+        } else {
+            Level::Info
+        };
+        Self {
+            level,
+            message,
+            target: String::new(),
+            fields: Map::new(),
+        }
+    }
+}
+
+/// Removes ANSI colour escapes so text logs read cleanly in the window.
+fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        // Skip "[", the parameters, and the final letter of the sequence.
+        for next in chars.by_ref() {
+            if next.is_ascii_alphabetic() {
+                break;
+            }
+        }
+    }
+    out
+}
