@@ -299,4 +299,17 @@ mod tests {
         let events = events(HOST_LOG, host_event);
         assert!(events.contains(&Event::Stopping));
     }
+
+    #[test]
+    fn viewer_session_dials_connects_and_streams() {
+        let events = events(VIEWER_LOG, viewer_event);
+        let position = |wanted: fn(&Event) -> bool| events.iter().position(wanted).unwrap();
+        let dialling = position(|e| matches!(e, Event::Connecting { .. }));
+        let connected = position(|e| matches!(e, Event::PeerConnected { .. }));
+        let configured = position(|e| matches!(e, Event::Configured(_)));
+        let streaming = position(|e| matches!(e, Event::Streaming));
+        assert!(dialling < connected);
+        assert!(connected < configured);
+        assert!(configured < streaming);
+    }
 }
