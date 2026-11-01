@@ -328,4 +328,20 @@ mod tests {
         assert!(merged.lost_frames.is_some());
         assert!(merged.rtt_ms.is_none());
     }
+
+    #[test]
+    fn merging_keeps_values_the_new_sample_lacks() {
+        let old = Metrics {
+            fps: Some(60.0),
+            rtt_ms: Some(2.0),
+            ..Metrics::default()
+        };
+        let new = Metrics {
+            fps: Some(30.0),
+            ..Metrics::default()
+        };
+        let merged = old.merged(new);
+        assert_eq!(merged.fps, Some(30.0));
+        assert_eq!(merged.rtt_ms, Some(2.0));
+    }
 }
