@@ -77,3 +77,17 @@ pub fn diagnose(message: &str) -> Problem {
     };
     Problem::new(kind, message.trim())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_taken_port_is_recognised() {
+        let problem = diagnose(
+            "Error: Initialization(\"Failed to bind UDP socket on 0.0.0.0:4433: Address already in use (os error 48)\")",
+        );
+        assert_eq!(problem.kind, ProblemKind::PortInUse);
+        assert!(problem.detail.contains("0.0.0.0:4433"));
+    }
+}
