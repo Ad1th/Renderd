@@ -344,4 +344,16 @@ mod tests {
         assert_eq!(merged.fps, Some(30.0));
         assert_eq!(merged.rtt_ms, Some(2.0));
     }
+
+    #[test]
+    fn viewer_reconnect_lines_mean_the_host_was_lost() {
+        for message in [
+            "Network connection lost; attempting reconnect to cached IP",
+            "Cached IP failed; initiating mDNS re-discovery",
+            "Host stream ended, clearing stale frames",
+        ] {
+            let line = LogLine::plain(message);
+            assert_eq!(viewer_event(&line), Some(Event::PeerLost), "{message}");
+        }
+    }
 }
