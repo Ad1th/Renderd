@@ -312,4 +312,20 @@ mod tests {
         assert!(connected < configured);
         assert!(configured < streaming);
     }
+
+    #[test]
+    fn viewer_metrics_cover_both_kinds_of_sample() {
+        let merged = events(VIEWER_LOG, viewer_event)
+            .into_iter()
+            .filter_map(|e| match e {
+                Event::Metrics(m) => Some(m),
+                _ => None,
+            })
+            .fold(Metrics::default(), Metrics::merged);
+        assert!(merged.fps.is_some());
+        assert!(merged.bitrate_kbps.is_some());
+        assert!(merged.decode_ms.is_some());
+        assert!(merged.lost_frames.is_some());
+        assert!(merged.rtt_ms.is_none());
+    }
 }
