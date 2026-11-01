@@ -219,3 +219,28 @@ pub fn viewer_event(line: &LogLine) -> Option<Event> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const HOST_LOG: &str = include_str!("../fixtures/host.jsonl");
+    const VIEWER_LOG: &str = include_str!("../fixtures/viewer.jsonl");
+
+    fn events(log: &str, interpret: fn(&LogLine) -> Option<Event>) -> Vec<Event> {
+        log.lines()
+            .filter_map(|line| interpret(&LogLine::parse(line)))
+            .collect()
+    }
+
+    #[test]
+    fn host_session_starts_by_listening() {
+        let events = events(HOST_LOG, host_event);
+        assert_eq!(
+            events.first(),
+            Some(&Event::Listening {
+                addr: "0.0.0.0:44999".to_string()
+            })
+        );
+    }
+}
