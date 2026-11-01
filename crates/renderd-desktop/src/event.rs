@@ -249,4 +249,17 @@ mod tests {
         let events = events(HOST_LOG, host_event);
         assert!(events.contains(&Event::Address("192.168.1.20:44999".to_string())));
     }
+
+    #[test]
+    fn host_session_connects_then_streams_then_goes_idle() {
+        let events = events(HOST_LOG, host_event);
+        let position = |wanted: fn(&Event) -> bool| events.iter().position(wanted).unwrap();
+        let connected = position(|e| matches!(e, Event::PeerConnected { .. }));
+        let streaming = position(|e| matches!(e, Event::Streaming));
+        let metrics = position(|e| matches!(e, Event::Metrics(_)));
+        let lost = position(|e| matches!(e, Event::PeerLost));
+        assert!(connected < streaming);
+        assert!(streaming < metrics);
+        assert!(metrics < lost);
+    }
 }
