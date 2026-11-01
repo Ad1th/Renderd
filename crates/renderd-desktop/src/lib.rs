@@ -11,5 +11,5 @@ pub mod role;
 
 pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
 pub use logline::{Level, LogLine};
-pub use problem::ProblemKind;
+pub use problem::{Problem, ProblemKind};
 pub use role::Role;
