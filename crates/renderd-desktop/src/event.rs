@@ -277,4 +277,20 @@ mod tests {
         assert_eq!((info.width, info.height), (640, 360));
         assert!((info.fps - 60.0).abs() < f64::EPSILON);
     }
+
+    #[test]
+    fn host_metrics_carry_fps_and_bitrate() {
+        let events = events(HOST_LOG, host_event);
+        let sample = events
+            .iter()
+            .find_map(|e| match e {
+                Event::Metrics(m) => Some(*m),
+                _ => None,
+            })
+            .unwrap();
+        assert!(sample.fps.unwrap() > 1.0);
+        assert!(sample.bitrate_kbps.unwrap() > 1.0);
+        assert!(sample.rtt_ms.is_some());
+        assert!(sample.decode_ms.is_none());
+    }
 }
