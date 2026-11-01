@@ -293,4 +293,10 @@ mod tests {
         assert!(sample.rtt_ms.is_some());
         assert!(sample.decode_ms.is_none());
     }
+
+    #[test]
+    fn host_shutdown_is_reported() {
+        let events = events(HOST_LOG, host_event);
+        assert!(events.contains(&Event::Stopping));
+    }
 }
