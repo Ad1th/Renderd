@@ -185,3 +185,44 @@ impl Status {
         self.problem = Some(problem);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::event::{host_event, viewer_event};
+    use crate::logline::LogLine;
+
+    fn replay(role: Role, log: &str) -> Vec<Phase> {
+        let interpret = match role {
+            Role::Host => host_event,
+            Role::Viewer => viewer_event,
+        };
+        let mut status = Status::new(role);
+        status.begin();
+        let mut phases = vec![status.phase];
+        for line in log.lines() {
+            if let Some(event) = interpret(&LogLine::parse(line)) {
+                status.apply(&event);
+                if phases.last() != Some(&status.phase) {
+                    phases.push(status.phase);
+                }
+            }
+        }
+        phases
+    }
+
+    #[test]
+    fn host_fixture_walks_through_the_expected_phases() {
+        let phases = replay(Role::Host, include_str!("../fixtures/host.jsonl"));
+        assert_eq!(
+            phases,
+            [
+                Phase::Starting,
+                Phase::Waiting,
+                Phase::Connecting,
+                Phase::Streaming,
+                Phase::Stopping,
+            ]
+        );
+    }
+}
