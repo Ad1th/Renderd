@@ -2,8 +2,8 @@
 
 use serde::Serialize;
 
-use crate::event::{Metrics, StreamInfo};
-use crate::problem::Problem;
+use crate::event::{Event, Metrics, StreamInfo};
+use crate::problem::{Problem, ProblemKind};
 use crate::role::Role;
 
 /// Where a session is in its life.
@@ -91,5 +91,61 @@ impl Status {
         self.peer = None;
         self.stream = None;
         self.metrics = Metrics::default();
+    }
+}
+
+impl Status {
+    /// Applies one event from the child process.
+    ///
+    /// Once a stop has been requested the phase stays at stopping, so late
+    /// lines from the child cannot make the window look alive again.
+    pub fn apply(&mut self, event: &Event) {
+        if self.phase == Phase::Stopping {
+            return;
+        }
+        match event {
+            Event::Listening { .. } => self.phase = Phase::Waiting,
+            Event::Address(addr) => self.address = Some(addr.clone()),
+            Event::Searching => self.phase = Phase::Connecting,
+            Event::Connecting { addr } => {
+                self.address = Some(addr.clone());
+                if self.phase != Phase::Reconnecting {
+                    self.phase = Phase::Connecting;
+                }
+            }
+            Event::PeerConnected { peer } => {
+                self.peer = Some(peer.clone());
+                self.phase = Phase::Connecting;
+            }
+            Event::Configured(info) => self.stream = Some(info.clone()),
+            Event::Streaming => {
+                self.phase = Phase::Streaming;
+                self.problem = None;
+            }
+            Event::Metrics(sample) => self.metrics = self.metrics.merged(*sample),
+            Event::Resized { width, height } => {
+                if let Some(stream) = self.stream.as_mut() {
+                    stream.width = *width;
+                    stream.height = *height;
+                }
+            }
+            Event::PeerLost => self.peer_lost(),
+            Event::ConnectFailed(detail) => {
+                self.problem = Some(Problem::new(ProblemKind::HostUnreachable, detail.clone()));
+            }
+            Event::CaptureFailed(detail) => {
+                self.problem = Some(Problem::new(ProblemKind::ScreenRecording, detail.clone()));
+            }
+            Event::Stopping => self.phase = Phase::Stopping,
+        }
+    }
+
+    /// The other side went away: the host waits again, the viewer retries.
+    fn peer_lost(&mut self) {
+        self.clear_session();
+        self.phase = match self.role {
+            Role::Host => Phase::Waiting,
+            Role::Viewer => Phase::Reconnecting,
+        };
     }
 }
