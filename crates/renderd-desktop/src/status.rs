@@ -309,4 +309,22 @@ mod tests {
         status.exited(false, None);
         assert_eq!(status.problem.unwrap().kind, ProblemKind::Crashed);
     }
+
+    #[test]
+    fn a_resize_updates_the_stream_size() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        status.apply(&Event::Configured(StreamInfo {
+            codec: "hevc".to_string(),
+            width: 1920,
+            height: 1080,
+            fps: 60.0,
+        }));
+        status.apply(&Event::Resized {
+            width: 1280,
+            height: 720,
+        });
+        let stream = status.stream.unwrap();
+        assert_eq!((stream.width, stream.height), (1280, 720));
+    }
 }
