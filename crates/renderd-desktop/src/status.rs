@@ -273,4 +273,13 @@ mod tests {
         status.apply(&Event::Streaming);
         assert!(status.problem.is_none());
     }
+
+    #[test]
+    fn events_after_a_stop_request_are_ignored() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        status.begin_stop();
+        status.apply(&Event::Streaming);
+        assert_eq!(status.phase, Phase::Stopping);
+    }
 }
