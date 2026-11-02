@@ -282,4 +282,14 @@ mod tests {
         status.apply(&Event::Streaming);
         assert_eq!(status.phase, Phase::Stopping);
     }
+
+    #[test]
+    fn a_requested_stop_ends_cleanly_even_with_a_bad_exit_code() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        status.begin_stop();
+        status.exited(false, Some("killed"));
+        assert_eq!(status.phase, Phase::Stopped);
+        assert!(status.problem.is_none());
+    }
 }
