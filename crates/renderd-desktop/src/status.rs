@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 use crate::event::{Event, Metrics, StreamInfo};
-use crate::problem::{Problem, ProblemKind};
+use crate::problem::{diagnose, Problem, ProblemKind};
 use crate::role::Role;
 
 /// Where a session is in its life.
@@ -147,5 +147,41 @@ impl Status {
             Role::Host => Phase::Waiting,
             Role::Viewer => Phase::Reconnecting,
         };
+    }
+}
+
+impl Status {
+    /// Records that the child process ended.
+    ///
+    /// A child that was asked to stop, or that exited cleanly, leaves the
+    /// session stopped. Anything else is a failure, explained by the last
+    /// error the child logged when there is one.
+    pub fn exited(&mut self, success: bool, last_error: Option<&str>) {
+        let wanted = self.phase == Phase::Stopping;
+        self.clear_session();
+        self.address = None;
+        if wanted || success {
+            self.phase = Phase::Stopped;
+            self.problem = None;
+            return;
+        }
+        self.phase = Phase::Failed;
+        self.problem = Some(last_error.map_or_else(
+            || {
+                Problem::new(
+                    ProblemKind::Crashed,
+                    "The process ended without an error message.",
+                )
+            },
+            diagnose,
+        ));
+    }
+
+    /// Records a failure that happened before the child could even start.
+    pub fn fail(&mut self, problem: Problem) {
+        self.clear_session();
+        self.address = None;
+        self.phase = Phase::Failed;
+        self.problem = Some(problem);
     }
 }
