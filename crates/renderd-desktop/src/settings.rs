@@ -23,3 +23,28 @@ impl DisplayMode {
         }
     }
 }
+
+/// Which codec the viewer asks for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Codec {
+    /// Let the viewer pick what this machine decodes best.
+    #[default]
+    Auto,
+    /// Only offer H.264.
+    H264,
+    /// Only offer HEVC.
+    Hevc,
+}
+
+impl Codec {
+    /// The value `renderd-viewer --codec` expects.
+    #[must_use]
+    pub const fn as_arg(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::H264 => "h264",
+            Self::Hevc => "hevc",
+        }
+    }
+}

@@ -15,5 +15,5 @@ pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
 pub use logline::{Level, LogLine};
 pub use problem::{diagnose, Problem, ProblemKind};
 pub use role::Role;
-pub use settings::DisplayMode;
+pub use settings::{Codec, DisplayMode};
 pub use status::{Phase, Status};
