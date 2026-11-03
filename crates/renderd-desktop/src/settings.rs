@@ -153,3 +153,22 @@ impl Settings {
             .sanitized()
     }
 }
+
+impl Settings {
+    /// Writes the settings to `path`, creating its folder if needed.
+    ///
+    /// The file is written next to its destination and renamed into place, so
+    /// a crash halfway cannot leave a truncated file behind.
+    ///
+    /// # Errors
+    /// Returns the I/O error if the folder or file cannot be written.
+    pub fn save(&self, path: &Path) -> io::Result<()> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let text = serde_json::to_string_pretty(self).map_err(io::Error::other)?;
+        let temporary = path.with_extension("json.tmp");
+        fs::write(&temporary, text)?;
+        fs::rename(&temporary, path)
+    }
+}
