@@ -8,10 +8,12 @@ pub mod event;
 pub mod logline;
 pub mod problem;
 pub mod role;
+pub mod settings;
 pub mod status;
 
 pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
 pub use logline::{Level, LogLine};
 pub use problem::{diagnose, Problem, ProblemKind};
 pub use role::Role;
+pub use settings::DisplayMode;
 pub use status::{Phase, Status};
