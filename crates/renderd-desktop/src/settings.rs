@@ -1,5 +1,9 @@
 //! Choices the app remembers between runs.
 
+use std::fs;
+use std::io;
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::role::Role;
@@ -132,5 +136,20 @@ impl Settings {
         self.viewer.recent_hosts.retain(|addr| !addr.trim().is_empty());
         self.viewer.recent_hosts.truncate(MAX_RECENT_HOSTS);
         self
+    }
+}
+
+impl Settings {
+    /// Loads settings from `path`.
+    ///
+    /// A missing or unreadable file gives the defaults: losing a preference
+    /// is better than refusing to open.
+    #[must_use]
+    pub fn load(path: &Path) -> Self {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Self>(&text).ok())
+            .unwrap_or_default()
+            .sanitized()
     }
 }
