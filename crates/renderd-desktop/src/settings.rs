@@ -114,3 +114,23 @@ impl ViewerSettings {
         self.recent_hosts.truncate(MAX_RECENT_HOSTS);
     }
 }
+
+impl Settings {
+    /// Returns a copy with anything unusable replaced by a default.
+    ///
+    /// A settings file can be edited by hand or come from another machine, so
+    /// a role this platform cannot run, a zero port, or an overlong recent
+    /// list are all repaired rather than rejected.
+    #[must_use]
+    pub fn sanitized(mut self) -> Self {
+        if !self.role.supported_here() {
+            self.role = Role::default();
+        }
+        if self.host.port == 0 {
+            self.host.port = DEFAULT_PORT;
+        }
+        self.viewer.recent_hosts.retain(|addr| !addr.trim().is_empty());
+        self.viewer.recent_hosts.truncate(MAX_RECENT_HOSTS);
+        self
+    }
+}
