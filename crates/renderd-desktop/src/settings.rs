@@ -205,4 +205,10 @@ mod tests {
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path), settings);
     }
+
+    #[test]
+    fn a_missing_file_gives_defaults() {
+        let path = scratch_file("missing");
+        assert_eq!(Settings::load(&path), Settings::default());
+    }
 }
