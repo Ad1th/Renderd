@@ -219,4 +219,14 @@ mod tests {
         fs::write(&path, "{ not json").unwrap();
         assert_eq!(Settings::load(&path), Settings::default());
     }
+
+    #[test]
+    fn partial_files_fill_in_the_rest() {
+        let path = scratch_file("partial");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, r#"{"host":{"smooth":true},"future_key":1}"#).unwrap();
+        let settings = Settings::load(&path);
+        assert!(settings.host.smooth);
+        assert_eq!(settings.host.port, DEFAULT_PORT);
+    }
 }
