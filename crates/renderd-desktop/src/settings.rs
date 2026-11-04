@@ -236,4 +236,17 @@ mod tests {
         settings.host.port = 0;
         assert_eq!(settings.sanitized().host.port, DEFAULT_PORT);
     }
+
+    #[test]
+    fn recent_hosts_are_unique_newest_first_and_capped() {
+        let mut viewer = ViewerSettings::default();
+        for n in 0..8 {
+            viewer.remember_host(&format!("10.0.0.{n}:4433"));
+        }
+        viewer.remember_host("10.0.0.5:4433");
+        assert_eq!(viewer.recent_hosts.len(), MAX_RECENT_HOSTS);
+        assert_eq!(viewer.recent_hosts[0], "10.0.0.5:4433");
+        let unique: std::collections::HashSet<_> = viewer.recent_hosts.iter().collect();
+        assert_eq!(unique.len(), viewer.recent_hosts.len());
+    }
 }
