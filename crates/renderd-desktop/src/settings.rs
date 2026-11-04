@@ -211,4 +211,12 @@ mod tests {
         let path = scratch_file("missing");
         assert_eq!(Settings::load(&path), Settings::default());
     }
+
+    #[test]
+    fn a_corrupt_file_gives_defaults() {
+        let path = scratch_file("corrupt");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "{ not json").unwrap();
+        assert_eq!(Settings::load(&path), Settings::default());
+    }
 }
