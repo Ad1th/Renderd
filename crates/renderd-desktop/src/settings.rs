@@ -249,4 +249,11 @@ mod tests {
         let unique: std::collections::HashSet<_> = viewer.recent_hosts.iter().collect();
         assert_eq!(unique.len(), viewer.recent_hosts.len());
     }
+
+    #[test]
+    fn blank_recent_hosts_are_dropped() {
+        let mut settings = Settings::default();
+        settings.viewer.recent_hosts = vec![" ".to_string(), "10.0.0.1:4433".to_string()];
+        assert_eq!(settings.sanitized().viewer.recent_hosts, ["10.0.0.1:4433"]);
+    }
 }
