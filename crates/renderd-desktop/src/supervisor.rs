@@ -200,8 +200,20 @@ fn piped_command(program: &Path, args: &[String]) -> Command {
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    hide_console(&mut command);
     command
 }
+
+/// Stops Windows from opening a console window for the child.
+#[cfg(windows)]
+fn hide_console(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+    command.creation_flags(CREATE_NO_WINDOW);
+}
+
+#[cfg(not(windows))]
+const fn hide_console(_command: &mut Command) {}
 
 impl Supervisor {
     /// Starts `program` with `args` and begins following its output.
