@@ -40,4 +40,10 @@ mod tests {
     fn an_explicit_port_is_kept_and_spaces_trimmed() {
         assert_eq!(normalize_host("  10.0.0.7:5000 ").unwrap(), "10.0.0.7:5000");
     }
+
+    #[test]
+    fn ipv6_addresses_are_accepted() {
+        assert_eq!(normalize_host("::1").unwrap(), "[::1]:4433");
+        assert_eq!(normalize_host("[::1]:9000").unwrap(), "[::1]:9000");
+    }
 }
