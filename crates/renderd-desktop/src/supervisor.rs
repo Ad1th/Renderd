@@ -6,12 +6,16 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
 
 use crate::event::{host_event, viewer_event};
 use crate::logline::{Level, LogLine};
 use crate::problem::{Problem, ProblemKind};
 use crate::role::Role;
 use crate::status::Status;
+
+/// How long a child gets to shut down by itself before it is killed.
+pub const STOP_GRACE: Duration = Duration::from_secs(3);
 
 /// How many recent log lines are kept for the details view.
 pub const LOG_CAPACITY: usize = 400;
@@ -283,4 +287,36 @@ fn interrupt(child: &mut Child) {
 #[cfg(not(unix))]
 fn interrupt(child: &mut Child) {
     let _ = child.kill();
+}
+
+impl Supervisor {
+    /// Asks the running session to stop.
+    ///
+    /// The child is interrupted first. If it is still alive after
+    /// [`STOP_GRACE`] it is killed.
+    pub fn stop(&self) {
+        let (status, run) = {
+            let mut shared = self.lock();
+            if !shared.status.phase.is_running() {
+                return;
+            }
+            shared.status.begin_stop();
+            if let Some(child) = shared.child.as_mut() {
+                interrupt(child);
+            }
+            (shared.status.clone(), shared.run)
+        };
+        (self.listener)(Update::Status(status));
+
+        let supervisor = self.clone();
+        thread::spawn(move || {
+            thread::sleep(STOP_GRACE);
+            let mut shared = supervisor.lock();
+            if shared.run == run {
+                if let Some(child) = shared.child.as_mut() {
+                    let _ = child.kill();
+                }
+            }
+        });
+    }
 }
