@@ -116,4 +116,10 @@ mod tests {
         fs::write(&binary, b"").unwrap();
         assert_eq!(locate(Role::Viewer, &dir, None), Some(binary));
     }
+
+    #[test]
+    fn override_variables_differ_per_role() {
+        assert_eq!(override_var(Role::Host), "RENDERD_HOST_BIN");
+        assert_eq!(override_var(Role::Viewer), "RENDERD_VIEWER_BIN");
+    }
 }
