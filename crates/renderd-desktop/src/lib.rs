@@ -21,4 +21,5 @@ pub use logline::{Level, LogLine};
 pub use problem::{diagnose, Problem, ProblemKind};
 pub use role::Role;
 pub use settings::{Codec, DisplayMode, HostSettings, Settings, ViewerSettings, DEFAULT_PORT};
+pub use sidecar::locate;
 pub use status::{Phase, Status};
