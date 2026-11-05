@@ -13,6 +13,7 @@ pub mod role;
 pub mod settings;
 pub mod sidecar;
 pub mod status;
+pub mod supervisor;
 
 pub use address::normalize_host;
 pub use command::{host_args, viewer_args};
@@ -23,3 +24,4 @@ pub use role::Role;
 pub use settings::{Codec, DisplayMode, HostSettings, Settings, ViewerSettings, DEFAULT_PORT};
 pub use sidecar::{locate, locate_installed};
 pub use status::{Phase, Status};
+pub use supervisor::{Supervisor, Update};
