@@ -11,6 +11,7 @@ pub mod logline;
 pub mod problem;
 pub mod role;
 pub mod settings;
+pub mod sidecar;
 pub mod status;
 
 pub use address::normalize_host;
