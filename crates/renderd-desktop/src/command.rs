@@ -1,6 +1,6 @@
 //! Command lines for the child processes.
 
-use crate::settings::{DisplayMode, HostSettings};
+use crate::settings::{DisplayMode, HostSettings, ViewerSettings};
 
 /// Arguments for `renderd-host` that match `settings`.
 ///
@@ -21,6 +21,28 @@ pub fn host_args(settings: &HostSettings) -> Vec<String> {
     }
     if settings.smooth {
         args.push("--smooth".to_string());
+    }
+    args
+}
+
+/// Arguments for `renderd-viewer` that match `settings`.
+///
+/// With `host` the viewer dials that address directly. Without it the viewer
+/// looks for a host on the local network by itself.
+#[must_use]
+pub fn viewer_args(settings: &ViewerSettings, host: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--log-format".to_string(),
+        "json".to_string(),
+        "--codec".to_string(),
+        settings.codec.as_arg().to_string(),
+    ];
+    if let Some(addr) = host {
+        args.push("--host".to_string());
+        args.push(addr.to_string());
+    }
+    if settings.fullscreen {
+        args.push("--fullscreen".to_string());
     }
     args
 }
