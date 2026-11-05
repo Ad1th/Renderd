@@ -107,4 +107,13 @@ mod tests {
         let gone = dir.join("nope");
         assert_eq!(locate(Role::Host, &dir, Some(&gone)), Some(binary));
     }
+
+    #[test]
+    fn finds_a_binary_in_the_bin_folder() {
+        let dir = scratch_dir("bin");
+        fs::create_dir_all(dir.join("bin")).unwrap();
+        let binary = dir.join("bin").join(file_name(Role::Viewer));
+        fs::write(&binary, b"").unwrap();
+        assert_eq!(locate(Role::Viewer, &dir, None), Some(binary));
+    }
 }
