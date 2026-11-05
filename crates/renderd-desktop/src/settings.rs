@@ -256,4 +256,14 @@ mod tests {
         settings.viewer.recent_hosts = vec![" ".to_string(), "10.0.0.1:4433".to_string()];
         assert_eq!(settings.sanitized().viewer.recent_hosts, ["10.0.0.1:4433"]);
     }
+
+    #[test]
+    fn an_unsupported_role_falls_back() {
+        let settings = Settings {
+            role: Role::Host,
+            ..Settings::default()
+        }
+        .sanitized();
+        assert!(settings.role.supported_here());
+    }
 }
