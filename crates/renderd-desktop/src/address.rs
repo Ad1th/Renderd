@@ -26,3 +26,13 @@ pub fn normalize_host(input: &str) -> Result<String, String> {
         "\"{trimmed}\" is not an address. It should look like 192.168.1.20 or 192.168.1.20:4433."
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_bare_ip_gets_the_default_port() {
+        assert_eq!(normalize_host("192.168.1.20").unwrap(), "192.168.1.20:4433");
+    }
+}
