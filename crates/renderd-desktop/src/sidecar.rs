@@ -50,3 +50,15 @@ pub fn locate(role: Role, app_dir: &Path, override_path: Option<&Path>) -> Optio
         .into_iter()
         .find(|path| path.is_file())
 }
+
+/// Finds the binary for `role` next to the running app.
+///
+/// Reads the override from the environment and the app folder from the
+/// current executable.
+#[must_use]
+pub fn locate_installed(role: Role) -> Option<PathBuf> {
+    let override_path = std::env::var_os(override_var(role)).map(PathBuf::from);
+    let exe = std::env::current_exe().ok()?;
+    let app_dir = exe.parent()?;
+    locate(role, app_dir, override_path.as_deref())
+}
