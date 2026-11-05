@@ -10,5 +10,8 @@ description = "Desktop app that starts and watches the Renderd host and viewer."
 serde      = { workspace = true }
 serde_json = { workspace = true }
 
+[target.'cfg(unix)'.dependencies]
+nix = { workspace = true }
+
 [lints]
 workspace = true
