@@ -61,3 +61,17 @@ impl Supervisor {
         self.shared.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
+
+impl Supervisor {
+    /// The current session status.
+    #[must_use]
+    pub fn status(&self) -> Status {
+        self.lock().status.clone()
+    }
+
+    /// The most recent log lines, oldest first.
+    #[must_use]
+    pub fn logs(&self) -> Vec<LogLine> {
+        self.lock().logs.iter().cloned().collect()
+    }
+}
