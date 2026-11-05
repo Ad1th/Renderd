@@ -83,4 +83,10 @@ mod tests {
         fs::write(&binary, b"").unwrap();
         assert_eq!(locate(Role::Viewer, &dir, None), Some(binary));
     }
+
+    #[test]
+    fn a_missing_binary_is_none() {
+        let dir = scratch_dir("missing");
+        assert_eq!(locate(Role::Host, &dir, None), None);
+    }
 }
