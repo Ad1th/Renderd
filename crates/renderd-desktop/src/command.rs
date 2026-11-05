@@ -95,4 +95,17 @@ mod tests {
         let args = viewer_args(&ViewerSettings::default(), None);
         assert_eq!(args, ["--log-format", "json", "--codec", "auto"]);
     }
+
+    #[test]
+    fn viewer_passes_host_codec_and_fullscreen() {
+        let settings = ViewerSettings {
+            fullscreen: true,
+            codec: Codec::H264,
+            ..ViewerSettings::default()
+        };
+        let args = viewer_args(&settings, Some("10.0.0.5:4433"));
+        assert!(args.windows(2).any(|w| w == ["--host", "10.0.0.5:4433"]));
+        assert!(args.windows(2).any(|w| w == ["--codec", "h264"]));
+        assert!(args.contains(&"--fullscreen".to_string()));
+    }
 }
