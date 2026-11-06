@@ -439,4 +439,14 @@ mod tests {
         messages.sort();
         assert_eq!(messages, ["one", "two"]);
     }
+
+    #[test]
+    fn the_log_buffer_is_bounded() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(&supervisor, "i=0; while [ $i -lt 600 ]; do echo line $i; i=$((i+1)); done");
+        wait_for(&supervisor, |s| !s.phase.is_running());
+        let logs = supervisor.logs();
+        assert_eq!(logs.len(), LOG_CAPACITY);
+        assert_eq!(logs.last().unwrap().message, "line 599");
+    }
 }
