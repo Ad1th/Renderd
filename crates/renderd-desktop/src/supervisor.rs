@@ -299,9 +299,8 @@ fn interrupt(child: &mut Child) {
     use nix::sys::signal::{kill, Signal};
     use nix::unistd::Pid;
 
-    let sent = i32::try_from(child.id())
-        .ok()
-        .is_some_and(|pid| kill(Pid::from_raw(pid), Signal::SIGINT).is_ok());
+    let sent =
+        i32::try_from(child.id()).is_ok_and(|pid| kill(Pid::from_raw(pid), Signal::SIGINT).is_ok());
     if !sent {
         let _ = child.kill();
     }
