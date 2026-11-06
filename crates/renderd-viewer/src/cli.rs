@@ -22,6 +22,13 @@ pub struct ViewerCli {
     #[arg(short, long, default_value = "info")]
     pub log_level: String,
 
+    /// How log lines are written: `text` for people, `json` for programs.
+    ///
+    /// `json` writes one object per line with the message and its fields, which
+    /// is what the desktop app reads to follow the viewer's state.
+    #[arg(long, value_name = "FORMAT", default_value = "text")]
+    pub log_format: LogFormat,
+
     /// Start in borderless fullscreen.
     #[arg(short, long)]
     pub fullscreen: bool,
@@ -57,6 +64,16 @@ pub struct ViewerCli {
     /// `soft` forces the CPU renderer.
     #[arg(long, value_name = "RENDERER", default_value = "auto")]
     pub renderer: RendererChoice,
+}
+
+/// How log lines are rendered.
+#[derive(clap::ValueEnum, Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LogFormat {
+    /// Human-readable lines.
+    #[default]
+    Text,
+    /// One JSON object per line.
+    Json,
 }
 
 /// Presentation path override.
@@ -181,6 +198,15 @@ mod tests {
         assert_eq!(cli.renderer, RendererChoice::Auto);
         let cli = ViewerCli::parse_from(["renderd-viewer", "--renderer", "soft"]);
         assert_eq!(cli.renderer, RendererChoice::Soft);
+    }
+
+    #[test]
+    fn test_log_format_defaults_to_text_and_accepts_json() {
+        let cli = ViewerCli::parse_from(["renderd-viewer"]);
+        assert_eq!(cli.log_format, LogFormat::Text);
+        let cli = ViewerCli::parse_from(["renderd-viewer", "--log-format", "json"]);
+        assert_eq!(cli.log_format, LogFormat::Json);
+        assert!(ViewerCli::try_parse_from(["renderd-viewer", "--log-format", "xml"]).is_err());
     }
 
     #[test]
