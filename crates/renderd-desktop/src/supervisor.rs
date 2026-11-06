@@ -6,7 +6,7 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::event::{host_event, viewer_event};
 use crate::logline::{Level, LogLine};
@@ -16,6 +16,12 @@ use crate::status::Status;
 
 /// How long a child gets to shut down by itself before it is killed.
 pub const STOP_GRACE: Duration = Duration::from_secs(3);
+
+/// How often the child is checked for having exited.
+const EXIT_POLL: Duration = Duration::from_millis(40);
+
+/// How long the readers get to deliver the last lines after the child exits.
+const DRAIN_GRACE: Duration = Duration::from_millis(300);
 
 /// How many recent log lines are kept for the details view.
 pub const LOG_CAPACITY: usize = 400;
@@ -163,36 +169,53 @@ impl Supervisor {
 impl Supervisor {
     /// Waits for run number `run` to end and records how it went.
     ///
-    /// Both pipes reach end of file when the child exits, so the readers are
-    /// joined first. That also guarantees every line was seen before the exit
-    /// is judged.
+    /// The child is polled rather than inferred from its pipes closing: a pipe
+    /// stays open for as long as any process holds its write end, and that is
+    /// not always only the child. Once it has exited the readers get a moment
+    /// to hand over the last lines, so the exit is judged with all of them.
     fn reap(&self, run: u64, readers: Vec<JoinHandle<()>>) {
         let supervisor = self.clone();
         thread::spawn(move || {
-            for reader in readers {
-                let _ = reader.join();
+            let Some(success) = supervisor.wait_for_exit(run) else {
+                return;
+            };
+            let deadline = Instant::now() + DRAIN_GRACE;
+            while readers.iter().any(|reader| !reader.is_finished()) && Instant::now() < deadline {
+                thread::sleep(Duration::from_millis(5));
             }
-            let child = {
-                let mut shared = supervisor.lock();
-                if shared.run != run {
-                    return;
-                }
-                shared.child.take()
-            };
-            let success = child
-                .and_then(|mut child| child.wait().ok())
-                .is_some_and(|exit| exit.success());
-            let status = {
-                let mut shared = supervisor.lock();
-                if shared.run != run {
-                    return;
-                }
-                let last_error = shared.last_error.take();
-                shared.status.exited(success, last_error.as_deref());
-                shared.status.clone()
-            };
+
+            let mut shared = supervisor.lock();
+            if shared.run != run {
+                return;
+            }
+            shared.child = None;
+            let last_error = shared.last_error.take();
+            shared.status.exited(success, last_error.as_deref());
+            let status = shared.status.clone();
+            drop(shared);
             (supervisor.listener)(Update::Status(status));
         });
+    }
+
+    /// Blocks until the child of run number `run` has exited.
+    ///
+    /// Returns whether it exited successfully, or `None` if a newer run has
+    /// started in the meantime.
+    fn wait_for_exit(&self, run: u64) -> Option<bool> {
+        loop {
+            let exit = {
+                let mut shared = self.lock();
+                if shared.run != run {
+                    return None;
+                }
+                shared.child.as_mut().map(Child::try_wait)
+            };
+            match exit {
+                Some(Ok(Some(exit))) => return Some(exit.success()),
+                Some(Ok(None)) => thread::sleep(EXIT_POLL),
+                Some(Err(_)) | None => return Some(false),
+            }
+        }
     }
 }
 
@@ -339,7 +362,6 @@ impl Supervisor {
 mod tests {
     use super::*;
     use crate::status::Phase;
-    use std::time::Instant;
 
     /// Runs a shell script as if it were the host or viewer.
     fn run_script(supervisor: &Supervisor, script: &str) -> Status {
