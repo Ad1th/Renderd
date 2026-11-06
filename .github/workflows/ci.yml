@@ -53,7 +53,7 @@ jobs:
       - name: Format check
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --package renderd-viewer -- -D warnings
+        run: cargo clippy --package renderd-viewer --package renderd-desktop -- -D warnings
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
       - name: Test (viewer crates)
@@ -61,6 +61,7 @@ jobs:
           cargo nextest run --package renderd-frame --package renderd-crypto
           --package renderd-abr --package renderd-clock --package renderd-net
           --package renderd-keychain --package renderd-discovery
+          --package renderd-desktop
           --profile ci
       - name: Upload test results
         if: always()
