@@ -3,6 +3,18 @@
 //! The app does not stream anything itself. It starts `renderd-host` or
 //! `renderd-viewer` as a child process, reads the JSON log lines the child
 //! writes, and turns them into a small status the window can show.
+//!
+//! The pieces, in the order a line of output passes through them:
+//!
+//! - [`supervisor`] starts the child and reads its output.
+//! - [`logline`] parses each line.
+//! - [`event`] decides whether the line changes the session.
+//! - [`status`] holds what the window draws.
+//! - [`problem`] explains failures in plain words.
+//!
+//! [`settings`], [`command`], [`address`] and [`sidecar`] cover what happens
+//! before a start: what the user chose, the command line that follows from
+//! it, and where the binary to run lives.
 
 pub mod address;
 pub mod command;
