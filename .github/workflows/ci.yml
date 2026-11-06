@@ -32,7 +32,7 @@ jobs:
           --package renderd-config --package renderd-frame --package renderd-crypto
           --package renderd-abr --package renderd-clock --package renderd-net
           --package renderd-keychain --package renderd-discovery --package renderd-sc-sys
-          --package renderd-vt-sys
+          --package renderd-vt-sys --package renderd-desktop
           --profile ci
       - name: Upload test results
         if: always()
