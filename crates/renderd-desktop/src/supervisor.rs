@@ -449,4 +449,23 @@ mod tests {
         assert_eq!(logs.len(), LOG_CAPACITY);
         assert_eq!(logs.last().unwrap().message, "line 599");
     }
+
+    #[test]
+    fn listeners_hear_status_changes_and_logs() {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&seen);
+        let supervisor = Supervisor::new(Role::Host, move |update| {
+            sink.lock().unwrap().push(update);
+        });
+        run_script(&supervisor, "echo hello");
+        wait_for(&supervisor, |s| !s.phase.is_running());
+        // The final status is sent just after it becomes visible to status().
+        thread::sleep(Duration::from_millis(50));
+        let updates = seen.lock().unwrap();
+        assert!(matches!(updates.first(), Some(Update::Status(s)) if s.phase == Phase::Starting));
+        assert!(updates
+            .iter()
+            .any(|u| matches!(u, Update::Log(line) if line.message == "hello")));
+        assert!(matches!(updates.last(), Some(Update::Status(s)) if s.phase == Phase::Stopped));
+    }
 }
