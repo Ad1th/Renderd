@@ -334,3 +334,37 @@ impl Supervisor {
         }
     }
 }
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use crate::status::Phase;
+    use std::time::Instant;
+
+    /// Runs a shell script as if it were the host or viewer.
+    fn run_script(supervisor: &Supervisor, script: &str) -> Status {
+        supervisor.start(Path::new("/bin/sh"), &["-c".to_string(), script.to_string()])
+    }
+
+    /// Polls until the status satisfies `done`, failing after five seconds.
+    fn wait_for(supervisor: &Supervisor, done: impl Fn(&Status) -> bool) -> Status {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let status = supervisor.status();
+            if done(&status) {
+                return status;
+            }
+            assert!(Instant::now() < deadline, "timed out in {:?}", status.phase);
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    #[test]
+    fn a_clean_exit_ends_stopped() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        let status = run_script(&supervisor, "exit 0");
+        assert_eq!(status.phase, Phase::Starting);
+        let status = wait_for(&supervisor, |s| !s.phase.is_running());
+        assert_eq!(status.phase, Phase::Stopped);
+    }
+}
