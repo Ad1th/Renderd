@@ -367,4 +367,16 @@ mod tests {
         let status = wait_for(&supervisor, |s| !s.phase.is_running());
         assert_eq!(status.phase, Phase::Stopped);
     }
+
+    #[test]
+    fn a_failing_child_is_explained_by_its_last_error() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(
+            &supervisor,
+            "echo 'Error: Address already in use (os error 48)' >&2; exit 1",
+        );
+        let status = wait_for(&supervisor, |s| !s.phase.is_running());
+        assert_eq!(status.phase, Phase::Failed);
+        assert_eq!(status.problem.unwrap().kind, ProblemKind::PortInUse);
+    }
 }
