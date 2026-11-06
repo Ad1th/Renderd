@@ -343,7 +343,10 @@ mod tests {
 
     /// Runs a shell script as if it were the host or viewer.
     fn run_script(supervisor: &Supervisor, script: &str) -> Status {
-        supervisor.start(Path::new("/bin/sh"), &["-c".to_string(), script.to_string()])
+        supervisor.start(
+            Path::new("/bin/sh"),
+            &["-c".to_string(), script.to_string()],
+        )
     }
 
     /// Polls until the status satisfies `done`, failing after five seconds.
@@ -443,7 +446,10 @@ mod tests {
     #[test]
     fn the_log_buffer_is_bounded() {
         let supervisor = Supervisor::new(Role::Host, |_| {});
-        run_script(&supervisor, "i=0; while [ $i -lt 600 ]; do echo line $i; i=$((i+1)); done");
+        run_script(
+            &supervisor,
+            "i=0; while [ $i -lt 600 ]; do echo line $i; i=$((i+1)); done",
+        );
         wait_for(&supervisor, |s| !s.phase.is_running());
         let logs = supervisor.logs();
         assert_eq!(logs.len(), LOG_CAPACITY);
@@ -461,7 +467,7 @@ mod tests {
         wait_for(&supervisor, |s| !s.phase.is_running());
         // The final status is sent just after it becomes visible to status().
         thread::sleep(Duration::from_millis(50));
-        let updates = seen.lock().unwrap();
+        let updates = seen.lock().unwrap().clone();
         assert!(matches!(updates.first(), Some(Update::Status(s)) if s.phase == Phase::Starting));
         assert!(updates
             .iter()
