@@ -1,0 +1,111 @@
+//! Command lines for the child processes.
+
+use crate::settings::{DisplayMode, HostSettings, ViewerSettings};
+
+/// Arguments for `renderd-host` that match `settings`.
+///
+/// JSON logs are always requested: they are how the app follows the session.
+#[must_use]
+pub fn host_args(settings: &HostSettings) -> Vec<String> {
+    let mut args = vec![
+        "--log-format".to_string(),
+        "json".to_string(),
+        "--port".to_string(),
+        settings.port.to_string(),
+        "--mode".to_string(),
+        settings.mode.as_arg().to_string(),
+    ];
+    if settings.mode == DisplayMode::Mirror {
+        args.push("--display-id".to_string());
+        args.push(settings.display_id.to_string());
+    }
+    if settings.smooth {
+        args.push("--smooth".to_string());
+    }
+    args
+}
+
+/// Arguments for `renderd-viewer` that match `settings`.
+///
+/// With `host` the viewer dials that address directly. Without it the viewer
+/// looks for a host on the local network by itself.
+#[must_use]
+pub fn viewer_args(settings: &ViewerSettings, host: Option<&str>) -> Vec<String> {
+    let mut args = vec![
+        "--log-format".to_string(),
+        "json".to_string(),
+        "--codec".to_string(),
+        settings.codec.as_arg().to_string(),
+    ];
+    if let Some(addr) = host {
+        args.push("--host".to_string());
+        args.push(addr.to_string());
+    }
+    if settings.fullscreen {
+        args.push("--fullscreen".to_string());
+    }
+    args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Codec;
+
+    #[test]
+    fn default_host_args_extend_on_the_standard_port() {
+        assert_eq!(
+            host_args(&HostSettings::default()),
+            ["--log-format", "json", "--port", "4433", "--mode", "extend"]
+        );
+    }
+
+    #[test]
+    fn mirror_mode_names_the_display() {
+        let settings = HostSettings {
+            mode: DisplayMode::Mirror,
+            display_id: 2,
+            ..HostSettings::default()
+        };
+        let args = host_args(&settings);
+        assert!(args.windows(2).any(|w| w == ["--mode", "mirror"]));
+        assert!(args.windows(2).any(|w| w == ["--display-id", "2"]));
+    }
+
+    #[test]
+    fn extend_mode_does_not_pass_a_display() {
+        let settings = HostSettings {
+            display_id: 2,
+            ..HostSettings::default()
+        };
+        assert!(!host_args(&settings).contains(&"--display-id".to_string()));
+    }
+
+    #[test]
+    fn smooth_adds_its_flag() {
+        let settings = HostSettings {
+            smooth: true,
+            ..HostSettings::default()
+        };
+        assert_eq!(host_args(&settings).last().unwrap(), "--smooth");
+    }
+
+    #[test]
+    fn viewer_without_a_host_relies_on_discovery() {
+        let args = viewer_args(&ViewerSettings::default(), None);
+        assert_eq!(args, ["--log-format", "json", "--codec", "auto"]);
+    }
+
+    #[test]
+    fn viewer_passes_host_codec_and_fullscreen() {
+        let settings = ViewerSettings {
+            fullscreen: true,
+            codec: Codec::H264,
+            ..ViewerSettings::default()
+        };
+        let args = viewer_args(&settings, Some("10.0.0.5:4433"));
+        assert!(args.windows(2).any(|w| w == ["--host", "10.0.0.5:4433"]));
+        assert!(args.windows(2).any(|w| w == ["--codec", "h264"]));
+        assert!(args.contains(&"--fullscreen".to_string()));
+    }
+}
