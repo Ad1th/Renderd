@@ -46,6 +46,7 @@ jobs:
             renderd-clock
             renderd-host
             renderd-viewer
+            renderd-desktop
             deps
             ci
             docs
