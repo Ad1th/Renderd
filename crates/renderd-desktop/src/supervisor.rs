@@ -320,3 +320,16 @@ impl Supervisor {
         });
     }
 }
+
+impl Supervisor {
+    /// Ends the child right now, without waiting. For when the app is quitting.
+    pub fn shutdown(&self) {
+        let mut shared = self.lock();
+        shared.status.begin_stop();
+        if let Some(child) = shared.child.as_mut() {
+            interrupt(child);
+            thread::sleep(Duration::from_millis(150));
+            let _ = child.kill();
+        }
+    }
+}
