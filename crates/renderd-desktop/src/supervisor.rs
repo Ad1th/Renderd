@@ -419,4 +419,14 @@ mod tests {
         let status = wait_for(&supervisor, |s| !s.phase.is_running());
         assert_eq!(status.phase, Phase::Stopped);
     }
+
+    #[test]
+    fn the_role_cannot_change_while_running() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        assert!(supervisor.set_role(Role::Viewer));
+        run_script(&supervisor, "sleep 30");
+        assert!(!supervisor.set_role(Role::Host));
+        assert_eq!(supervisor.status().role, Role::Viewer);
+        supervisor.shutdown();
+    }
 }
