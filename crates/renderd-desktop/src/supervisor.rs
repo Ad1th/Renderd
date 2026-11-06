@@ -387,4 +387,14 @@ mod tests {
         assert_eq!(status.phase, Phase::Failed);
         assert_eq!(status.problem.unwrap().kind, ProblemKind::MissingBinary);
     }
+
+    #[test]
+    fn json_output_moves_the_status() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        let listening = r#"{"level":"INFO","fields":{"message":"QUIC server endpoint listening for incoming viewer connections","listen_addr":"0.0.0.0:4433"},"target":"t"}"#;
+        run_script(&supervisor, &format!("echo '{listening}' >&2; sleep 30"));
+        let status = wait_for(&supervisor, |s| s.phase == Phase::Waiting);
+        assert_eq!(status.phase, Phase::Waiting);
+        supervisor.shutdown();
+    }
 }
