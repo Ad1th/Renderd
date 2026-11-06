@@ -468,4 +468,15 @@ mod tests {
             .any(|u| matches!(u, Update::Log(line) if line.message == "hello")));
         assert!(matches!(updates.last(), Some(Update::Status(s)) if s.phase == Phase::Stopped));
     }
+
+    #[test]
+    fn starting_again_clears_old_logs() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(&supervisor, "echo first");
+        wait_for(&supervisor, |s| !s.phase.is_running());
+        run_script(&supervisor, "echo second");
+        wait_for(&supervisor, |s| !s.phase.is_running());
+        let messages: Vec<_> = supervisor.logs().into_iter().map(|l| l.message).collect();
+        assert_eq!(messages, ["second"]);
+    }
 }
