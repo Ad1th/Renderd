@@ -72,15 +72,13 @@ pub fn get_logs(state: State<'_, AppState>) -> Vec<LogLine> {
 
 /// Starts sharing or viewing, depending on the saved role.
 ///
-/// `host` is the address typed in the window when viewing. Leave it out to
-/// let the viewer find a host on the network.
+/// Shared by the window's start button and the `--start` flag.
 ///
 /// # Errors
 /// Returns a sentence for the window when the typed address is not usable.
-#[tauri::command]
-pub fn start(state: State<'_, AppState>, host: Option<String>) -> Result<Status, String> {
+pub fn start_session(state: &AppState, host: Option<&str>) -> Result<Status, String> {
     let mut settings = state.settings();
-    let launch = launch::plan(&settings, host.as_deref())?;
+    let launch = launch::plan(&settings, host)?;
 
     if let Some(addr) = launch.host.as_deref() {
         settings.viewer.remember_host(addr);
@@ -92,6 +90,18 @@ pub fn start(state: State<'_, AppState>, host: Option<String>) -> Result<Status,
     let program = sidecar::locate_installed(launch.role)
         .unwrap_or_else(|| PathBuf::from(sidecar::file_name(launch.role)));
     Ok(state.supervisor.start(&program, &launch.args))
+}
+
+/// Starts sharing or viewing, depending on the saved role.
+///
+/// `host` is the address typed in the window when viewing. Leave it out to
+/// let the viewer find a host on the network.
+///
+/// # Errors
+/// Returns a sentence for the window when the typed address is not usable.
+#[tauri::command]
+pub fn start(state: State<'_, AppState>, host: Option<String>) -> Result<Status, String> {
+    start_session(&state, host.as_deref())
 }
 
 /// Stops the running session.
