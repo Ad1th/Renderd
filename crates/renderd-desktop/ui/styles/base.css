@@ -32,3 +32,19 @@ main {
   flex-direction: column;
   min-height: 0;
 }
+
+h1,
+h2,
+h3,
+p,
+dl,
+dd,
+pre {
+  margin: 0;
+}
+
+button,
+input {
+  font: inherit;
+  color: inherit;
+}
