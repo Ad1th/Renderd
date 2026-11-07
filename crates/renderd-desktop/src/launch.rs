@@ -45,3 +45,23 @@ pub fn plan(settings: &Settings, typed_host: Option<&str>) -> Result<Launch, Str
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn settings(role: Role) -> Settings {
+        Settings {
+            role,
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn sharing_ignores_a_typed_address() {
+        let launch = plan(&settings(Role::Host), Some("10.0.0.1")).unwrap();
+        assert_eq!(launch.role, Role::Host);
+        assert_eq!(launch.host, None);
+        assert!(!launch.args.contains(&"--host".to_string()));
+    }
+}
