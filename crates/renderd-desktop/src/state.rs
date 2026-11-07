@@ -31,3 +31,25 @@ impl AppState {
             .clone()
     }
 }
+
+impl AppState {
+    /// Replaces the settings and writes them to disk.
+    ///
+    /// The settings are repaired first, and the repaired copy is returned so
+    /// the window shows what was really saved. A failed write is not fatal:
+    /// the choice still applies until the app closes.
+    pub fn replace_settings(&self, settings: Settings) -> Settings {
+        let settings = settings.sanitized();
+        if let Err(error) = settings.save(&self.settings_path) {
+            eprintln!(
+                "could not save settings to {}: {error}",
+                self.settings_path.display()
+            );
+        }
+        *self
+            .settings
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = settings.clone();
+        settings
+    }
+}
