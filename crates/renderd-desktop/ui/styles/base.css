@@ -52,3 +52,12 @@ input {
 [hidden] {
   display: none !important;
 }
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
