@@ -71,4 +71,13 @@ mod tests {
         assert_eq!(launch.host.as_deref(), Some("10.0.0.1:4433"));
         assert!(launch.args.windows(2).any(|w| w == ["--host", "10.0.0.1:4433"]));
     }
+
+    #[test]
+    fn a_blank_address_means_discovery() {
+        for typed in [None, Some(""), Some("   ")] {
+            let launch = plan(&settings(Role::Viewer), typed).unwrap();
+            assert_eq!(launch.host, None);
+            assert!(!launch.args.contains(&"--host".to_string()));
+        }
+    }
 }
