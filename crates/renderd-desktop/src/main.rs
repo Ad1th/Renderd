@@ -2,6 +2,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod platform;
 mod state;
 
 /// The window's assets and configuration, embedded at build time.
