@@ -80,4 +80,10 @@ mod tests {
             assert!(!launch.args.contains(&"--host".to_string()));
         }
     }
+
+    #[test]
+    fn a_bad_address_stops_the_launch() {
+        let error = plan(&settings(Role::Viewer), Some("my-mac")).unwrap_err();
+        assert!(error.contains("my-mac"));
+    }
 }
