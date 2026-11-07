@@ -31,3 +31,22 @@ pub fn app_info() -> AppInfo {
             .collect(),
     }
 }
+
+/// Returns the saved settings.
+#[tauri::command]
+pub fn get_settings(state: State<'_, AppState>) -> Settings {
+    state.settings()
+}
+
+/// Saves new settings and returns them as stored.
+///
+/// # Errors
+/// Refuses to change role while a session is running.
+#[tauri::command]
+pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<Settings, String> {
+    let settings = settings.sanitized();
+    if !state.supervisor.set_role(settings.role) {
+        return Err("Stop the current session before switching.".to_string());
+    }
+    Ok(state.replace_settings(settings))
+}
