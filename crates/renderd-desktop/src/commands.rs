@@ -1,9 +1,11 @@
 //! Everything the window can ask the app to do.
 
+use std::path::PathBuf;
+
 use serde::Serialize;
 use tauri::State;
 
-use renderd_desktop::{LogLine, Role, Settings, Status};
+use renderd_desktop::{launch, sidecar, LogLine, Role, Settings, Status};
 
 use crate::platform::{self, ScreenAccess};
 use crate::state::AppState;
@@ -61,4 +63,34 @@ pub fn get_status(state: State<'_, AppState>) -> Status {
 #[tauri::command]
 pub fn get_logs(state: State<'_, AppState>) -> Vec<LogLine> {
     state.supervisor.logs()
+}
+
+/// Starts sharing or viewing, depending on the saved role.
+///
+/// `host` is the address typed in the window when viewing. Leave it out to
+/// let the viewer find a host on the network.
+///
+/// # Errors
+/// Returns a sentence for the window when the typed address is not usable.
+#[tauri::command]
+pub fn start(state: State<'_, AppState>, host: Option<String>) -> Result<Status, String> {
+    let mut settings = state.settings();
+    let launch = launch::plan(&settings, host.as_deref())?;
+
+    if let Some(addr) = launch.host.as_deref() {
+        settings.viewer.remember_host(addr);
+        state.replace_settings(settings);
+    }
+
+    // A packaged app ships the binary beside itself. Failing that, a bare
+    // name lets the system find one installed on the PATH.
+    let program = sidecar::locate_installed(launch.role)
+        .unwrap_or_else(|| PathBuf::from(sidecar::file_name(launch.role)));
+    Ok(state.supervisor.start(&program, &launch.args))
+}
+
+/// Stops the running session.
+#[tauri::command]
+pub fn stop(state: State<'_, AppState>) {
+    state.supervisor.stop();
 }
