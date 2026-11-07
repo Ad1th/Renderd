@@ -50,3 +50,15 @@ pub fn save_settings(state: State<'_, AppState>, settings: Settings) -> Result<S
     }
     Ok(state.replace_settings(settings))
 }
+
+/// Returns the current session status.
+#[tauri::command]
+pub fn get_status(state: State<'_, AppState>) -> Status {
+    state.supervisor.status()
+}
+
+/// Returns the recent log lines, oldest first.
+#[tauri::command]
+pub fn get_logs(state: State<'_, AppState>) -> Vec<LogLine> {
+    state.supervisor.logs()
+}
