@@ -11,6 +11,7 @@ pub enum ScreenAccess {
     /// macOS has not allowed it yet.
     Denied,
     /// This platform does not gate screen recording, or does not share at all.
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Unneeded,
 }
 
