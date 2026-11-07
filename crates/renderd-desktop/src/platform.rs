@@ -3,6 +3,8 @@
 use serde::Serialize;
 
 /// Whether this computer may record its screen.
+// Each platform only ever builds some of these.
+#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ScreenAccess {
@@ -11,7 +13,6 @@ pub enum ScreenAccess {
     /// macOS has not allowed it yet.
     Denied,
     /// This platform does not gate screen recording, or does not share at all.
-    #[cfg_attr(target_os = "macos", allow(dead_code))]
     Unneeded,
 }
 
