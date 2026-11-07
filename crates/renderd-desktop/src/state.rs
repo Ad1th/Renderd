@@ -15,7 +15,7 @@ pub struct AppState {
 
 impl AppState {
     /// Loads the saved settings and wraps them with the supervisor.
-    pub fn new(supervisor: Supervisor, settings: Settings, settings_path: PathBuf) -> Self {
+    pub const fn new(supervisor: Supervisor, settings: Settings, settings_path: PathBuf) -> Self {
         Self {
             supervisor,
             settings: Mutex::new(settings),
