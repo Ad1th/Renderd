@@ -29,3 +29,22 @@ pub fn screen_access() -> ScreenAccess {
 pub const fn screen_access() -> ScreenAccess {
     ScreenAccess::Unneeded
 }
+
+/// Asks macOS to show its screen recording prompt.
+///
+/// macOS only shows the prompt once per app. After that this just reports the
+/// current answer, and the user has to change it in System Settings.
+#[cfg(target_os = "macos")]
+pub fn request_screen_access() -> ScreenAccess {
+    if renderd_sc_sys::permission::ScreenRecordingPermission::request() {
+        ScreenAccess::Granted
+    } else {
+        ScreenAccess::Denied
+    }
+}
+
+/// Asks for screen recording access. Nothing to ask for on this platform.
+#[cfg(not(target_os = "macos"))]
+pub const fn request_screen_access() -> ScreenAccess {
+    ScreenAccess::Unneeded
+}
