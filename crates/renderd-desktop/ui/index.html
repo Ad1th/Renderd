@@ -109,5 +109,25 @@
         <button id="primary" class="primary" type="button"></button>
       </section>
     </main>
+
+    <footer id="options" class="options">
+      <div class="segmented" role="radiogroup" aria-label="Display mode" data-setting="host.mode" data-role="host">
+        <button type="button" role="radio" data-value="extend" title="The PC becomes an extra display">Extend</button>
+        <button type="button" role="radio" data-value="mirror" title="The PC shows the same picture as the Mac">Mirror</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Picture" data-setting="host.smooth" data-role="host">
+        <button type="button" role="radio" data-value="false" title="Keep text sharp, even in motion">Sharp</button>
+        <button type="button" role="radio" data-value="true" title="Keep motion smooth on a slow network">Smooth</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Window" data-setting="viewer.fullscreen" data-role="viewer">
+        <button type="button" role="radio" data-value="false">Window</button>
+        <button type="button" role="radio" data-value="true">Fullscreen</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Codec" data-setting="viewer.codec" data-role="viewer">
+        <button type="button" role="radio" data-value="auto" title="Pick what this PC decodes best">Auto</button>
+        <button type="button" role="radio" data-value="h264">H.264</button>
+        <button type="button" role="radio" data-value="hevc">HEVC</button>
+      </div>
+    </footer>
   </body>
 </html>
