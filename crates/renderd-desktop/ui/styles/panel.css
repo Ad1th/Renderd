@@ -93,3 +93,43 @@ h1 {
   border-width: 0 0 0 1px;
   height: 42px;
 }
+
+/* Three live numbers. */
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  margin-top: 20px;
+  border: 1px solid var(--line);
+}
+
+.stats > div {
+  padding: 10px 14px 12px;
+}
+
+.stats > div + div {
+  border-left: 1px solid var(--line);
+}
+
+.stats dt {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+.stats dd {
+  margin-top: 2px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stats dd small {
+  margin-left: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0;
+}
