@@ -65,3 +65,31 @@ h1 {
   font-size: 12px;
   line-height: 1.65;
 }
+
+/* The address to type on the other computer. */
+.address {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 0 0 0 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.address code {
+  overflow: hidden;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.address .ghost {
+  border-width: 0 0 0 1px;
+  height: 42px;
+}
