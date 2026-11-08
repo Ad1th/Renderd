@@ -49,3 +49,17 @@
   border-left: 1px solid var(--line-strong);
   border-right: 1px solid var(--line-strong);
 }
+
+.screen-size {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.device-label {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
