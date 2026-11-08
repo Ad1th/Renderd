@@ -23,3 +23,30 @@
   letter-spacing: 2.5px;
   text-transform: uppercase;
 }
+
+.lamp {
+  width: 6px;
+  height: 6px;
+  background: var(--faint);
+}
+
+[data-phase="starting"] .lamp,
+[data-phase="waiting"] .lamp,
+[data-phase="connecting"] .lamp,
+[data-phase="reconnecting"] .lamp,
+[data-phase="stopping"] .lamp {
+  background: var(--text);
+  animation: blink calc(var(--tick) * 8) steps(1) infinite;
+}
+
+[data-phase="streaming"] .lamp {
+  background: var(--ok);
+}
+
+[data-phase="failed"] .lamp {
+  background: var(--warn);
+}
+
+@keyframes blink {
+  50% { opacity: 0.2; }
+}
