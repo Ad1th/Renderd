@@ -158,3 +158,15 @@
 .stage[data-phase="streaming"] .device-far .device-label {
   color: var(--muted);
 }
+
+/* Failed: the path is cut in the middle. */
+.stage[data-phase="failed"] .track i:nth-child(5) {
+  width: 8px;
+  height: 8px;
+  background: var(--warn);
+}
+
+.stage[data-phase="failed"] .track i:nth-child(4),
+.stage[data-phase="failed"] .track i:nth-child(6) {
+  background: transparent;
+}
