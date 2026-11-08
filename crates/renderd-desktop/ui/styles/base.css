@@ -61,3 +61,8 @@ input {
   outline: 1px solid var(--accent);
   outline-offset: 2px;
 }
+
+::selection {
+  background: var(--text);
+  color: var(--void);
+}
