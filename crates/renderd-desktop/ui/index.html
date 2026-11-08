@@ -129,5 +129,44 @@
         <button type="button" role="radio" data-value="hevc">HEVC</button>
       </div>
     </footer>
+
+    <aside id="sheet" class="sheet" aria-labelledby="sheet-title" hidden>
+      <header class="sheet-bar">
+        <h2 id="sheet-title">Settings</h2>
+        <button id="close-settings" class="ghost" type="button">Done</button>
+      </header>
+
+      <div class="sheet-body">
+        <section id="role-setting" class="setting" hidden>
+          <h3>This computer</h3>
+          <div class="segmented wide" role="radiogroup" aria-label="Role" data-setting="role">
+            <button type="button" role="radio" data-value="host">Shares its screen</button>
+            <button type="button" role="radio" data-value="viewer">Shows a screen</button>
+          </div>
+        </section>
+
+        <section class="setting" data-role="host">
+          <h3><label for="port-input">Port</label></h3>
+          <p class="hint">Change this if another app already uses 4433.</p>
+          <input id="port-input" class="number" type="number" min="1" max="65535" step="1" />
+        </section>
+
+        <section class="setting" data-role="host">
+          <h3><label for="display-input">Display to mirror</label></h3>
+          <p class="hint">0 is the main display. Only used in Mirror.</p>
+          <input id="display-input" class="number" type="number" min="0" max="16" step="1" />
+        </section>
+
+        <section class="setting grow">
+          <div class="setting-head">
+            <h3>Activity</h3>
+            <button id="copy-logs" class="ghost" type="button">Copy</button>
+          </div>
+          <pre id="logs" class="logs" tabindex="0"></pre>
+        </section>
+      </div>
+
+      <footer class="sheet-foot"><span id="version"></span></footer>
+    </aside>
   </body>
 </html>
