@@ -76,3 +76,18 @@
 .device-near .device-label {
   color: var(--muted);
 }
+
+/* The path between the two screens: a row of pixels. */
+.track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.track i {
+  width: 4px;
+  height: 4px;
+  background: var(--line);
+}
