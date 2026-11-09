@@ -28,3 +28,10 @@ export function points(samples) {
   });
   return out.join(" ");
 }
+
+/** Appends `value` to `samples`, dropping the oldest once full. */
+export function push(samples, value) {
+  if (!Number.isFinite(value)) return samples;
+  const next = samples.concat(value);
+  return next.length > CAPACITY ? next.slice(next.length - CAPACITY) : next;
+}
