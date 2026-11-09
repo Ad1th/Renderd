@@ -162,3 +162,26 @@ function appendLog(line) {
   while (logs.childElementCount > 400) logs.firstElementChild.remove();
   if (pinned) logs.scrollTop = logs.scrollHeight;
 }
+
+/** Writes a changed copy of the settings and redraws with what was saved. */
+async function updateSettings(change) {
+  const next = structuredClone(state.settings);
+  change(next);
+  try {
+    state.settings = await api.saveSettings(next);
+    state.status = await api.getStatus();
+  } catch (error) {
+    console.warn(error);
+  }
+  render();
+}
+
+function writeSetting(path, raw) {
+  const keys = path.split(".");
+  const value = raw === "true" ? true : raw === "false" ? false : raw;
+  return updateSettings((settings) => {
+    const last = keys.pop();
+    const target = keys.reduce((object, key) => object[key], settings);
+    target[last] = value;
+  });
+}
