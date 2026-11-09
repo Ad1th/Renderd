@@ -88,3 +88,20 @@ function renderPanel() {
   $("host-error").hidden = !state.typedHostError;
   if (view.connectForm) renderRecent();
 }
+
+function renderRecent() {
+  const recent = $("recent");
+  recent.replaceChildren(
+    ...state.settings.viewer.recent_hosts.slice(0, 3).map((address) => {
+      const chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = "chip";
+      chip.textContent = address;
+      chip.addEventListener("click", () => {
+        $("host-input").value = address;
+        connect(address);
+      });
+      return chip;
+    }),
+  );
+}
