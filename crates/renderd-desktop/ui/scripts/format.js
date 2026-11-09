@@ -19,3 +19,8 @@ export function ms(value) {
   if (!Number.isFinite(value)) return BLANK;
   return value < 10 ? value.toFixed(1) : String(Math.round(value));
 }
+
+/** The picture size, like 2560x1440 with a proper multiplication sign. */
+export function size(stream) {
+  return stream ? `${stream.width}×${stream.height}` : "";
+}
