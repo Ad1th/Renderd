@@ -24,3 +24,10 @@ export function ms(value) {
 export function size(stream) {
   return stream ? `${stream.width}×${stream.height}` : "";
 }
+
+/** Codec names the way people write them. */
+export function codec(name) {
+  if (name === "hevc") return "HEVC";
+  if (name === "h264") return "H.264";
+  return name ? name.toUpperCase() : "";
+}
