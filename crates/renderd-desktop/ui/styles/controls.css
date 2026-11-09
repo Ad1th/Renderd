@@ -23,3 +23,15 @@
 .primary:active {
   transform: translateY(1px);
 }
+
+/* Stopping is a quieter action than starting. */
+.primary.quiet {
+  background: none;
+  color: var(--text);
+  border-color: var(--line-strong);
+}
+
+.primary.quiet:hover {
+  border-color: var(--text);
+  background: none;
+}
