@@ -13,3 +13,9 @@ export function mbps(kbps) {
   const value = kbps / 1000;
   return value >= 100 ? String(Math.round(value)) : value.toFixed(1);
 }
+
+/** Milliseconds: one decimal while small, whole numbers once it matters less. */
+export function ms(value) {
+  if (!Number.isFinite(value)) return BLANK;
+  return value < 10 ? value.toFixed(1) : String(Math.round(value));
+}
