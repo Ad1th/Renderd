@@ -56,3 +56,23 @@
 .setting .number {
   margin-top: 10px;
 }
+
+.number {
+  width: 120px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.number:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+.number::-webkit-inner-spin-button {
+  display: none;
+}
