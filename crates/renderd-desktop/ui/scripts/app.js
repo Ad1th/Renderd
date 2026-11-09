@@ -139,3 +139,15 @@ function render() {
   renderPanel();
   renderOptions();
 }
+
+/** Takes a new status from the backend. */
+function onStatus(status) {
+  const wasStreaming = state.status?.phase === "streaming";
+  state.status = status;
+  if (status.phase === "streaming") {
+    state.bitrates = spark.push(state.bitrates, status.metrics.bitrate_kbps);
+  } else if (wasStreaming) {
+    state.bitrates = [];
+  }
+  render();
+}
