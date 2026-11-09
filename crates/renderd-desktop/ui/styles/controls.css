@@ -98,3 +98,13 @@
   background: var(--grid);
   color: var(--text);
 }
+
+/* Options are fixed while a session runs: they only apply at start. */
+.options[data-locked="true"] .segmented button {
+  cursor: default;
+  pointer-events: none;
+}
+
+.options[data-locked="true"] .segmented button:not([aria-checked="true"]) {
+  color: var(--faint);
+}
