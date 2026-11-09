@@ -8,3 +8,26 @@
   flex-direction: column;
   background: var(--void);
 }
+
+.sheet-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--bar-height);
+  margin-top: 0;
+  padding: 0 12px 0 var(--gutter);
+  border-bottom: 1px solid var(--grid);
+}
+
+[data-platform="macos"] .sheet-bar {
+  height: calc(var(--bar-height) + 28px);
+  padding-top: 28px;
+}
+
+.sheet-bar h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
