@@ -35,3 +35,10 @@
   border-color: var(--text);
   background: none;
 }
+
+.primary:disabled {
+  border-color: var(--line);
+  background: none;
+  color: var(--faint);
+  cursor: default;
+}
