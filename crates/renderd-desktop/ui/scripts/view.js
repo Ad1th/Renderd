@@ -144,3 +144,26 @@ function streamLine(status) {
   if (!stream) return "";
   return `${format.size(stream)} at ${Math.round(stream.fps)} fps, ${format.codec(stream.codec)}.`;
 }
+
+/**
+ * Everything the panel shows for `status`.
+ *
+ * `access` is the screen recording state on macOS: sharing cannot work
+ * without it, so a notice is added while it is missing. `platform` only
+ * changes what this computer is called.
+ */
+export function describe(status, access = "unneeded", platform = "windows") {
+  const view = status.role === "host" ? hostView(status) : viewerView(status, platform);
+
+  if (status.role === "host" && access === "denied" && status.phase !== "streaming") {
+    view.notice = {
+      text: "macOS has not allowed Renderd to record the screen yet.",
+      action: "Allow",
+      run: "grant",
+    };
+  } else if (status.problem && status.phase !== "failed" && status.phase !== "stopped") {
+    // A problem that did not end the session, like a dial that will be retried.
+    view.notice = { text: status.problem.title, action: null, run: null };
+  }
+  return view;
+}
