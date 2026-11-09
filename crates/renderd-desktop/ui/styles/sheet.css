@@ -112,3 +112,12 @@
   content: "Nothing yet. Lines appear here once a session starts.";
   color: var(--faint);
 }
+
+.logs .warn {
+  color: var(--warn);
+}
+
+.logs .error {
+  color: var(--warn);
+  font-weight: 600;
+}
