@@ -121,3 +121,11 @@
   color: var(--warn);
   font-weight: 600;
 }
+
+.sheet-foot {
+  flex: none;
+  padding: 14px var(--gutter) 18px;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 1px;
+}
