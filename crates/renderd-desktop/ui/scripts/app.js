@@ -34,3 +34,22 @@ function renderStage() {
   $("near-size").textContent = status.role === "viewer" ? text : "";
   $("far-size").textContent = status.role === "host" ? text : "";
 }
+
+function renderStats(stats) {
+  $("stats").hidden = !stats;
+  // An SVG element has no `hidden` property, only the attribute.
+  $("spark").toggleAttribute("hidden", !stats);
+  if (!stats) return;
+  ["a", "b", "c"].forEach((slot, index) => {
+    const stat = stats[index];
+    $(`stat-${slot}-label`).textContent = stat.label;
+    const value = $(`stat-${slot}`);
+    value.textContent = stat.value;
+    if (stat.unit) {
+      const unit = document.createElement("small");
+      unit.textContent = stat.unit;
+      value.append(unit);
+    }
+  });
+  $("spark").querySelector("polyline").setAttribute("points", spark.points(state.bitrates));
+}
