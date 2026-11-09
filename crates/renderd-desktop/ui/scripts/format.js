@@ -31,3 +31,12 @@ export function codec(name) {
   if (name === "h264") return "H.264";
   return name ? name.toUpperCase() : "";
 }
+
+/** Drops the port from `ip:port`, including the bracketed IPv6 form. */
+export function hostOnly(address) {
+  if (!address) return "";
+  const bracketed = address.match(/^\[(.+)\]:\d+$/);
+  if (bracketed) return bracketed[1];
+  const parts = address.split(":");
+  return parts.length === 2 ? parts[0] : address;
+}
