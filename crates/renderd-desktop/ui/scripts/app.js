@@ -289,3 +289,24 @@ async function copy(text, button) {
     button.textContent = label;
   }, 1200);
 }
+
+async function main() {
+  bind();
+  await api.onStatus(onStatus);
+  await api.onLog(appendLog);
+
+  const [info, settings, status, logs, access] = await Promise.all([
+    api.appInfo(),
+    api.getSettings(),
+    api.getStatus(),
+    api.getLogs(),
+    api.screenAccess(),
+  ]);
+  Object.assign(state, { info, settings, access });
+  document.documentElement.dataset.platform = info.platform;
+  $("version").textContent = `Renderd ${info.version}`;
+  logs.forEach(appendLog);
+  onStatus(status);
+}
+
+main();
