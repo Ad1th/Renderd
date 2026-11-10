@@ -185,3 +185,14 @@ function writeSetting(path, raw) {
     target[last] = value;
   });
 }
+
+async function connect(host) {
+  state.typedHostError = "";
+  try {
+    onStatus(await api.start(host));
+    state.settings = await api.getSettings();
+  } catch (error) {
+    state.typedHostError = String(error);
+  }
+  render();
+}
