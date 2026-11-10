@@ -264,3 +264,14 @@ function bind() {
   // The permission can be granted in System Settings while the app is open.
   window.addEventListener("focus", refreshAccess);
 }
+
+function toggleSheet(open) {
+  $("sheet").hidden = !open;
+  if (open) {
+    const logs = $("logs");
+    logs.scrollTop = logs.scrollHeight;
+    $("close-settings").focus();
+  } else {
+    $("open-settings").focus();
+  }
+}
