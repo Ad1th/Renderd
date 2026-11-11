@@ -1,0 +1,20 @@
+/* The picture at the top: this computer, the other one, and what moves
+   between them. It is the only place the accent colour appears. */
+
+.stage {
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-template-columns: 96px 1fr 96px;
+  align-items: start;
+  gap: 16px;
+  height: 168px;
+  padding: 36px var(--gutter) 0;
+  border-top: 1px solid var(--grid);
+  border-bottom: 1px solid var(--grid);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-position: -1px -1px;
+  background-size: 24px 24px;
+}
