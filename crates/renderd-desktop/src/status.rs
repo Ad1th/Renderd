@@ -71,3 +71,25 @@ impl Status {
         }
     }
 }
+
+impl Status {
+    /// Marks the session as starting and forgets the previous run.
+    pub fn begin(&mut self) {
+        *self = Self::new(self.role);
+        self.phase = Phase::Starting;
+    }
+
+    /// Records that the user asked the session to stop.
+    pub fn begin_stop(&mut self) {
+        if self.phase.is_running() {
+            self.phase = Phase::Stopping;
+        }
+    }
+
+    /// Forgets everything about the other side.
+    fn clear_session(&mut self) {
+        self.peer = None;
+        self.stream = None;
+        self.metrics = Metrics::default();
+    }
+}
