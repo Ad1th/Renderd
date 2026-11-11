@@ -374,4 +374,11 @@ mod tests {
             Some(Event::CaptureFailed("permission denied".to_string()))
         );
     }
+
+    #[test]
+    fn unrelated_lines_produce_no_event() {
+        let line = LogLine::plain("Encode pipeline ready");
+        assert_eq!(host_event(&line), None);
+        assert_eq!(viewer_event(&line), None);
+    }
 }
