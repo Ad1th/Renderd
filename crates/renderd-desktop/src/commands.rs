@@ -1,5 +1,8 @@
 //! Everything the window can ask the app to do.
 
+// Tauri hands commands their state by value; they cannot take a reference.
+#![allow(clippy::needless_pass_by_value)]
+
 use std::path::PathBuf;
 
 use serde::Serialize;
