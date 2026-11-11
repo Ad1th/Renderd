@@ -71,6 +71,14 @@ jobs:
           path: target/nextest/junit.xml
           if-no-files-found: ignore
 
+  desktop-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test the desktop window's scripts
+        working-directory: crates/renderd-desktop/ui
+        run: node --test tests/
+
   proto-check:
     runs-on: ubuntu-latest
     steps:
