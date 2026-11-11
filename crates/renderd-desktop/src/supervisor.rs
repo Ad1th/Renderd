@@ -75,3 +75,22 @@ impl Supervisor {
         self.lock().logs.iter().cloned().collect()
     }
 }
+
+impl Supervisor {
+    /// Switches between sharing and viewing.
+    ///
+    /// Only possible while nothing is running. Returns whether the role is
+    /// now `role`.
+    pub fn set_role(&self, role: Role) -> bool {
+        let status = {
+            let mut shared = self.lock();
+            if shared.status.phase.is_running() {
+                return shared.status.role == role;
+            }
+            shared.status = Status::new(role);
+            shared.status.clone()
+        };
+        (self.listener)(Update::Status(status));
+        true
+    }
+}
