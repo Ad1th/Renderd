@@ -11,3 +11,14 @@ pub enum Role {
     /// Shows another computer's screen. Runs `renderd-viewer`.
     Viewer,
 }
+
+impl Role {
+    /// File name of the binary that does the work, without an extension.
+    #[must_use]
+    pub const fn binary_name(self) -> &'static str {
+        match self {
+            Self::Host => "renderd-host",
+            Self::Viewer => "renderd-viewer",
+        }
+    }
+}
