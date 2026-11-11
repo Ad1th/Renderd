@@ -132,7 +132,11 @@ pub fn host_event(line: &LogLine) -> Option<Event> {
                 peer: line.text("remote_addr")?.to_string(),
             });
         }
-        "HostSession state transition to STREAMING" => return Some(Event::Streaming),
+        // The session is marked STREAMING before capture has started, and
+        // capture can still fail. Video only flows once this line appears.
+        "ScreenCaptureKit capture and VideoToolbox encoder active" => {
+            return Some(Event::Streaming);
+        }
         "HostSession state transition to IDLE" => return Some(Event::PeerLost),
         "Resizing the stream to fit the link" => {
             return Some(Event::Resized {
