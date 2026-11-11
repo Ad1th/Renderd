@@ -22,3 +22,32 @@ impl Role {
         }
     }
 }
+
+impl Role {
+    /// The role a fresh install starts in.
+    ///
+    /// The host only runs on macOS, so a Mac shares and everything else views.
+    #[must_use]
+    pub const fn default_for_platform() -> Self {
+        if cfg!(target_os = "macos") {
+            Self::Host
+        } else {
+            Self::Viewer
+        }
+    }
+
+    /// Whether this role can run on the current operating system at all.
+    #[must_use]
+    pub const fn supported_here(self) -> bool {
+        match self {
+            Self::Host => cfg!(target_os = "macos"),
+            Self::Viewer => true,
+        }
+    }
+}
+
+impl Default for Role {
+    fn default() -> Self {
+        Self::default_for_platform()
+    }
+}
