@@ -7,3 +7,17 @@
   font-style: normal;
   font-display: block;
 }
+
+:root {
+  --void: #0d0d0d;
+  --surface: #111111;
+  --grid: #1a1a1a;
+  --line: #262626;
+  --line-strong: #3a3f44;
+  --text: #e8f4fd;
+  --muted: #6b8599;
+  --faint: #3d4b57;
+  --accent: #00e5ff;
+  --accent-dim: #003d45;
+  --ok: #4caf50;
+  --warn: #ff6b35;
