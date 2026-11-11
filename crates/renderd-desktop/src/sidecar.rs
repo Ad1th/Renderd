@@ -18,3 +18,19 @@ pub const fn override_var(role: Role) -> &'static str {
         Role::Viewer => "RENDERD_VIEWER_BIN",
     }
 }
+
+/// Places a binary for `role` may live, most specific first.
+///
+/// `app_dir` is the folder holding the app's own executable. A packaged app
+/// ships the binaries beside it; on macOS a bundle may also keep them under
+/// `Contents/Resources`. A `cargo run` build finds them in the same target
+/// folder, which is also `app_dir`.
+#[must_use]
+pub fn candidates(role: Role, app_dir: &Path) -> Vec<PathBuf> {
+    let name = file_name(role);
+    vec![
+        app_dir.join(&name),
+        app_dir.join("../Resources").join(&name),
+        app_dir.join("bin").join(&name),
+    ]
+}
