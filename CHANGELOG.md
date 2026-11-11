@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Desktop app.** `renderd-desktop` is a small window for macOS and Windows that starts the
+  host or viewer for you, so nobody has to open a terminal. It shows the address to type on
+  the other machine, the frame rate, bitrate and ping while streaming, and explains common
+  failures (port in use, Screen Recording permission, extend mode not coming up) in plain
+  words. `tools/bundle-desktop/assemble.sh` builds `Renderd.app` with the host and viewer
+  inside. ([`renderd-desktop`](crates/renderd-desktop))
+- **`--exit-with-parent`** on `renderd-host` and `renderd-viewer`. The daemon stops when its
+  standard input closes. The desktop app holds the other end of that pipe, so a daemon it
+  started can never be left running after the app is gone.
 - **`--log-format json`** on `renderd-host` and `renderd-viewer`. Each log line is written as
   one JSON object with the message and its fields, so a program can follow what the daemon
   is doing without scraping text. The default stays `text`.
