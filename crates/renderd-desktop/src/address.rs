@@ -35,4 +35,9 @@ mod tests {
     fn a_bare_ip_gets_the_default_port() {
         assert_eq!(normalize_host("192.168.1.20").unwrap(), "192.168.1.20:4433");
     }
+
+    #[test]
+    fn an_explicit_port_is_kept_and_spaces_trimmed() {
+        assert_eq!(normalize_host("  10.0.0.7:5000 ").unwrap(), "10.0.0.7:5000");
+    }
 }
