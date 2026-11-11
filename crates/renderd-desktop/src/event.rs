@@ -111,3 +111,58 @@ impl StreamInfo {
         })
     }
 }
+
+/// Text after `prefix` in a message that was built with `format!`.
+fn after<'a>(message: &'a str, prefix: &str) -> Option<&'a str> {
+    message.strip_prefix(prefix).map(str::trim)
+}
+
+/// Interprets a line written by `renderd-host`.
+#[must_use]
+pub fn host_event(line: &LogLine) -> Option<Event> {
+    let message = line.message.as_str();
+    match message {
+        "QUIC server endpoint listening for incoming viewer connections" => {
+            return Some(Event::Listening {
+                addr: line.text("listen_addr")?.to_string(),
+            });
+        }
+        "HostSession state transition to CONNECTED" => {
+            return Some(Event::PeerConnected {
+                peer: line.text("remote_addr")?.to_string(),
+            });
+        }
+        "HostSession state transition to STREAMING" => return Some(Event::Streaming),
+        "HostSession state transition to IDLE" => return Some(Event::PeerLost),
+        "Resizing the stream to fit the link" => {
+            return Some(Event::Resized {
+                width: line.integer("width")?,
+                height: line.integer("height")?,
+            });
+        }
+        "HOST METRICS: transmit throughput" => {
+            return Some(Event::Metrics(Metrics {
+                fps: line.number("fps"),
+                bitrate_kbps: line.number("bitrate_kbps"),
+                rtt_ms: line.number("rtt_ms"),
+                send_queue_kb: line.number("send_queue_kb"),
+                ..Metrics::default()
+            }));
+        }
+        _ => {}
+    }
+
+    if let Some(addr) = after(message, "Connect the viewer with:  renderd-viewer --host") {
+        return Some(Event::Address(addr.to_string()));
+    }
+    if message.starts_with("SessionConfig sent") {
+        return StreamInfo::from_line(line).map(Event::Configured);
+    }
+    if let Some(detail) = after(message, "Capture pipeline start failed:") {
+        return Some(Event::CaptureFailed(detail.to_string()));
+    }
+    if message.starts_with("Received shutdown signal") {
+        return Some(Event::Stopping);
+    }
+    None
+}
