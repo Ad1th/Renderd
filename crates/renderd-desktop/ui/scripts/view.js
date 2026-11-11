@@ -15,6 +15,8 @@ function failure(status) {
   const problem = status.problem ?? { kind: "other", title: "Something went wrong", detail: "" };
   const hints = {
     screen_recording: "Allow Renderd under Screen Recording in System Settings, then try again.",
+    extend_failed: "Switch to Mirror below and start again.",
+    capture_failed: "Try again. The activity log in settings has the details.",
     port_in_use: "Pick another port in settings, or close the app that is using this one.",
     missing_binary: "Reinstall Renderd. The part that does the streaming could not be started.",
     host_unreachable: "Check that both computers are on the same network and that Renderd is sharing on the Mac.",
