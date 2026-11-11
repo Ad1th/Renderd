@@ -124,3 +124,18 @@
   0% { background: var(--text); }
   22% { background: var(--line); }
 }
+
+/* Streaming: the path is solid and a datagram runs along it. */
+.stage[data-phase="streaming"] .track i {
+  background: var(--faint);
+}
+
+.stage[data-phase="streaming"] .packet {
+  opacity: 1;
+  animation: send calc(var(--tick) * 8) steps(16) infinite;
+}
+
+@keyframes send {
+  from { left: 0; }
+  to { left: calc(100% - 8px); }
+}
