@@ -14,6 +14,7 @@ members = [
     "crates/renderd-clock",
     "crates/renderd-host",
     "crates/renderd-viewer",
+    "crates/renderd-desktop",
     "tools/latency-bench",
     "tools/proto-gen",
 ]

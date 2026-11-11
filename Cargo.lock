@@ -2349,6 +2349,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "renderd-desktop"
+version = "1.0.0"
+
+[[package]]
 name = "renderd-discovery"
 version = "1.0.0"
 dependencies = [
