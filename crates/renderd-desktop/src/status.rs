@@ -24,3 +24,11 @@ pub enum Phase {
     /// The child ended on its own with a problem.
     Failed,
 }
+
+impl Phase {
+    /// Whether a child process is expected to be alive in this phase.
+    #[must_use]
+    pub const fn is_running(self) -> bool {
+        !matches!(self, Self::Stopped | Self::Failed)
+    }
+}
