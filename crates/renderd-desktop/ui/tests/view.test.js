@@ -81,3 +81,8 @@ test("the viewer says whether it is searching or dialling", () => {
   const dialling = describe(status("viewer", "connecting", { address: "10.0.0.7:5000" }));
   assert.equal(dialling.title, "Connecting to 10.0.0.7:5000");
 });
+
+test("the stage labels follow role and platform", () => {
+  assert.deepEqual(stageLabels("host", "macos"), { near: "This Mac", far: "Your PC" });
+  assert.deepEqual(stageLabels("viewer", "windows"), { near: "This PC", far: "Your Mac" });
+});
