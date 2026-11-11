@@ -63,3 +63,9 @@ test("an unknown failure falls back to the raw detail", () => {
   const problem = { kind: "other", title: "Something went wrong", detail: "decoder exploded" };
   assert.equal(describe(status("viewer", "failed", { problem })).lede, "decoder exploded");
 });
+
+test("an extend failure during a session tells the user to mirror", () => {
+  const problem = { kind: "extend_failed", title: "macOS did not bring up the extra display", detail: "" };
+  const view = describe(status("host", "waiting", { problem }));
+  assert.match(view.notice.text, /Mirror/);
+});
