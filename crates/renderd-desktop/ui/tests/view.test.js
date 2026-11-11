@@ -69,3 +69,15 @@ test("an extend failure during a session tells the user to mirror", () => {
   const view = describe(status("host", "waiting", { problem }));
   assert.match(view.notice.text, /Mirror/);
 });
+
+test("the viewer names this computer by platform", () => {
+  assert.equal(describe(status("viewer", "stopped"), "unneeded", "windows").title, "Use this PC as a display");
+  assert.equal(describe(status("viewer", "stopped"), "unneeded", "macos").title, "Use this Mac as a display");
+  assert.equal(describe(status("viewer", "stopped")).connectForm, true);
+});
+
+test("the viewer says whether it is searching or dialling", () => {
+  assert.equal(describe(status("viewer", "connecting")).eyebrow, "Looking for your Mac");
+  const dialling = describe(status("viewer", "connecting", { address: "10.0.0.7:5000" }));
+  assert.equal(dialling.title, "Connecting to 10.0.0.7:5000");
+});
