@@ -102,3 +102,25 @@
   background: var(--accent);
   opacity: 0;
 }
+
+/* Waiting: the path lights up one pixel at a time, looking for the other side. */
+.stage[data-phase="starting"] .track i,
+.stage[data-phase="waiting"] .track i,
+.stage[data-phase="connecting"] .track i,
+.stage[data-phase="reconnecting"] .track i {
+  animation: seek calc(var(--tick) * 9) steps(1) infinite;
+}
+
+.track i:nth-child(2) { animation-delay: calc(var(--tick) * 1); }
+.track i:nth-child(3) { animation-delay: calc(var(--tick) * 2); }
+.track i:nth-child(4) { animation-delay: calc(var(--tick) * 3); }
+.track i:nth-child(5) { animation-delay: calc(var(--tick) * 4); }
+.track i:nth-child(6) { animation-delay: calc(var(--tick) * 5); }
+.track i:nth-child(7) { animation-delay: calc(var(--tick) * 6); }
+.track i:nth-child(8) { animation-delay: calc(var(--tick) * 7); }
+.track i:nth-child(9) { animation-delay: calc(var(--tick) * 8); }
+
+@keyframes seek {
+  0% { background: var(--text); }
+  22% { background: var(--line); }
+}
