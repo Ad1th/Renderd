@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::role::Role;
+
 /// How the viewer's screen is used by the host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -87,4 +89,16 @@ pub struct ViewerSettings {
     pub codec: Codec,
     /// Hosts connected to by address before, newest first.
     pub recent_hosts: Vec<String>,
+}
+
+/// Everything the app saves to disk.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// Which side this computer plays.
+    pub role: Role,
+    /// Options used when sharing.
+    pub host: HostSettings,
+    /// Options used when viewing.
+    pub viewer: ViewerSettings,
 }
