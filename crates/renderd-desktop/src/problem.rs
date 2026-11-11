@@ -143,4 +143,25 @@ mod tests {
         assert_eq!(problem.detail, "decoder exploded");
         assert_eq!(problem.title, ProblemKind::Other.title());
     }
+
+    #[test]
+    fn a_virtual_display_that_never_appears_is_an_extend_failure() {
+        let problem = diagnose_capture(
+            "initialization failed: Display 14 did not become capturable: No active displays found for screen capture",
+        );
+        assert_eq!(problem.kind, ProblemKind::ExtendFailed);
+    }
+
+    #[test]
+    fn a_declined_capture_is_a_permission_problem() {
+        let problem =
+            diagnose_capture("The user declined TCCs for application, window, display capture");
+        assert_eq!(problem.kind, ProblemKind::ScreenRecording);
+    }
+
+    #[test]
+    fn other_capture_errors_stay_generic() {
+        let problem = diagnose_capture("stream stopped: encoder went away");
+        assert_eq!(problem.kind, ProblemKind::CaptureFailed);
+    }
 }
