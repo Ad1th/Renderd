@@ -90,4 +90,10 @@ mod tests {
         assert_eq!(problem.kind, ProblemKind::PortInUse);
         assert!(problem.detail.contains("0.0.0.0:4433"));
     }
+
+    #[test]
+    fn the_windows_port_error_is_recognised() {
+        let problem = diagnose("Only one usage of each socket address (os error 10048)");
+        assert_eq!(problem.kind, ProblemKind::PortInUse);
+    }
 }
