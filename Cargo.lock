@@ -2352,6 +2352,7 @@ dependencies = [
 name = "renderd-desktop"
 version = "1.0.0"
 dependencies = [
+ "nix",
  "serde",
  "serde_json",
 ]
