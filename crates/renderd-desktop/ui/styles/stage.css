@@ -63,3 +63,16 @@
   letter-spacing: 2px;
   text-transform: uppercase;
 }
+
+/* This computer is always the bright one. */
+.device-near .screen {
+  border-color: var(--text);
+}
+
+.device-near .screen::after {
+  border-color: var(--text);
+}
+
+.device-near .device-label {
+  color: var(--muted);
+}
