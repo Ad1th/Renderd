@@ -262,4 +262,19 @@ mod tests {
         assert!(streaming < metrics);
         assert!(metrics < lost);
     }
+
+    #[test]
+    fn host_reports_the_negotiated_stream() {
+        let events = events(HOST_LOG, host_event);
+        let info = events
+            .iter()
+            .find_map(|e| match e {
+                Event::Configured(info) => Some(info.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(info.codec, "hevc");
+        assert_eq!((info.width, info.height), (640, 360));
+        assert!((info.fps - 60.0).abs() < f64::EPSILON);
+    }
 }
