@@ -1,0 +1,14 @@
+/* The words under the picture: what is happening and what to do next. */
+
+.panel {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  padding: 28px var(--gutter) 0;
+}
+
+/* Whatever sits right above the button keeps its distance from it. */
+.panel > :not(.primary) {
+  flex: none;
+}
