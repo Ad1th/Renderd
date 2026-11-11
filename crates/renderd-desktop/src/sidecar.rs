@@ -89,4 +89,13 @@ mod tests {
         let dir = scratch_dir("missing");
         assert_eq!(locate(Role::Host, &dir, None), None);
     }
+
+    #[test]
+    fn an_override_wins_when_it_exists() {
+        let dir = scratch_dir("override");
+        fs::write(dir.join(file_name(Role::Host)), b"").unwrap();
+        let custom = dir.join("custom-host");
+        fs::write(&custom, b"").unwrap();
+        assert_eq!(locate(Role::Host, &dir, Some(&custom)), Some(custom));
+    }
 }
