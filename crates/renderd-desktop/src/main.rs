@@ -11,6 +11,9 @@ use tauri::{AppHandle, Emitter, Manager, RunEvent};
 
 use crate::state::AppState;
 
+/// Command-line flag that starts a session as soon as the app opens.
+const START_FLAG: &str = "--start";
+
 /// Name of the file the settings are kept in, inside the app's config folder.
 const SETTINGS_FILE: &str = "settings.json";
 
@@ -39,6 +42,12 @@ fn setup(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let handle = app.handle().clone();
     let supervisor = Supervisor::new(settings.role, move |update| forward(&handle, update));
     app.manage(AppState::new(supervisor, settings, settings_path));
+
+    // `renderd --start` goes straight to sharing (or viewing), for login
+    // items and shortcuts. A failure shows in the window like any other.
+    if std::env::args().any(|arg| arg == START_FLAG) {
+        let _ = commands::start_session(&app.state::<AppState>(), None);
+    }
     Ok(())
 }
 
