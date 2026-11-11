@@ -337,4 +337,14 @@ mod tests {
         assert_eq!(status.phase, Phase::Starting);
         assert!(status.problem.is_none());
     }
+
+    #[test]
+    fn serializes_with_lowercase_phase_and_role() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        let json = serde_json::to_value(&status).unwrap();
+        assert_eq!(json["phase"], "starting");
+        assert_eq!(json["role"], "host");
+        assert!(json["metrics"]["fps"].is_null());
+    }
 }
