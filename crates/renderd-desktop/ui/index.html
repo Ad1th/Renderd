@@ -89,6 +89,22 @@
           <p id="notice-text"></p>
           <button id="notice-action" class="ghost" type="button"></button>
         </div>
+
+        <form id="connect-form" class="connect" hidden novalidate>
+          <label for="host-input">Address of the Mac</label>
+          <div class="field">
+            <input
+              id="host-input"
+              type="text"
+              placeholder="Leave empty to find it for you"
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+            />
+          </div>
+          <p id="host-error" class="field-error" role="alert" hidden></p>
+          <div id="recent" class="chips"></div>
+        </form>
       </section>
     </main>
   </body>
