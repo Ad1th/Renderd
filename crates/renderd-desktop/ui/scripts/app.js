@@ -105,3 +105,30 @@ function renderRecent() {
     }),
   );
 }
+
+/** Reads `host.mode` style paths out of the settings. */
+function readSetting(path) {
+  return path.split(".").reduce((value, key) => value?.[key], state.settings);
+}
+
+function renderOptions() {
+  const role = state.settings.role;
+  $("options").dataset.locked = String(running());
+
+  document.querySelectorAll(".segmented[data-setting]").forEach((group) => {
+    if (group.dataset.role) group.hidden = group.dataset.role !== role;
+    const current = String(readSetting(group.dataset.setting));
+    group.querySelectorAll("button").forEach((button) => {
+      button.setAttribute("aria-checked", String(button.dataset.value === current));
+    });
+  });
+
+  document.querySelectorAll(".setting[data-role]").forEach((section) => {
+    section.hidden = section.dataset.role !== role;
+  });
+  $("role-setting").hidden = state.info.roles.length < 2;
+  $("port-input").value = state.settings.host.port;
+  $("display-input").value = state.settings.host.display_id;
+  $("port-input").disabled = running();
+  $("display-input").disabled = running();
+}
