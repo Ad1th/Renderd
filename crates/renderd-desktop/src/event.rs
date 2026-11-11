@@ -356,4 +356,13 @@ mod tests {
             assert_eq!(viewer_event(&line), Some(Event::PeerLost), "{message}");
         }
     }
+
+    #[test]
+    fn viewer_failed_dial_keeps_the_reason() {
+        let line = LogLine::plain("QUIC connection to 10.0.0.9:4433 failed: timed out");
+        match viewer_event(&line) {
+            Some(Event::ConnectFailed(detail)) => assert!(detail.contains("timed out")),
+            other => panic!("unexpected event: {other:?}"),
+        }
+    }
 }
