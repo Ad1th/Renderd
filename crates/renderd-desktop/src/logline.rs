@@ -89,3 +89,41 @@ fn strip_ansi(text: &str) -> String {
     }
     out
 }
+
+impl LogLine {
+    /// Parses one line of child output.
+    ///
+    /// A JSON line from `--log-format json` keeps its level, target and fields.
+    /// Anything else is kept as plain text, so nothing the child says is dropped.
+    #[must_use]
+    pub fn parse(line: &str) -> Self {
+        Self::from_json(line).unwrap_or_else(|| Self::plain(line))
+    }
+
+    fn from_json(line: &str) -> Option<Self> {
+        let value: Value = serde_json::from_str(line.trim()).ok()?;
+        let object = value.as_object()?;
+        let mut fields = object.get("fields")?.as_object()?.clone();
+        let message = match fields.remove("message") {
+            Some(Value::String(text)) => text,
+            Some(other) => other.to_string(),
+            None => String::new(),
+        };
+        let level = object
+            .get("level")
+            .and_then(Value::as_str)
+            .and_then(Level::parse)
+            .unwrap_or(Level::Info);
+        let target = object
+            .get("target")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
+        Some(Self {
+            level,
+            message,
+            target,
+            fields,
+        })
+    }
+}
