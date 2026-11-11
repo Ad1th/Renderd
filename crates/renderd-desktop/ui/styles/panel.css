@@ -50,3 +50,18 @@
 @keyframes blink {
   50% { opacity: 0.2; }
 }
+
+h1 {
+  margin-top: 12px;
+  font-size: 21px;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+}
+
+.lede {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.65;
+}
