@@ -224,3 +224,28 @@ h1 {
   font-size: 11px;
   line-height: 1.5;
 }
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.chips:empty {
+  display: none;
+}
+
+.chip {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  background: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.chip:hover {
+  border-color: var(--line-strong);
+  color: var(--text);
+}
