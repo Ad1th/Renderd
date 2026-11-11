@@ -59,4 +59,16 @@ mod tests {
             ["--log-format", "json", "--port", "4433", "--mode", "extend"]
         );
     }
+
+    #[test]
+    fn mirror_mode_names_the_display() {
+        let settings = HostSettings {
+            mode: DisplayMode::Mirror,
+            display_id: 2,
+            ..HostSettings::default()
+        };
+        let args = host_args(&settings);
+        assert!(args.windows(2).any(|w| w == ["--mode", "mirror"]));
+        assert!(args.windows(2).any(|w| w == ["--display-id", "2"]));
+    }
 }
