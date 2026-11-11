@@ -46,4 +46,12 @@ mod tests {
         assert_eq!(normalize_host("::1").unwrap(), "[::1]:4433");
         assert_eq!(normalize_host("[::1]:9000").unwrap(), "[::1]:9000");
     }
+
+    #[test]
+    fn nonsense_is_rejected_with_a_hint() {
+        let error = normalize_host("my-mac").unwrap_err();
+        assert!(error.contains("my-mac"));
+        assert!(error.contains("192.168.1.20"));
+        assert!(normalize_host("   ").is_err());
+    }
 }
