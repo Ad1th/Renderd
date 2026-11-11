@@ -292,4 +292,13 @@ mod tests {
         assert_eq!(status.phase, Phase::Stopped);
         assert!(status.problem.is_none());
     }
+
+    #[test]
+    fn an_unexpected_exit_is_a_failure_with_a_reason() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        status.exited(false, Some("Address already in use (os error 48)"));
+        assert_eq!(status.phase, Phase::Failed);
+        assert_eq!(status.problem.unwrap().kind, ProblemKind::PortInUse);
+    }
 }
