@@ -59,3 +59,10 @@
   border-color: var(--line-strong);
   color: var(--text);
 }
+
+.options {
+  display: flex;
+  flex: none;
+  gap: 10px;
+  padding: 16px var(--gutter) 24px;
+}
