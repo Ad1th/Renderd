@@ -28,3 +28,7 @@
   --unit: 8px;
   --gutter: 28px;
   --bar-height: 44px;
+
+  /* Motion moves in steps, never eases: pixels do not glide. */
+  --tick: 120ms;
+}
