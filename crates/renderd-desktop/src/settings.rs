@@ -229,4 +229,11 @@ mod tests {
         assert!(settings.host.smooth);
         assert_eq!(settings.host.port, DEFAULT_PORT);
     }
+
+    #[test]
+    fn a_zero_port_is_repaired() {
+        let mut settings = Settings::default();
+        settings.host.port = 0;
+        assert_eq!(settings.sanitized().host.port, DEFAULT_PORT);
+    }
 }
