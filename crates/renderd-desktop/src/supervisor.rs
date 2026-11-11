@@ -379,4 +379,12 @@ mod tests {
         assert_eq!(status.phase, Phase::Failed);
         assert_eq!(status.problem.unwrap().kind, ProblemKind::PortInUse);
     }
+
+    #[test]
+    fn a_missing_program_fails_at_once() {
+        let supervisor = Supervisor::new(Role::Viewer, |_| {});
+        let status = supervisor.start(Path::new("/nonexistent/renderd-viewer"), &[]);
+        assert_eq!(status.phase, Phase::Failed);
+        assert_eq!(status.problem.unwrap().kind, ProblemKind::MissingBinary);
+    }
 }
