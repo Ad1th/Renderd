@@ -397,4 +397,15 @@ mod tests {
         assert_eq!(status.phase, Phase::Waiting);
         supervisor.shutdown();
     }
+
+    #[test]
+    fn stop_ends_a_long_running_child() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(&supervisor, "sleep 30");
+        supervisor.stop();
+        assert_eq!(supervisor.status().phase, Phase::Stopping);
+        let status = wait_for(&supervisor, |s| !s.phase.is_running());
+        assert_eq!(status.phase, Phase::Stopped);
+        assert!(status.problem.is_none());
+    }
 }
