@@ -301,4 +301,12 @@ mod tests {
         assert_eq!(status.phase, Phase::Failed);
         assert_eq!(status.problem.unwrap().kind, ProblemKind::PortInUse);
     }
+
+    #[test]
+    fn a_crash_without_output_is_reported_as_a_crash() {
+        let mut status = Status::new(Role::Viewer);
+        status.begin();
+        status.exited(false, None);
+        assert_eq!(status.problem.unwrap().kind, ProblemKind::Crashed);
+    }
 }
