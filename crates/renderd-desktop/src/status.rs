@@ -234,4 +234,18 @@ mod tests {
             [Phase::Starting, Phase::Connecting, Phase::Streaming]
         );
     }
+
+    #[test]
+    fn host_waits_again_after_the_viewer_leaves() {
+        let mut status = Status::new(Role::Host);
+        status.begin();
+        status.apply(&Event::PeerConnected {
+            peer: "10.0.0.2:5000".to_string(),
+        });
+        status.apply(&Event::Streaming);
+        status.apply(&Event::PeerLost);
+        assert_eq!(status.phase, Phase::Waiting);
+        assert_eq!(status.peer, None);
+        assert_eq!(status.metrics, Metrics::default());
+    }
 }
