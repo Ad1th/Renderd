@@ -408,4 +408,15 @@ mod tests {
         assert_eq!(status.phase, Phase::Stopped);
         assert!(status.problem.is_none());
     }
+
+    #[test]
+    fn a_second_start_is_ignored_while_running() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(&supervisor, "sleep 30");
+        let again = run_script(&supervisor, "exit 1");
+        assert_eq!(again.phase, Phase::Starting);
+        supervisor.stop();
+        let status = wait_for(&supervisor, |s| !s.phase.is_running());
+        assert_eq!(status.phase, Phase::Stopped);
+    }
 }
