@@ -275,3 +275,17 @@ function toggleSheet(open) {
     $("open-settings").focus();
   }
 }
+
+/** Copies `text` and says so on the button for a moment. */
+async function copy(text, button) {
+  const label = button.textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    button.textContent = "Copied";
+  } catch {
+    button.textContent = "Select it";
+  }
+  setTimeout(() => {
+    button.textContent = label;
+  }, 1200);
+}
