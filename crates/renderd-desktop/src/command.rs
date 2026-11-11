@@ -89,4 +89,10 @@ mod tests {
         };
         assert_eq!(host_args(&settings).last().unwrap(), "--smooth");
     }
+
+    #[test]
+    fn viewer_without_a_host_relies_on_discovery() {
+        let args = viewer_args(&ViewerSettings::default(), None);
+        assert_eq!(args, ["--log-format", "json", "--codec", "auto"]);
+    }
 }
