@@ -151,3 +151,14 @@ function onStatus(status) {
   }
   render();
 }
+
+function appendLog(line) {
+  const logs = $("logs");
+  const pinned = logs.scrollTop + logs.clientHeight >= logs.scrollHeight - 4;
+  const row = document.createElement("span");
+  row.className = line.level;
+  row.textContent = `${line.message}\n`;
+  logs.append(row);
+  while (logs.childElementCount > 400) logs.firstElementChild.remove();
+  if (pinned) logs.scrollTop = logs.scrollHeight;
+}
