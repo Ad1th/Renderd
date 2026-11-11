@@ -71,4 +71,13 @@ mod tests {
         assert!(args.windows(2).any(|w| w == ["--mode", "mirror"]));
         assert!(args.windows(2).any(|w| w == ["--display-id", "2"]));
     }
+
+    #[test]
+    fn extend_mode_does_not_pass_a_display() {
+        let settings = HostSettings {
+            display_id: 2,
+            ..HostSettings::default()
+        };
+        assert!(!host_args(&settings).contains(&"--display-id".to_string()));
+    }
 }
