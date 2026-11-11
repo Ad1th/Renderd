@@ -1,0 +1,67 @@
+/* The strip at the top: wordmark and the settings button. */
+
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--bar-height);
+  padding: 0 12px 0 var(--gutter);
+}
+
+/* macOS draws its window buttons over the page, top left. Step around them. */
+[data-platform="macos"] .bar {
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+[data-platform="macos"] .brand {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mark {
+  width: 11px;
+  height: 13px;
+  fill: var(--muted);
+}
+
+.wordmark {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--muted);
+  shape-rendering: crispEdges;
+}
+
+.icon-button:hover {
+  border-color: var(--line);
+}
+
+.icon-button:hover svg {
+  fill: var(--text);
+}

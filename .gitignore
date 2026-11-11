@@ -52,3 +52,6 @@ lcov.info
 
 # Lighthouse CI scratch
 /.lighthouseci/
+
+# Schemas Tauri regenerates on every build
+/crates/renderd-desktop/gen/

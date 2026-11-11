@@ -225,7 +225,9 @@ fn piped_command(program: &Path, args: &[String]) -> Command {
     command
         .args(args)
         .env("NO_COLOR", "1")
-        .stdin(Stdio::null())
+        // Nothing is written to this pipe. It exists so the child can tell
+        // when the app is gone: the pipe closes with the app, however it ends.
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     hide_console(&mut command);

@@ -46,6 +46,14 @@ pub struct HostCli {
     /// Same as `host.smooth_motion = true` in the config file.
     #[arg(long)]
     pub smooth: bool,
+
+    /// Stop when standard input closes.
+    ///
+    /// The desktop app starts the daemon with a pipe on standard input and
+    /// holds the other end. If the app goes away for any reason the pipe
+    /// closes, and the daemon shuts down instead of running on unseen.
+    #[arg(long)]
+    pub exit_with_parent: bool,
 }
 
 /// Whether the viewer extends or mirrors the host desktop.

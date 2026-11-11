@@ -64,6 +64,14 @@ pub struct ViewerCli {
     /// `soft` forces the CPU renderer.
     #[arg(long, value_name = "RENDERER", default_value = "auto")]
     pub renderer: RendererChoice,
+
+    /// Close when standard input closes.
+    ///
+    /// The desktop app starts the viewer with a pipe on standard input and
+    /// holds the other end. If the app goes away for any reason the pipe
+    /// closes, and the viewer closes with it.
+    #[arg(long)]
+    pub exit_with_parent: bool,
 }
 
 /// How log lines are rendered.

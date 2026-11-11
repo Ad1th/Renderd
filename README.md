@@ -106,7 +106,7 @@ flowchart LR
 
 ```text
 renderd/
-├── Cargo.toml                  # Workspace root manifest (15 members: 13 crates + 2 tools)
+├── Cargo.toml                  # Workspace root manifest (16 members: 14 crates + 2 tools)
 ├── rust-toolchain.toml         # Rust toolchain pinning (MSRV 1.80+)
 ├── clippy.toml                 # Workspace Clippy lint rules
 ├── .rustfmt.toml               # Code formatting rules
@@ -120,7 +120,8 @@ renderd/
 ├── tools/
 │   ├── proto-gen/              # Code generator tool compiling renderd.proto → Rust
 │   ├── latency-bench/          # Frame capture & network round-trip benchmark CLI
-│   └── bundle-host/            # Assembles and signs the macOS .app bundle
+│   ├── bundle-host/            # Assembles and signs the macOS .app bundle
+│   └── bundle-desktop/         # Assembles Renderd.app with the host and viewer inside
 ├── crates/
 │   ├── renderd-proto/          # Protobuf types, newtypes, and envelope validation
 │   ├── renderd-config/         # Layered config loader, schemas, and validators
@@ -134,7 +135,8 @@ renderd/
 │   ├── renderd-keychain/       # macOS Keychain & Windows Credential Manager
 │   ├── renderd-discovery/      # mDNS / Bonjour peer discovery
 │   ├── renderd-host/           # macOS Host daemon executable binary
-│   └── renderd-viewer/         # Windows Viewer display client architecture
+│   ├── renderd-viewer/         # Windows Viewer display client architecture
+│   └── renderd-desktop/        # Desktop app that starts and watches the two above
 └── docs/                       # Specifications and architecture docs
 ```
 
@@ -234,6 +236,41 @@ cargo nextest run --workspace
 cargo test --workspace
 ```
 
+### The Desktop App
+
+The easiest way to use Renderd is the desktop app. It is one window with one button, and
+it starts the host or viewer for you.
+
+```bash
+cargo build --release -p renderd-desktop -p renderd-host -p renderd-viewer
+```
+
+**On the Mac**, wrap it up as an app and open it:
+
+```bash
+tools/bundle-desktop/assemble.sh
+open target/bundle/Renderd.app
+```
+
+Press **Start sharing**. The window shows the address of the Mac while it waits, and the
+frame rate, bitrate and ping once the PC connects. macOS asks for Screen Recording
+permission the first time; the app has a button that takes you to the right page of
+System Settings.
+
+**On the Windows PC**, run `renderd.exe` (keep `renderd-viewer.exe` in the same folder,
+or use `tools\package-desktop\package.ps1` to zip the two together). Press **Find my
+Mac**, or type the address the Mac shows if the two machines cannot see each other's mDNS
+traffic.
+
+The two switches at the bottom cover the options most people change: Extend or Mirror,
+Sharp or Smooth on the Mac, and Window or Fullscreen plus the codec on the PC. The port,
+the display to mirror and an activity log are behind the settings button.
+
+`renderd --start` opens the app and starts straight away, which is handy as a login item.
+
+The app runs the same `renderd-host` and `renderd-viewer` binaries described below, so
+everything in the rest of this section still applies if you prefer a terminal.
+
 ### Running the Applications
 
 **On the macOS host**, start the daemon. It grants itself no permissions — macOS will
@@ -275,6 +312,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--decoder <mf\|d3d12>` | `mf` | `mf` uses a Media Foundation decoder MFT, on the GPU (DXVA through D3D11) when `viewer.hw_accel` is on and the MFT supports it. `d3d12` is a development path that does not yet supply DXVA picture parameters. |
 | `--renderer <auto\|soft>` | `auto` | `auto` presents on the GPU through a D3D11 flip-model swap chain and falls back to the CPU renderer if that fails. `soft` forces the CPU renderer. |
 | `--fullscreen` | off | Start borderless fullscreen. |
+| `--exit-with-parent` | off | Close when standard input closes. The desktop app uses this so the viewer never outlives it. |
 | `--width`, `--height` | 1920×1080 | Initial window size. |
 | `--log-level <LEVEL>` | `info` | `trace`, `debug`, `info`, `warn`, `error`. |
 | `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
@@ -289,6 +327,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--log-level <LEVEL>` | `info` | Logging verbosity. |
 | `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
 | `--smooth` | off | Favour smooth motion over a sharp picture on a slow link (see below). |
+| `--exit-with-parent` | off | Stop when standard input closes. The desktop app uses this so the daemon never outlives it. |
 
 #### If nothing appears
 

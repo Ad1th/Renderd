@@ -3,7 +3,7 @@
 use serde::Serialize;
 
 use crate::event::{Event, Metrics, StreamInfo};
-use crate::problem::{diagnose, Problem, ProblemKind};
+use crate::problem::{diagnose, diagnose_capture, Problem, ProblemKind};
 use crate::role::Role;
 
 /// Where a session is in its life.
@@ -133,9 +133,7 @@ impl Status {
             Event::ConnectFailed(detail) => {
                 self.problem = Some(Problem::new(ProblemKind::HostUnreachable, detail.clone()));
             }
-            Event::CaptureFailed(detail) => {
-                self.problem = Some(Problem::new(ProblemKind::ScreenRecording, detail.clone()));
-            }
+            Event::CaptureFailed(detail) => self.problem = Some(diagnose_capture(detail)),
             Event::Stopping => self.phase = Phase::Stopping,
         }
     }

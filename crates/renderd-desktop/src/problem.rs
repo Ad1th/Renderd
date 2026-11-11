@@ -8,6 +8,10 @@ use serde::Serialize;
 pub enum ProblemKind {
     /// macOS has not allowed screen recording yet.
     ScreenRecording,
+    /// macOS did not bring up the virtual display that extend mode needs.
+    ExtendFailed,
+    /// The screen could not be captured for another reason.
+    CaptureFailed,
     /// Another program already uses the port.
     PortInUse,
     /// The host or viewer binary is not where the app expects it.
@@ -49,6 +53,8 @@ impl ProblemKind {
     pub const fn title(self) -> &'static str {
         match self {
             Self::ScreenRecording => "Renderd needs permission to record the screen",
+            Self::ExtendFailed => "macOS did not bring up the extra display",
+            Self::CaptureFailed => "The screen could not be captured",
             Self::PortInUse => "Another app is already using this port",
             Self::MissingBinary => "Part of Renderd is missing",
             Self::HostUnreachable => "Could not reach that computer",
@@ -75,6 +81,27 @@ pub fn diagnose(message: &str) -> Problem {
     } else {
         ProblemKind::Other
     };
+    Problem::new(kind, message.trim())
+}
+
+/// Works out why screen capture failed from the host's message.
+///
+/// Extend mode fails in its own way, with a fix the user can apply (mirror
+/// instead), so it is told apart from a missing permission.
+#[must_use]
+pub fn diagnose_capture(message: &str) -> Problem {
+    let lowered = message.to_ascii_lowercase();
+    let kind =
+        if lowered.contains("did not become capturable") || lowered.contains("virtual display") {
+            ProblemKind::ExtendFailed
+        } else if diagnose(message).kind == ProblemKind::ScreenRecording
+            || lowered.contains("permission")
+            || lowered.contains("declined")
+        {
+            ProblemKind::ScreenRecording
+        } else {
+            ProblemKind::CaptureFailed
+        };
     Problem::new(kind, message.trim())
 }
 
@@ -115,5 +142,26 @@ mod tests {
         assert_eq!(problem.kind, ProblemKind::Other);
         assert_eq!(problem.detail, "decoder exploded");
         assert_eq!(problem.title, ProblemKind::Other.title());
+    }
+
+    #[test]
+    fn a_virtual_display_that_never_appears_is_an_extend_failure() {
+        let problem = diagnose_capture(
+            "initialization failed: Display 14 did not become capturable: No active displays found for screen capture",
+        );
+        assert_eq!(problem.kind, ProblemKind::ExtendFailed);
+    }
+
+    #[test]
+    fn a_declined_capture_is_a_permission_problem() {
+        let problem =
+            diagnose_capture("The user declined TCCs for application, window, display capture");
+        assert_eq!(problem.kind, ProblemKind::ScreenRecording);
+    }
+
+    #[test]
+    fn other_capture_errors_stay_generic() {
+        let problem = diagnose_capture("stream stopped: encoder went away");
+        assert_eq!(problem.kind, ProblemKind::CaptureFailed);
     }
 }

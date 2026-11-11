@@ -1,0 +1,172 @@
+/* The picture at the top: this computer, the other one, and what moves
+   between them. It is the only place the accent colour appears. */
+
+.stage {
+  position: relative;
+  display: grid;
+  flex: none;
+  grid-template-columns: 96px 1fr 96px;
+  align-items: start;
+  gap: 16px;
+  height: 168px;
+  padding: 36px var(--gutter) 0;
+  border-top: 1px solid var(--grid);
+  border-bottom: 1px solid var(--grid);
+  background-image:
+    linear-gradient(var(--grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+  background-position: -1px -1px;
+  background-size: 24px 24px;
+}
+
+.device {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.screen {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 64px;
+  border: 1px solid var(--line-strong);
+  background: var(--void);
+}
+
+/* A stand under each screen, two pixels of it. */
+.screen::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 32px;
+  height: 4px;
+  margin: 1px 0 0 -16px;
+  border-bottom: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-strong);
+}
+
+.screen-size {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+}
+
+.device-label {
+  color: var(--faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+
+/* This computer is always the bright one. */
+.device-near .screen {
+  border-color: var(--text);
+}
+
+.device-near .screen::after {
+  border-color: var(--text);
+}
+
+.device-near .device-label {
+  color: var(--muted);
+}
+
+/* The path between the two screens: a row of pixels. */
+.track {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+}
+
+.track i {
+  width: 4px;
+  height: 4px;
+  background: var(--line);
+}
+
+.packet {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  background: var(--accent);
+  opacity: 0;
+}
+
+/* Waiting: the path lights up one pixel at a time, looking for the other side. */
+.stage[data-phase="starting"] .track i,
+.stage[data-phase="waiting"] .track i,
+.stage[data-phase="connecting"] .track i,
+.stage[data-phase="reconnecting"] .track i {
+  animation: seek calc(var(--tick) * 9) steps(1) infinite;
+}
+
+.track i:nth-child(2) { animation-delay: calc(var(--tick) * 1); }
+.track i:nth-child(3) { animation-delay: calc(var(--tick) * 2); }
+.track i:nth-child(4) { animation-delay: calc(var(--tick) * 3); }
+.track i:nth-child(5) { animation-delay: calc(var(--tick) * 4); }
+.track i:nth-child(6) { animation-delay: calc(var(--tick) * 5); }
+.track i:nth-child(7) { animation-delay: calc(var(--tick) * 6); }
+.track i:nth-child(8) { animation-delay: calc(var(--tick) * 7); }
+.track i:nth-child(9) { animation-delay: calc(var(--tick) * 8); }
+
+@keyframes seek {
+  0% { background: var(--text); }
+  22% { background: var(--line); }
+}
+
+/* Streaming: the path is solid and a datagram runs along it. */
+.stage[data-phase="streaming"] .track i {
+  background: var(--faint);
+}
+
+.stage[data-phase="streaming"] .packet {
+  opacity: 1;
+  animation: send calc(var(--tick) * 8) steps(16) infinite;
+}
+
+@keyframes send {
+  from { left: 0; }
+  to { left: calc(100% - 8px); }
+}
+
+/* The viewer receives, so everything runs the other way. */
+.stage[data-role="viewer"] .track {
+  transform: scaleX(-1);
+}
+
+/* The far screen comes on once there is a picture on it. */
+.stage[data-phase="streaming"] .device-far .screen {
+  border-color: var(--text);
+  background: var(--surface);
+}
+
+.stage[data-phase="streaming"] .device-far .screen::after {
+  border-color: var(--text);
+}
+
+.stage[data-phase="streaming"] .device-far .device-label {
+  color: var(--muted);
+}
+
+/* Failed: the path is cut in the middle. */
+.stage[data-phase="failed"] .track i:nth-child(5) {
+  width: 8px;
+  height: 8px;
+  background: var(--warn);
+}
+
+.stage[data-phase="failed"] .track i:nth-child(4),
+.stage[data-phase="failed"] .track i:nth-child(6) {
+  background: transparent;
+}
