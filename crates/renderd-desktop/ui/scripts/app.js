@@ -53,3 +53,38 @@ function renderStats(stats) {
   });
   $("spark").querySelector("polyline").setAttribute("points", spark.points(state.bitrates));
 }
+
+function renderPanel() {
+  const view = describe(state.status, state.access, state.info.platform);
+  document.body.dataset.phase = state.status.phase;
+
+  $("eyebrow").textContent = view.eyebrow;
+  $("title").textContent = view.title;
+  $("lede").textContent = view.lede;
+  $("lede").hidden = !view.lede;
+
+  $("address-row").hidden = !view.address;
+  $("address").textContent = view.address ?? "";
+
+  renderStats(view.stats);
+
+  $("notice").hidden = !view.notice;
+  if (view.notice) {
+    $("notice-text").textContent = view.notice.text;
+    $("notice-action").textContent = view.notice.action ?? "";
+    $("notice-action").hidden = !view.notice.action;
+    $("notice-action").dataset.run = view.notice.run ?? "";
+  }
+
+  const primary = $("primary");
+  const typed = view.connectForm && $("host-input").value.trim() !== "";
+  primary.textContent = typed ? "Connect" : view.primary.label;
+  primary.dataset.action = view.primary.action ?? "";
+  primary.disabled = !view.primary.action;
+  primary.classList.toggle("quiet", view.primary.quiet);
+
+  $("connect-form").hidden = !view.connectForm;
+  $("host-error").textContent = state.typedHostError;
+  $("host-error").hidden = !state.typedHostError;
+  if (view.connectForm) renderRecent();
+}
