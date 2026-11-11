@@ -152,6 +152,15 @@ mod tests {
     }
 
     #[test]
+    fn test_log_format_defaults_to_text_and_accepts_json() {
+        let cli = HostCli::try_parse_from(["renderd-host"]).unwrap();
+        assert_eq!(cli.log_format, LogFormat::Text);
+        let cli = HostCli::try_parse_from(["renderd-host", "--log-format", "json"]).unwrap();
+        assert_eq!(cli.log_format, LogFormat::Json);
+        assert!(HostCli::try_parse_from(["renderd-host", "--log-format", "xml"]).is_err());
+    }
+
+    #[test]
     fn test_panic_hook_setup() {
         setup_panic_hook();
     }
