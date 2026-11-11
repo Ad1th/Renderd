@@ -49,3 +49,17 @@ test("the permission notice is not shown to a viewer", () => {
   const view = describe(status("viewer", "stopped"), "denied");
   assert.equal(view.notice, undefined);
 });
+
+test("a failed session explains itself and offers a retry", () => {
+  const problem = { kind: "port_in_use", title: "Another app is already using this port", detail: "os error 48" };
+  const view = describe(status("host", "failed", { problem }));
+  assert.equal(view.title, problem.title);
+  assert.match(view.lede, /another port/);
+  assert.equal(view.primary.label, "Try again");
+  assert.equal(view.notice, undefined);
+});
+
+test("an unknown failure falls back to the raw detail", () => {
+  const problem = { kind: "other", title: "Something went wrong", detail: "decoder exploded" };
+  assert.equal(describe(status("viewer", "failed", { problem })).lede, "decoder exploded");
+});
