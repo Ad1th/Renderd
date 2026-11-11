@@ -84,6 +84,27 @@ pub fn diagnose(message: &str) -> Problem {
     Problem::new(kind, message.trim())
 }
 
+/// Works out why screen capture failed from the host's message.
+///
+/// Extend mode fails in its own way, with a fix the user can apply (mirror
+/// instead), so it is told apart from a missing permission.
+#[must_use]
+pub fn diagnose_capture(message: &str) -> Problem {
+    let lowered = message.to_ascii_lowercase();
+    let kind =
+        if lowered.contains("did not become capturable") || lowered.contains("virtual display") {
+            ProblemKind::ExtendFailed
+        } else if diagnose(message).kind == ProblemKind::ScreenRecording
+            || lowered.contains("permission")
+            || lowered.contains("declined")
+        {
+            ProblemKind::ScreenRecording
+        } else {
+            ProblemKind::CaptureFailed
+        };
+    Problem::new(kind, message.trim())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
