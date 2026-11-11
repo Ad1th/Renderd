@@ -98,4 +98,13 @@ mod tests {
         fs::write(&custom, b"").unwrap();
         assert_eq!(locate(Role::Host, &dir, Some(&custom)), Some(custom));
     }
+
+    #[test]
+    fn a_dangling_override_falls_back() {
+        let dir = scratch_dir("dangling");
+        let binary = dir.join(file_name(Role::Host));
+        fs::write(&binary, b"").unwrap();
+        let gone = dir.join("nope");
+        assert_eq!(locate(Role::Host, &dir, Some(&gone)), Some(binary));
+    }
 }
