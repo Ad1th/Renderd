@@ -152,3 +152,39 @@ impl Supervisor {
         })
     }
 }
+
+impl Supervisor {
+    /// Waits for run number `run` to end and records how it went.
+    ///
+    /// Both pipes reach end of file when the child exits, so the readers are
+    /// joined first. That also guarantees every line was seen before the exit
+    /// is judged.
+    fn reap(&self, run: u64, readers: Vec<JoinHandle<()>>) {
+        let supervisor = self.clone();
+        thread::spawn(move || {
+            for reader in readers {
+                let _ = reader.join();
+            }
+            let child = {
+                let mut shared = supervisor.lock();
+                if shared.run != run {
+                    return;
+                }
+                shared.child.take()
+            };
+            let success = child
+                .and_then(|mut child| child.wait().ok())
+                .is_some_and(|exit| exit.success());
+            let status = {
+                let mut shared = supervisor.lock();
+                if shared.run != run {
+                    return;
+                }
+                let last_error = shared.last_error.take();
+                shared.status.exited(success, last_error.as_deref());
+                shared.status.clone()
+            };
+            (supervisor.listener)(Update::Status(status));
+        });
+    }
+}
