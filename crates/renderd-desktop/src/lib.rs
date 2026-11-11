@@ -5,6 +5,7 @@
 //! writes, and turns them into a small status the window can show.
 
 pub mod address;
+pub mod command;
 pub mod event;
 pub mod logline;
 pub mod problem;
@@ -13,6 +14,7 @@ pub mod settings;
 pub mod status;
 
 pub use address::normalize_host;
+pub use command::host_args;
 pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
 pub use logline::{Level, LogLine};
 pub use problem::{diagnose, Problem, ProblemKind};
