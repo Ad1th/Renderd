@@ -84,3 +84,56 @@ function hostView(status) {
       return failure(status);
   }
 }
+
+function viewerView(status, platform) {
+  const here = platform === "macos" ? "Mac" : "PC";
+  const host = format.shortAddress(status.address);
+  const stop = { label: "Cancel", action: "stop", quiet: true };
+  switch (status.phase) {
+    case "stopped":
+      return {
+        eyebrow: "Ready",
+        title: `Use this ${here} as a display`,
+        lede: `Start sharing on your Mac first. This ${here} finds it on the network.`,
+        primary: { label: "Find my Mac", action: "start", quiet: false },
+        connectForm: true,
+      };
+    case "starting":
+      return { eyebrow: "Starting", title: "Getting ready", lede: "This takes a moment.", primary: stop };
+    case "connecting":
+      return {
+        eyebrow: host ? "Connecting" : "Looking for your Mac",
+        title: host ? `Connecting to ${host}` : "Looking around the network",
+        lede: "Not found after a few seconds? Cancel and type the address shown on the Mac.",
+        primary: stop,
+      };
+    case "reconnecting":
+      return {
+        eyebrow: "Reconnecting",
+        title: "Lost the Mac, trying again",
+        lede: "The picture comes back by itself once the Mac is reachable.",
+        primary: { label: "Disconnect", action: "stop", quiet: true },
+      };
+    case "streaming":
+      return {
+        eyebrow: "Live",
+        title: host ? `Showing ${format.hostOnly(status.address)}` : "Showing your Mac",
+        lede: streamLine(status),
+        stats: [
+          { label: "FPS", value: format.fps(status.metrics.fps) },
+          { label: "Mbps", value: format.mbps(status.metrics.bitrate_kbps) },
+          { label: "Decode", value: format.ms(status.metrics.decode_ms), unit: "ms" },
+        ],
+        primary: { label: "Disconnect", action: "stop", quiet: true },
+      };
+    case "stopping":
+      return {
+        eyebrow: "Stopping",
+        title: "Wrapping up",
+        lede: "",
+        primary: { label: "Stopping", action: null, quiet: true },
+      };
+    default:
+      return failure(status);
+  }
+}
