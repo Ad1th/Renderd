@@ -4,8 +4,10 @@
 //! `renderd-viewer` as a child process, reads the JSON log lines the child
 //! writes, and turns them into a small status the window can show.
 
+pub mod event;
 pub mod logline;
 pub mod role;
 
+pub use event::StreamInfo;
 pub use logline::{Level, LogLine};
 pub use role::Role;
