@@ -46,3 +46,17 @@ pub fn viewer_args(settings: &ViewerSettings, host: Option<&str>) -> Vec<String>
     }
     args
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Codec;
+
+    #[test]
+    fn default_host_args_extend_on_the_standard_port() {
+        assert_eq!(
+            host_args(&HostSettings::default()),
+            ["--log-format", "json", "--port", "4433", "--mode", "extend"]
+        );
+    }
+}
