@@ -102,4 +102,10 @@ mod tests {
         let problem = diagnose("stream start failed: user is not authorized for screen capture");
         assert_eq!(problem.kind, ProblemKind::ScreenRecording);
     }
+
+    #[test]
+    fn a_timeout_means_the_host_is_unreachable() {
+        let problem = diagnose("QUIC connection to 10.0.0.9:4433 failed: timed out");
+        assert_eq!(problem.kind, ProblemKind::HostUnreachable);
+    }
 }
