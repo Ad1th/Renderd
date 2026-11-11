@@ -21,3 +21,10 @@
   --accent-dim: #003d45;
   --ok: #4caf50;
   --warn: #ff6b35;
+
+  --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Everything sits on an 8px grid, like the logo. */
+  --unit: 8px;
+  --gutter: 28px;
+  --bar-height: 44px;
