@@ -22,3 +22,19 @@ test("a waiting host shows the address without the default port", () => {
   assert.equal(view.address, "192.168.1.20");
   assert.equal(view.primary.action, "stop");
 });
+
+test("a live host shows three numbers and describes the stream", () => {
+  const view = describe(
+    status("host", "streaming", {
+      peer: "192.168.1.34:53561",
+      stream: { codec: "hevc", width: 2560, height: 1440, fps: 60 },
+      metrics: { ...METRICS, fps: 59.7, bitrate_kbps: 8240, rtt_ms: 1.42 },
+    }),
+  );
+  assert.equal(view.title, "Sharing to 192.168.1.34");
+  assert.equal(view.lede, "2560×1440 at 60 fps, HEVC.");
+  assert.deepEqual(
+    view.stats.map((stat) => stat.value),
+    ["60", "8.2", "1.4"],
+  );
+});
