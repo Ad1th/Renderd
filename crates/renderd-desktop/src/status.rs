@@ -327,4 +327,14 @@ mod tests {
         let stream = status.stream.unwrap();
         assert_eq!((stream.width, stream.height), (1280, 720));
     }
+
+    #[test]
+    fn begin_forgets_the_previous_run() {
+        let mut status = Status::new(Role::Host);
+        status.fail(Problem::new(ProblemKind::MissingBinary, "not found"));
+        assert_eq!(status.phase, Phase::Failed);
+        status.begin();
+        assert_eq!(status.phase, Phase::Starting);
+        assert!(status.problem.is_none());
+    }
 }
