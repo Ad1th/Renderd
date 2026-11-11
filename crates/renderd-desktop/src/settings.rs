@@ -194,4 +194,15 @@ mod tests {
         assert!(!settings.host.smooth);
         assert_eq!(settings.viewer.codec, Codec::Auto);
     }
+
+    #[test]
+    fn settings_round_trip_through_a_file() {
+        let path = scratch_file("round-trip");
+        let mut settings = Settings::default();
+        settings.host.smooth = true;
+        settings.host.port = 5000;
+        settings.viewer.remember_host("10.0.0.5:4433");
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path), settings);
+    }
 }
