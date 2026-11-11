@@ -37,3 +37,18 @@ pub struct Metrics {
     /// Frames the viewer gave up on since it connected.
     pub lost_frames: Option<f64>,
 }
+
+impl Metrics {
+    /// Overlays `newer` on this sample, keeping old values it does not carry.
+    #[must_use]
+    pub fn merged(self, newer: Self) -> Self {
+        Self {
+            fps: newer.fps.or(self.fps),
+            bitrate_kbps: newer.bitrate_kbps.or(self.bitrate_kbps),
+            rtt_ms: newer.rtt_ms.or(self.rtt_ms),
+            send_queue_kb: newer.send_queue_kb.or(self.send_queue_kb),
+            decode_ms: newer.decode_ms.or(self.decode_ms),
+            lost_frames: newer.lost_frames.or(self.lost_frames),
+        }
+    }
+}
