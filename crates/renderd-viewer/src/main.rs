@@ -1,7 +1,7 @@
 //! Renderd Viewer executable entrypoint.
 
 use clap::Parser;
-use renderd_viewer::{parse_host_arg, App, ViewerAppConfig, ViewerCli};
+use renderd_viewer::{parse_host_arg, App, LogFormat, ViewerAppConfig, ViewerCli};
 use tracing_subscriber::EnvFilter;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -9,7 +9,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let filter =
         EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&cli.log_level));
-    tracing_subscriber::fmt().with_env_filter(filter).init();
+    match cli.log_format {
+        LogFormat::Text => tracing_subscriber::fmt().with_env_filter(filter).init(),
+        LogFormat::Json => tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(filter)
+            .init(),
+    }
 
     let mut config = ViewerAppConfig::load().unwrap_or_else(|e| {
         tracing::warn!("Falling back to default viewer config: {e}");

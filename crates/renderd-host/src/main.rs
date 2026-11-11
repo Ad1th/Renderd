@@ -19,7 +19,7 @@ pub use abr::AbrManager;
 pub use app::HostApp;
 pub use autostart::{AutoStart, AutoStartManager, AutoStartStatus};
 pub use capture::CapturePipeline;
-pub use cli::{DisplayMode, HostCli};
+pub use cli::{DisplayMode, HostCli, LogFormat};
 pub use clock::ClockController;
 pub use encode::{EncodePipeline, EncodedFrame};
 pub use error::HostError;
@@ -41,20 +41,25 @@ use clap::Parser;
 use renderd_config::ValidateConfig;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
-fn init_logging(log_level: &str) {
+fn init_logging(log_level: &str, format: LogFormat) {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(log_level));
+    let registry = tracing_subscriber::registry().with(filter);
 
-    let _ = tracing_subscriber::registry()
-        .with(fmt::layer().with_writer(std::io::stderr))
-        .with(filter)
-        .try_init();
+    let _ = match format {
+        LogFormat::Text => registry
+            .with(fmt::layer().with_writer(std::io::stderr))
+            .try_init(),
+        LogFormat::Json => registry
+            .with(fmt::layer().json().with_writer(std::io::stderr))
+            .try_init(),
+    };
 }
 
 fn main() -> Result<(), HostError> {
     setup_panic_hook();
 
     let cli = HostCli::parse();
-    init_logging(&cli.log_level);
+    init_logging(&cli.log_level, cli.log_format);
 
     tracing::info!(
         log_level = %cli.log_level,
@@ -147,13 +152,22 @@ mod tests {
     }
 
     #[test]
+    fn test_log_format_defaults_to_text_and_accepts_json() {
+        let cli = HostCli::try_parse_from(["renderd-host"]).unwrap();
+        assert_eq!(cli.log_format, LogFormat::Text);
+        let cli = HostCli::try_parse_from(["renderd-host", "--log-format", "json"]).unwrap();
+        assert_eq!(cli.log_format, LogFormat::Json);
+        assert!(HostCli::try_parse_from(["renderd-host", "--log-format", "xml"]).is_err());
+    }
+
+    #[test]
     fn test_panic_hook_setup() {
         setup_panic_hook();
     }
 
     #[test]
     fn test_init_logging() {
-        init_logging("warn");
+        init_logging("warn", LogFormat::Text);
     }
 
     #[test]

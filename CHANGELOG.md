@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **`--log-format json`** on `renderd-host` and `renderd-viewer`. Each log line is written as
+  one JSON object with the message and its fields, so a program can follow what the daemon
+  is doing without scraping text. The default stays `text`.
+
 ### Changed
 - **Full resolution by default, motion included.** On a slow link the encoder dropped below
   the session's size whenever the bitrate looked too small for it, within seconds of
