@@ -365,4 +365,13 @@ mod tests {
             other => panic!("unexpected event: {other:?}"),
         }
     }
+
+    #[test]
+    fn host_capture_failure_keeps_the_reason() {
+        let line = LogLine::plain("Capture pipeline start failed: permission denied");
+        assert_eq!(
+            host_event(&line),
+            Some(Event::CaptureFailed("permission denied".to_string()))
+        );
+    }
 }
