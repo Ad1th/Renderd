@@ -106,7 +106,7 @@ flowchart LR
 
 ```text
 renderd/
-├── Cargo.toml                  # Workspace root manifest (15 members: 13 crates + 2 tools)
+├── Cargo.toml                  # Workspace root manifest (16 members: 14 crates + 2 tools)
 ├── rust-toolchain.toml         # Rust toolchain pinning (MSRV 1.80+)
 ├── clippy.toml                 # Workspace Clippy lint rules
 ├── .rustfmt.toml               # Code formatting rules
@@ -120,7 +120,8 @@ renderd/
 ├── tools/
 │   ├── proto-gen/              # Code generator tool compiling renderd.proto → Rust
 │   ├── latency-bench/          # Frame capture & network round-trip benchmark CLI
-│   └── bundle-host/            # Assembles and signs the macOS .app bundle
+│   ├── bundle-host/            # Assembles and signs the macOS .app bundle
+│   └── bundle-desktop/         # Assembles Renderd.app with the host and viewer inside
 ├── crates/
 │   ├── renderd-proto/          # Protobuf types, newtypes, and envelope validation
 │   ├── renderd-config/         # Layered config loader, schemas, and validators
@@ -134,7 +135,8 @@ renderd/
 │   ├── renderd-keychain/       # macOS Keychain & Windows Credential Manager
 │   ├── renderd-discovery/      # mDNS / Bonjour peer discovery
 │   ├── renderd-host/           # macOS Host daemon executable binary
-│   └── renderd-viewer/         # Windows Viewer display client architecture
+│   ├── renderd-viewer/         # Windows Viewer display client architecture
+│   └── renderd-desktop/        # Desktop app that starts and watches the two above
 └── docs/                       # Specifications and architecture docs
 ```
 
