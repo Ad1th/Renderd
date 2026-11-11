@@ -91,3 +91,14 @@
   height: 4px;
   background: var(--line);
 }
+
+.packet {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  background: var(--accent);
+  opacity: 0;
+}
