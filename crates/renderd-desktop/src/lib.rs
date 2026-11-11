@@ -8,6 +8,6 @@ pub mod event;
 pub mod logline;
 pub mod role;
 
-pub use event::StreamInfo;
+pub use event::{Metrics, StreamInfo};
 pub use logline::{Level, LogLine};
 pub use role::Role;
