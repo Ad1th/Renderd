@@ -147,6 +147,21 @@ function streamLine(status) {
   return `${format.size(stream)} at ${Math.round(stream.fps)} fps, ${format.codec(stream.codec)}.`;
 }
 
+/** Notices for problems the session carries on through. */
+const ONGOING = {
+  extend_failed: {
+    text: "macOS did not bring up the extra display. Stop, switch to Mirror, and start again.",
+    action: null,
+    run: null,
+  },
+  capture_failed: {
+    text: "The screen could not be captured. The activity log in settings says why.",
+    action: null,
+    run: null,
+  },
+  host_unreachable: { text: "No answer from that address yet. Still trying.", action: null, run: null },
+};
+
 /**
  * Everything the panel shows for `status`.
  *
@@ -157,15 +172,19 @@ function streamLine(status) {
 export function describe(status, access = "unneeded", platform = "windows") {
   const view = status.role === "host" ? hostView(status) : viewerView(status, platform);
 
+  const grant = {
+    text: "macOS has not allowed Renderd to record the screen yet.",
+    action: "Allow",
+    run: "grant",
+  };
+  const live = status.phase !== "failed" && status.phase !== "stopped";
+
   if (status.role === "host" && access === "denied" && status.phase !== "streaming") {
-    view.notice = {
-      text: "macOS has not allowed Renderd to record the screen yet.",
-      action: "Allow",
-      run: "grant",
-    };
-  } else if (status.problem && status.phase !== "failed" && status.phase !== "stopped") {
+    view.notice = grant;
+  } else if (status.problem && live) {
     // A problem that did not end the session, like a dial that will be retried.
-    view.notice = { text: status.problem.title, action: null, run: null };
+    view.notice = ONGOING[status.problem.kind] ?? { text: status.problem.title, action: null, run: null };
+    if (status.problem.kind === "screen_recording") view.notice = grant;
   }
   return view;
 }
