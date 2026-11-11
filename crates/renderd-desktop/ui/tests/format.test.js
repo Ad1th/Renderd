@@ -21,3 +21,15 @@ test("milliseconds keep a decimal only while small", () => {
   assert.equal(format.ms(23.4), "23");
   assert.equal(format.ms(NaN), "--");
 });
+
+test("picture size uses a multiplication sign", () => {
+  assert.equal(format.size({ width: 2560, height: 1440 }), "2560×1440");
+  assert.equal(format.size(null), "");
+});
+
+test("codec names are written the usual way", () => {
+  assert.equal(format.codec("hevc"), "HEVC");
+  assert.equal(format.codec("h264"), "H.264");
+  assert.equal(format.codec("av1"), "AV1");
+  assert.equal(format.codec(""), "");
+});
