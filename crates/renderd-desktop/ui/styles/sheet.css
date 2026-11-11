@@ -76,3 +76,16 @@
 .number::-webkit-inner-spin-button {
   display: none;
 }
+
+.setting.grow {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.setting-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
