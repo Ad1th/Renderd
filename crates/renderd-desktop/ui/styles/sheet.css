@@ -1,0 +1,10 @@
+/* Settings: a sheet that covers the window. */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--void);
+}
