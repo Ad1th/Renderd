@@ -2,12 +2,14 @@
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
-use std::process::Child;
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::{self, JoinHandle};
 
 use crate::event::{host_event, viewer_event};
 use crate::logline::{Level, LogLine};
+use crate::problem::{Problem, ProblemKind};
 use crate::role::Role;
 use crate::status::Status;
 
@@ -186,5 +188,64 @@ impl Supervisor {
             };
             (supervisor.listener)(Update::Status(status));
         });
+    }
+}
+
+/// Builds the command for a child whose output the app reads.
+fn piped_command(program: &Path, args: &[String]) -> Command {
+    let mut command = Command::new(program);
+    command
+        .args(args)
+        .env("NO_COLOR", "1")
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    command
+}
+
+impl Supervisor {
+    /// Starts `program` with `args` and begins following its output.
+    ///
+    /// Does nothing if a session is already running. A program that cannot be
+    /// started leaves the status failed with the reason.
+    pub fn start(&self, program: &Path, args: &[String]) -> Status {
+        let (status, started) = {
+            let mut shared = self.lock();
+            if shared.status.phase.is_running() {
+                return shared.status.clone();
+            }
+            shared.run += 1;
+            shared.logs.clear();
+            shared.last_error = None;
+            shared.status.begin();
+
+            match piped_command(program, args).spawn() {
+                Ok(mut child) => {
+                    let pipes = (child.stdout.take(), child.stderr.take());
+                    shared.child = Some(child);
+                    (shared.status.clone(), Some((shared.run, pipes)))
+                }
+                Err(error) => {
+                    let detail = format!("Could not start {}: {error}", program.display());
+                    shared
+                        .status
+                        .fail(Problem::new(ProblemKind::MissingBinary, detail));
+                    (shared.status.clone(), None)
+                }
+            }
+        };
+        (self.listener)(Update::Status(status.clone()));
+
+        if let Some((run, (stdout, stderr))) = started {
+            let mut readers = Vec::with_capacity(2);
+            if let Some(pipe) = stdout {
+                readers.push(self.pump(run, pipe));
+            }
+            if let Some(pipe) = stderr {
+                readers.push(self.pump(run, pipe));
+            }
+            self.reap(run, readers);
+        }
+        status
     }
 }
