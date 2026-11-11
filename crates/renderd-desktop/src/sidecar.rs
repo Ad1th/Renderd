@@ -62,3 +62,25 @@ pub fn locate_installed(role: Role) -> Option<PathBuf> {
     let app_dir = exe.parent()?;
     locate(role, app_dir, override_path.as_deref())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn scratch_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("renderd-sidecar-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn finds_a_binary_beside_the_app() {
+        let dir = scratch_dir("beside");
+        let binary = dir.join(file_name(Role::Viewer));
+        fs::write(&binary, b"").unwrap();
+        assert_eq!(locate(Role::Viewer, &dir, None), Some(binary));
+    }
+}
