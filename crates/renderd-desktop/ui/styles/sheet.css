@@ -31,3 +31,28 @@
   letter-spacing: 2.5px;
   text-transform: uppercase;
 }
+
+.sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+  padding: 24px var(--gutter) 0;
+}
+
+.setting h3 {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.setting .hint {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.setting .segmented,
+.setting .number {
+  margin-top: 10px;
+}
