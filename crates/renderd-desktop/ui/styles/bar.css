@@ -39,3 +39,29 @@
   font-weight: 600;
   letter-spacing: 0.5px;
 }
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid transparent;
+  background: none;
+  cursor: pointer;
+}
+
+.icon-button svg {
+  width: 14px;
+  height: 14px;
+  fill: var(--muted);
+  shape-rendering: crispEdges;
+}
+
+.icon-button:hover {
+  border-color: var(--line);
+}
+
+.icon-button:hover svg {
+  fill: var(--text);
+}
