@@ -137,3 +137,10 @@ function viewerView(status, platform) {
       return failure(status);
   }
 }
+
+/** One line describing the stream, like "2560x1440 at 60 fps, HEVC". */
+function streamLine(status) {
+  const stream = status.stream;
+  if (!stream) return "";
+  return `${format.size(stream)} at ${Math.round(stream.fps)} fps, ${format.codec(stream.codec)}.`;
+}
