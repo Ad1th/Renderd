@@ -8,3 +8,15 @@
   height: var(--bar-height);
   padding: 0 12px 0 var(--gutter);
 }
+
+/* macOS draws its window buttons over the page, top left. Step around them. */
+[data-platform="macos"] .bar {
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+[data-platform="macos"] .brand {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+}
