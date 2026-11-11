@@ -16,3 +16,32 @@ pub struct Launch {
     /// viewer find a host on the network itself.
     pub host: Option<String>,
 }
+
+/// Plans a launch for the role in `settings`.
+///
+/// `typed_host` is what the user typed into the address field, if anything.
+/// It only matters when viewing; blank text means "find the host for me".
+///
+/// # Errors
+/// Returns a sentence for the window when the typed address is not usable.
+pub fn plan(settings: &Settings, typed_host: Option<&str>) -> Result<Launch, String> {
+    match settings.role {
+        Role::Host => Ok(Launch {
+            role: Role::Host,
+            args: host_args(&settings.host),
+            host: None,
+        }),
+        Role::Viewer => {
+            let host = typed_host
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(normalize_host)
+                .transpose()?;
+            Ok(Launch {
+                role: Role::Viewer,
+                args: viewer_args(&settings.viewer, host.as_deref()),
+                host,
+            })
+        }
+    }
+}

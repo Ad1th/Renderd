@@ -31,7 +31,7 @@ pub mod supervisor;
 pub use address::normalize_host;
 pub use command::{host_args, viewer_args};
 pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
-pub use launch::Launch;
+pub use launch::{plan, Launch};
 pub use logline::{Level, LogLine};
 pub use problem::{diagnose, Problem, ProblemKind};
 pub use role::Role;
