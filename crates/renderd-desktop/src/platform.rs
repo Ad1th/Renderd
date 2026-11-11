@@ -77,7 +77,8 @@ pub fn open_screen_settings() -> Result<(), String> {
 /// # Errors
 /// Never fails here; the signature matches the macOS version.
 #[cfg(not(target_os = "macos"))]
-pub fn open_screen_settings() -> Result<(), String> {
+#[allow(clippy::unnecessary_wraps)]
+pub const fn open_screen_settings() -> Result<(), String> {
     Ok(())
 }
 
