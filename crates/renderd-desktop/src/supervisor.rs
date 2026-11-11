@@ -114,29 +114,30 @@ impl Supervisor {
             return;
         }
         let line = LogLine::parse(text);
-        let changed = {
-            let mut shared = self.lock();
-            if shared.run != run {
-                return;
-            }
-            if line.level >= Level::Error {
-                shared.last_error = Some(line.message.clone());
-            }
-            if shared.logs.len() == LOG_CAPACITY {
-                shared.logs.pop_front();
-            }
-            shared.logs.push_back(line.clone());
+        let mut shared = self.lock();
+        if shared.run != run {
+            return;
+        }
+        if line.level >= Level::Error {
+            shared.last_error = Some(line.message.clone());
+        }
+        if shared.logs.len() == LOG_CAPACITY {
+            shared.logs.pop_front();
+        }
+        shared.logs.push_back(line.clone());
 
-            let event = match shared.status.role {
-                Role::Host => host_event(&line),
-                Role::Viewer => viewer_event(&line),
-            };
-            event.and_then(|event| {
-                let before = shared.status.clone();
-                shared.status.apply(&event);
-                (shared.status != before).then(|| shared.status.clone())
-            })
+        let event = match shared.status.role {
+            Role::Host => host_event(&line),
+            Role::Viewer => viewer_event(&line),
         };
+        let changed = event.and_then(|event| {
+            let before = shared.status.clone();
+            shared.status.apply(&event);
+            (shared.status != before).then(|| shared.status.clone())
+        });
+        // Listeners may call back into the supervisor, so let go of the lock first.
+        drop(shared);
+
         (self.listener)(Update::Log(line));
         if let Some(status) = changed {
             (self.listener)(Update::Status(status));
