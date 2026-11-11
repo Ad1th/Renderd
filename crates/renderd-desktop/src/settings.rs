@@ -76,3 +76,15 @@ impl Default for HostSettings {
         }
     }
 }
+
+/// Options for showing another computer's screen.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ViewerSettings {
+    /// Open the stream in borderless fullscreen.
+    pub fullscreen: bool,
+    /// Codec to ask the host for.
+    pub codec: Codec,
+    /// Hosts connected to by address before, newest first.
+    pub recent_hosts: Vec<String>,
+}
