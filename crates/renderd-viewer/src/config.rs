@@ -28,6 +28,8 @@ pub struct ViewerAppConfig {
     pub codec_choice: crate::cli::CodecChoice,
     /// Presentation path: GPU where available, or forced software.
     pub renderer_choice: crate::cli::RendererChoice,
+    /// Close the viewer when standard input closes.
+    pub exit_with_parent: bool,
 }
 
 impl Default for ViewerAppConfig {
@@ -42,6 +44,7 @@ impl Default for ViewerAppConfig {
             decoder_backend: crate::cli::DecoderBackend::Mf,
             codec_choice: crate::cli::CodecChoice::Auto,
             renderer_choice: crate::cli::RendererChoice::Auto,
+            exit_with_parent: false,
         }
     }
 }
@@ -74,6 +77,7 @@ impl ViewerAppConfig {
             decoder_backend: crate::cli::DecoderBackend::Mf,
             codec_choice: crate::cli::CodecChoice::Auto,
             renderer_choice: crate::cli::RendererChoice::Auto,
+            exit_with_parent: false,
             config,
         })
     }
