@@ -133,7 +133,9 @@ impl Settings {
         if self.host.port == 0 {
             self.host.port = DEFAULT_PORT;
         }
-        self.viewer.recent_hosts.retain(|addr| !addr.trim().is_empty());
+        self.viewer
+            .recent_hosts
+            .retain(|addr| !addr.trim().is_empty());
         self.viewer.recent_hosts.truncate(MAX_RECENT_HOSTS);
         self
     }
@@ -170,5 +172,26 @@ impl Settings {
         let temporary = path.with_extension("json.tmp");
         fs::write(&temporary, text)?;
         fs::rename(&temporary, path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch_file(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("renderd-desktop-{}-{name}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        dir.join("settings.json")
+    }
+
+    #[test]
+    fn defaults_use_the_standard_port_and_extend() {
+        let settings = Settings::default();
+        assert_eq!(settings.host.port, DEFAULT_PORT);
+        assert_eq!(settings.host.mode, DisplayMode::Extend);
+        assert!(!settings.host.smooth);
+        assert_eq!(settings.viewer.codec, Codec::Auto);
     }
 }
