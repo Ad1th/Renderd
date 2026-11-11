@@ -312,6 +312,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--decoder <mf\|d3d12>` | `mf` | `mf` uses a Media Foundation decoder MFT, on the GPU (DXVA through D3D11) when `viewer.hw_accel` is on and the MFT supports it. `d3d12` is a development path that does not yet supply DXVA picture parameters. |
 | `--renderer <auto\|soft>` | `auto` | `auto` presents on the GPU through a D3D11 flip-model swap chain and falls back to the CPU renderer if that fails. `soft` forces the CPU renderer. |
 | `--fullscreen` | off | Start borderless fullscreen. |
+| `--exit-with-parent` | off | Close when standard input closes. The desktop app uses this so the viewer never outlives it. |
 | `--width`, `--height` | 1920×1080 | Initial window size. |
 | `--log-level <LEVEL>` | `info` | `trace`, `debug`, `info`, `warn`, `error`. |
 | `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
@@ -326,6 +327,7 @@ cargo run -p renderd-viewer -- --host 10.219.217.235:4433
 | `--log-level <LEVEL>` | `info` | Logging verbosity. |
 | `--log-format <text\|json>` | `text` | `json` writes one object per line, for tools that read the logs. |
 | `--smooth` | off | Favour smooth motion over a sharp picture on a slow link (see below). |
+| `--exit-with-parent` | off | Stop when standard input closes. The desktop app uses this so the daemon never outlives it. |
 
 #### If nothing appears
 
