@@ -2,19 +2,28 @@
 
 use crate::settings::{DisplayMode, HostSettings, ViewerSettings};
 
-/// Arguments for `renderd-host` that match `settings`.
+/// Arguments every child gets, whatever the settings.
 ///
-/// JSON logs are always requested: they are how the app follows the session.
-#[must_use]
-pub fn host_args(settings: &HostSettings) -> Vec<String> {
-    let mut args = vec![
+/// JSON logs are how the app follows the session, and `--exit-with-parent`
+/// makes sure the child never outlives the app.
+fn common_args() -> Vec<String> {
+    vec![
         "--log-format".to_string(),
         "json".to_string(),
+        "--exit-with-parent".to_string(),
+    ]
+}
+
+/// Arguments for `renderd-host` that match `settings`.
+#[must_use]
+pub fn host_args(settings: &HostSettings) -> Vec<String> {
+    let mut args = common_args();
+    args.extend([
         "--port".to_string(),
         settings.port.to_string(),
         "--mode".to_string(),
         settings.mode.as_arg().to_string(),
-    ];
+    ]);
     if settings.mode == DisplayMode::Mirror {
         args.push("--display-id".to_string());
         args.push(settings.display_id.to_string());
@@ -31,12 +40,8 @@ pub fn host_args(settings: &HostSettings) -> Vec<String> {
 /// looks for a host on the local network by itself.
 #[must_use]
 pub fn viewer_args(settings: &ViewerSettings, host: Option<&str>) -> Vec<String> {
-    let mut args = vec![
-        "--log-format".to_string(),
-        "json".to_string(),
-        "--codec".to_string(),
-        settings.codec.as_arg().to_string(),
-    ];
+    let mut args = common_args();
+    args.extend(["--codec".to_string(), settings.codec.as_arg().to_string()]);
     if let Some(addr) = host {
         args.push("--host".to_string());
         args.push(addr.to_string());
@@ -56,7 +61,15 @@ mod tests {
     fn default_host_args_extend_on_the_standard_port() {
         assert_eq!(
             host_args(&HostSettings::default()),
-            ["--log-format", "json", "--port", "4433", "--mode", "extend"]
+            [
+                "--log-format",
+                "json",
+                "--exit-with-parent",
+                "--port",
+                "4433",
+                "--mode",
+                "extend"
+            ]
         );
     }
 
@@ -93,7 +106,16 @@ mod tests {
     #[test]
     fn viewer_without_a_host_relies_on_discovery() {
         let args = viewer_args(&ViewerSettings::default(), None);
-        assert_eq!(args, ["--log-format", "json", "--codec", "auto"]);
+        assert_eq!(
+            args,
+            [
+                "--log-format",
+                "json",
+                "--exit-with-parent",
+                "--codec",
+                "auto"
+            ]
+        );
     }
 
     #[test]
