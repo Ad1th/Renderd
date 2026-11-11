@@ -80,4 +80,13 @@ mod tests {
         };
         assert!(!host_args(&settings).contains(&"--display-id".to_string()));
     }
+
+    #[test]
+    fn smooth_adds_its_flag() {
+        let settings = HostSettings {
+            smooth: true,
+            ..HostSettings::default()
+        };
+        assert_eq!(host_args(&settings).last().unwrap(), "--smooth");
+    }
 }
