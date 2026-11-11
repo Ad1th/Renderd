@@ -1,0 +1,34 @@
+/* Colours and type from assets/brand/BRAND.md. */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: block;
+}
+
+:root {
+  --void: #0d0d0d;
+  --surface: #111111;
+  --grid: #1a1a1a;
+  --line: #262626;
+  --line-strong: #3a3f44;
+  --text: #e8f4fd;
+  --muted: #6b8599;
+  --faint: #3d4b57;
+  --accent: #00e5ff;
+  --accent-dim: #003d45;
+  --ok: #4caf50;
+  --warn: #ff6b35;
+
+  --mono: "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+
+  /* Everything sits on an 8px grid, like the logo. */
+  --unit: 8px;
+  --gutter: 28px;
+  --bar-height: 44px;
+
+  /* Motion moves in steps, never eases: pixels do not glide. */
+  --tick: 120ms;
+}

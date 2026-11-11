@@ -46,6 +46,8 @@ pub struct HostApp {
     session: HostSession,
     network: NetworkManager,
     ui: UiManager,
+    /// Stop when standard input closes, not only on a signal.
+    exit_with_parent: bool,
 }
 
 impl HostApp {
@@ -63,7 +65,16 @@ impl HostApp {
             session: HostSession::new(),
             network: NetworkManager::new(),
             ui: UiManager::new(),
+            exit_with_parent: false,
         }
+    }
+
+    /// Makes the daemon stop when its standard input closes.
+    ///
+    /// Whoever started it holds the other end of that pipe, so this ties the
+    /// daemon's life to theirs.
+    pub const fn set_exit_with_parent(&mut self, enabled: bool) {
+        self.exit_with_parent = enabled;
     }
 
     /// Runs the host application run loop.
@@ -513,7 +524,7 @@ impl HostApp {
         );
 
         // Block the current thread until SIGINT or SIGTERM is received.
-        Self::wait_for_shutdown()?;
+        Self::wait_for_shutdown(self.exit_with_parent)?;
 
         // ----------------------------------------------------------------
         // Graceful shutdown: unregister mDNS, stop capture, close QUIC socket.
@@ -684,11 +695,26 @@ impl HostApp {
         menu_bar.update_status("Idle — Listening");
     }
 
-    /// Blocks until SIGINT (Ctrl+C) or SIGTERM is received.
-    fn wait_for_shutdown() -> Result<(), HostError> {
+    /// Blocks until SIGINT (Ctrl+C) or SIGTERM is received, or, with
+    /// `exit_with_parent`, until standard input closes.
+    fn wait_for_shutdown(exit_with_parent: bool) -> Result<(), HostError> {
         use std::sync::atomic::{AtomicBool, Ordering};
 
         let stop = Arc::new(AtomicBool::new(false));
+
+        if exit_with_parent {
+            let stop_clone = Arc::clone(&stop);
+            std::thread::spawn(move || {
+                use std::io::Read;
+                // Nothing is ever written to this pipe. The read only returns
+                // when the other end is gone.
+                let mut sink = [0_u8; 64];
+                let mut stdin = std::io::stdin().lock();
+                while matches!(stdin.read(&mut sink), Ok(read) if read > 0) {}
+                tracing::info!("Standard input closed; the parent is gone, stopping renderd-host");
+                stop_clone.store(true, Ordering::SeqCst);
+            });
+        }
 
         let stop_clone = Arc::clone(&stop);
         ctrlc::set_handler(move || {

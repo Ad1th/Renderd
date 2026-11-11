@@ -105,6 +105,7 @@ fn main() -> Result<(), HostError> {
     );
 
     let mut app = HostApp::new(config);
+    app.set_exit_with_parent(cli.exit_with_parent);
     app.run()
 }
 

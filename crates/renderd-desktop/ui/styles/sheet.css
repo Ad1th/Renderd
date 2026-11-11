@@ -1,0 +1,131 @@
+/* Settings: a sheet that covers the window. */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  background: var(--void);
+}
+
+.sheet-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--bar-height);
+  margin-top: 0;
+  padding: 0 12px 0 var(--gutter);
+  border-bottom: 1px solid var(--grid);
+}
+
+[data-platform="macos"] .sheet-bar {
+  height: calc(var(--bar-height) + 28px);
+  padding-top: 28px;
+}
+
+.sheet-bar h2 {
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 2.5px;
+  text-transform: uppercase;
+}
+
+.sheet-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 24px;
+  min-height: 0;
+  padding: 24px var(--gutter) 0;
+}
+
+.setting h3 {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.setting .hint {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.setting .segmented,
+.setting .number {
+  margin-top: 10px;
+}
+
+.number {
+  width: 120px;
+  height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.number:focus-visible {
+  outline: none;
+  border-color: var(--line-strong);
+}
+
+.number::-webkit-inner-spin-button {
+  display: none;
+}
+
+.setting.grow {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.setting-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logs {
+  flex: 1;
+  min-height: 0;
+  margin-top: 10px;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.logs:empty::before {
+  content: "Nothing yet. Lines appear here once a session starts.";
+  color: var(--faint);
+}
+
+.logs .warn {
+  color: var(--warn);
+}
+
+.logs .error {
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.sheet-foot {
+  flex: none;
+  padding: 14px var(--gutter) 18px;
+  color: var(--faint);
+  font-size: 10px;
+  letter-spacing: 1px;
+}

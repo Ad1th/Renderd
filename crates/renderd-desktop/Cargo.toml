@@ -6,9 +6,20 @@ license.workspace = true
 rust-version.workspace = true
 description = "Desktop app that starts and watches the Renderd host and viewer."
 
+[[bin]]
+name = "renderd"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
 [dependencies]
+tauri      = { version = "2", features = [] }
 serde      = { workspace = true }
 serde_json = { workspace = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+renderd-sc-sys = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
