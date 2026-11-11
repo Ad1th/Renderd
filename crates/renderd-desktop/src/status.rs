@@ -263,4 +263,14 @@ mod tests {
         status.apply(&Event::Streaming);
         assert_eq!(status.phase, Phase::Streaming);
     }
+
+    #[test]
+    fn streaming_clears_a_stale_problem() {
+        let mut status = Status::new(Role::Viewer);
+        status.begin();
+        status.apply(&Event::ConnectFailed("timed out".to_string()));
+        assert!(status.problem.is_some());
+        status.apply(&Event::Streaming);
+        assert!(status.problem.is_none());
+    }
 }
