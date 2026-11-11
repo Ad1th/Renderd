@@ -248,4 +248,19 @@ mod tests {
         assert_eq!(status.peer, None);
         assert_eq!(status.metrics, Metrics::default());
     }
+
+    #[test]
+    fn viewer_reconnects_after_losing_the_host() {
+        let mut status = Status::new(Role::Viewer);
+        status.begin();
+        status.apply(&Event::Streaming);
+        status.apply(&Event::PeerLost);
+        assert_eq!(status.phase, Phase::Reconnecting);
+        status.apply(&Event::Connecting {
+            addr: "10.0.0.1:4433".to_string(),
+        });
+        assert_eq!(status.phase, Phase::Reconnecting);
+        status.apply(&Event::Streaming);
+        assert_eq!(status.phase, Phase::Streaming);
+    }
 }
