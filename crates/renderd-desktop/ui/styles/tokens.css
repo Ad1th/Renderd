@@ -1,0 +1,9 @@
+/* Colours and type from assets/brand/BRAND.md. */
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/JetBrainsMono.woff2") format("woff2");
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: block;
+}
