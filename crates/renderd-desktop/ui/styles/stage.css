@@ -144,3 +144,17 @@
 .stage[data-role="viewer"] .track {
   transform: scaleX(-1);
 }
+
+/* The far screen comes on once there is a picture on it. */
+.stage[data-phase="streaming"] .device-far .screen {
+  border-color: var(--text);
+  background: var(--surface);
+}
+
+.stage[data-phase="streaming"] .device-far .screen::after {
+  border-color: var(--text);
+}
+
+.stage[data-phase="streaming"] .device-far .device-label {
+  color: var(--muted);
+}
