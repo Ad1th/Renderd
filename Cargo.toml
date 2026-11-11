@@ -52,6 +52,7 @@ prost              = { version = "0.13" }
 prost-build        = { version = "0.13" }
 serde              = { version = "1", features = ["derive"] }
 serde_derive       = { version = "1" }
+serde_json         = { version = "1" }
 toml               = { version = "0.8" }
 figment            = { version = "0.10", features = ["toml", "env"] }
 tracing            = { version = "0.1" }
