@@ -1,0 +1,10 @@
+/* The strip at the top: wordmark and the settings button. */
+
+.bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--bar-height);
+  padding: 0 12px 0 var(--gutter);
+}
