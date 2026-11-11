@@ -2,6 +2,8 @@
 
 // Tauri hands commands their state by value; they cannot take a reference.
 #![allow(clippy::needless_pass_by_value)]
+// Some commands are trivial off macOS, but a command can never be const.
+#![allow(clippy::missing_const_for_fn)]
 
 use std::path::PathBuf;
 
