@@ -48,3 +48,44 @@ pub fn request_screen_access() -> ScreenAccess {
 pub const fn request_screen_access() -> ScreenAccess {
     ScreenAccess::Unneeded
 }
+
+/// Opens the Screen Recording page of System Settings.
+///
+/// # Errors
+/// Returns a sentence for the window if the page could not be opened.
+#[cfg(target_os = "macos")]
+pub fn open_screen_settings() -> Result<(), String> {
+    const PANE: &str =
+        "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+    std::process::Command::new("/usr/bin/open")
+        .arg(PANE)
+        .status()
+        .map_err(|error| format!("Could not open System Settings: {error}"))
+        .and_then(|status| {
+            if status.success() {
+                Ok(())
+            } else {
+                Err("Could not open System Settings.".to_string())
+            }
+        })
+}
+
+/// Opens the screen recording settings. There are none on this platform.
+///
+/// # Errors
+/// Never fails here; the signature matches the macOS version.
+#[cfg(not(target_os = "macos"))]
+pub fn open_screen_settings() -> Result<(), String> {
+    Ok(())
+}
+
+/// Short name of the operating system, for the window to adapt its wording.
+pub const fn name() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "linux"
+    }
+}

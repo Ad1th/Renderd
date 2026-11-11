@@ -46,10 +46,7 @@ impl AppState {
                 self.settings_path.display()
             );
         }
-        *self
-            .settings
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner) = settings.clone();
+        *self.settings.lock().unwrap_or_else(PoisonError::into_inner) = settings.clone();
         settings
     }
 }
