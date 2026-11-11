@@ -94,3 +94,24 @@ pub fn start(state: State<'_, AppState>, host: Option<String>) -> Result<Status,
 pub fn stop(state: State<'_, AppState>) {
     state.supervisor.stop();
 }
+
+/// Reports whether the screen may be recorded, without prompting.
+#[tauri::command]
+pub fn screen_access() -> ScreenAccess {
+    platform::screen_access()
+}
+
+/// Shows the macOS screen recording prompt if it has not been shown yet.
+#[tauri::command]
+pub fn request_screen_access() -> ScreenAccess {
+    platform::request_screen_access()
+}
+
+/// Opens the Screen Recording page of System Settings.
+///
+/// # Errors
+/// Returns a sentence for the window if the page could not be opened.
+#[tauri::command]
+pub fn open_screen_settings() -> Result<(), String> {
+    platform::open_screen_settings()
+}
