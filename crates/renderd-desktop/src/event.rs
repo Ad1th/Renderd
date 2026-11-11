@@ -243,4 +243,10 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn host_reports_the_address_to_share() {
+        let events = events(HOST_LOG, host_event);
+        assert!(events.contains(&Event::Address("192.168.1.20:44999".to_string())));
+    }
 }
