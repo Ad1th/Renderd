@@ -2,6 +2,10 @@
 
 use serde::Serialize;
 
+use crate::event::{Metrics, StreamInfo};
+use crate::problem::Problem;
+use crate::role::Role;
+
 /// Where a session is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -30,5 +34,40 @@ impl Phase {
     #[must_use]
     pub const fn is_running(self) -> bool {
         !matches!(self, Self::Stopped | Self::Failed)
+    }
+}
+
+/// Everything the window needs to draw the current session.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct Status {
+    /// Which side this computer plays.
+    pub role: Role,
+    /// Where the session is.
+    pub phase: Phase,
+    /// Host: the address to give the viewer. Viewer: the address being dialled.
+    pub address: Option<String>,
+    /// Address of the other computer once it is connected.
+    pub peer: Option<String>,
+    /// The picture format in use.
+    pub stream: Option<StreamInfo>,
+    /// Latest live numbers.
+    pub metrics: Metrics,
+    /// The most recent problem, if it still applies.
+    pub problem: Option<Problem>,
+}
+
+impl Status {
+    /// A stopped session for `role`.
+    #[must_use]
+    pub fn new(role: Role) -> Self {
+        Self {
+            role,
+            phase: Phase::Stopped,
+            address: None,
+            peer: None,
+            stream: None,
+            metrics: Metrics::default(),
+            problem: None,
+        }
     }
 }
