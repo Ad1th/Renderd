@@ -14,3 +14,10 @@ test("bitrates show one decimal until they reach 100 Mbit/s", () => {
   assert.equal(format.mbps(120000), "120");
   assert.equal(format.mbps(undefined), "--");
 });
+
+test("milliseconds keep a decimal only while small", () => {
+  assert.equal(format.ms(0.66), "0.7");
+  assert.equal(format.ms(9.94), "9.9");
+  assert.equal(format.ms(23.4), "23");
+  assert.equal(format.ms(NaN), "--");
+});
