@@ -35,3 +35,17 @@
   border: 1px solid var(--line-strong);
   background: var(--void);
 }
+
+/* A stand under each screen, two pixels of it. */
+.screen::after {
+  content: "";
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  width: 32px;
+  height: 4px;
+  margin: 1px 0 0 -16px;
+  border-bottom: 1px solid var(--line-strong);
+  border-left: 1px solid var(--line-strong);
+  border-right: 1px solid var(--line-strong);
+}
