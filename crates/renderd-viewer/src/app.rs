@@ -45,6 +45,8 @@ pub enum WakeReason {
     Frame,
     /// The connection state changed; refresh the status overlay.
     ConnectionChanged,
+    /// Whoever started the viewer is gone; close as if the window was closed.
+    Quit,
 }
 
 /// Main application orchestrator managing lifecycle, windowing, rendering, and decoding.
@@ -266,6 +268,20 @@ impl App {
             .build()
             .map_err(|e| ViewerError::Window(format!("Failed to create event loop: {e}")))?;
         let proxy = event_loop.create_proxy();
+
+        if self.config.exit_with_parent {
+            let quit = proxy.clone();
+            std::thread::spawn(move || {
+                use std::io::Read;
+                // Nothing is ever written to this pipe. The read only returns
+                // when the other end is gone.
+                let mut sink = [0_u8; 64];
+                let mut stdin = std::io::stdin().lock();
+                while matches!(stdin.read(&mut sink), Ok(read) if read > 0) {}
+                tracing::info!("Standard input closed; the parent is gone, closing the viewer");
+                let _ = quit.send_event(WakeReason::Quit);
+            });
+        }
 
         // ----------------------------------------------------------------
         // Issue #102 & #109: Start platform mDNS browser, wire discovered hosts,
@@ -595,6 +611,15 @@ impl App {
         Ok(())
     }
 
+    /// Stops the session, releases the renderer and ends the event loop.
+    fn shut_down(&mut self, event_loop: &ActiveEventLoop) {
+        self.state.stop();
+        if let Err(e) = self.renderer.shutdown() {
+            tracing::warn!("Error shutting down renderer: {e}");
+        }
+        event_loop.exit();
+    }
+
     /// Pops the freshest decoded frame and presents it, dropping any stale backlog.
     fn present_next_frame(&mut self) {
         static PRESENTED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -683,7 +708,7 @@ impl ApplicationHandler<WakeReason> for App {
         event_loop.set_control_flow(ControlFlow::Wait);
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: WakeReason) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: WakeReason) {
         match event {
             // Present right here rather than through `request_redraw`. On
             // Windows a redraw request becomes a WM_PAINT, the lowest-priority
@@ -698,6 +723,7 @@ impl ApplicationHandler<WakeReason> for App {
                     ws.window().request_redraw();
                 }
             }
+            WakeReason::Quit => self.shut_down(event_loop),
         }
     }
 
@@ -705,11 +731,7 @@ impl ApplicationHandler<WakeReason> for App {
         match event {
             WindowEvent::CloseRequested => {
                 tracing::info!("Close requested by user; shutting down viewer app");
-                self.state.stop();
-                if let Err(e) = self.renderer.shutdown() {
-                    tracing::warn!("Error shutting down renderer: {e}");
-                }
-                event_loop.exit();
+                self.shut_down(event_loop);
             }
             WindowEvent::Resized(size) => {
                 let viewport = ViewportSize {
