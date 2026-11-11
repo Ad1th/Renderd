@@ -38,3 +38,14 @@ test("a live host shows three numbers and describes the stream", () => {
     ["60", "8.2", "1.4"],
   );
 });
+
+test("a missing screen recording permission adds a notice with an action", () => {
+  const view = describe(status("host", "stopped"), "denied");
+  assert.equal(view.notice.run, "grant");
+  assert.equal(view.notice.action, "Allow");
+});
+
+test("the permission notice is not shown to a viewer", () => {
+  const view = describe(status("viewer", "stopped"), "denied");
+  assert.equal(view.notice, undefined);
+});
