@@ -108,4 +108,12 @@ mod tests {
         let problem = diagnose("QUIC connection to 10.0.0.9:4433 failed: timed out");
         assert_eq!(problem.kind, ProblemKind::HostUnreachable);
     }
+
+    #[test]
+    fn unknown_errors_keep_their_text() {
+        let problem = diagnose("  decoder exploded  ");
+        assert_eq!(problem.kind, ProblemKind::Other);
+        assert_eq!(problem.detail, "decoder exploded");
+        assert_eq!(problem.title, ProblemKind::Other.title());
+    }
 }
