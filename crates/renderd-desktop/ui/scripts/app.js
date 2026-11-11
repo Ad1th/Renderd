@@ -196,3 +196,14 @@ async function connect(host) {
   }
   render();
 }
+
+async function refreshAccess() {
+  state.access = await api.screenAccess();
+  render();
+}
+
+async function grantAccess() {
+  state.access = await api.requestScreenAccess();
+  if (state.access === "denied") await api.openScreenSettings();
+  render();
+}
