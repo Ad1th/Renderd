@@ -8,6 +8,10 @@ use serde::Serialize;
 pub enum ProblemKind {
     /// macOS has not allowed screen recording yet.
     ScreenRecording,
+    /// macOS did not bring up the virtual display that extend mode needs.
+    ExtendFailed,
+    /// The screen could not be captured for another reason.
+    CaptureFailed,
     /// Another program already uses the port.
     PortInUse,
     /// The host or viewer binary is not where the app expects it.
@@ -49,6 +53,8 @@ impl ProblemKind {
     pub const fn title(self) -> &'static str {
         match self {
             Self::ScreenRecording => "Renderd needs permission to record the screen",
+            Self::ExtendFailed => "macOS did not bring up the extra display",
+            Self::CaptureFailed => "The screen could not be captured",
             Self::PortInUse => "Another app is already using this port",
             Self::MissingBinary => "Part of Renderd is missing",
             Self::HostUnreachable => "Could not reach that computer",
