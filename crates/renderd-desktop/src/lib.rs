@@ -33,7 +33,7 @@ pub use command::{host_args, viewer_args};
 pub use event::{host_event, viewer_event, Event, Metrics, StreamInfo};
 pub use launch::{plan, Launch};
 pub use logline::{Level, LogLine};
-pub use problem::{diagnose, Problem, ProblemKind};
+pub use problem::{diagnose, diagnose_capture, Problem, ProblemKind};
 pub use role::Role;
 pub use settings::{Codec, DisplayMode, HostSettings, Settings, ViewerSettings, DEFAULT_PORT};
 pub use sidecar::{locate, locate_installed};
