@@ -1,0 +1,25 @@
+/* Buttons and the segmented switches along the bottom. */
+
+.primary {
+  flex: none;
+  width: 100%;
+  height: 44px;
+  /* Pinned to the bottom of the panel so it never moves between states. */
+  margin-top: auto;
+  border: 1px solid var(--text);
+  background: var(--text);
+  color: var(--void);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+}
+
+.primary:hover {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+
+.primary:active {
+  transform: translateY(1px);
+}
