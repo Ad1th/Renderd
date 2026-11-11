@@ -20,3 +20,11 @@ test("the line is stepped and ends at the right edge", () => {
   assert.equal(pairs[1][1], pairs[0][1]);
   assert.equal(pairs[1][0], pairs[2][0]);
 });
+
+test("push keeps the newest samples and skips bad ones", () => {
+  let samples = [];
+  for (let n = 0; n < spark.CAPACITY + 10; n += 1) samples = spark.push(samples, n);
+  assert.equal(samples.length, spark.CAPACITY);
+  assert.equal(samples.at(-1), spark.CAPACITY + 9);
+  assert.equal(spark.push(samples, null), samples);
+});
