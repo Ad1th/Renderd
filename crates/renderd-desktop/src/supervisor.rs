@@ -429,4 +429,14 @@ mod tests {
         assert_eq!(supervisor.status().role, Role::Viewer);
         supervisor.shutdown();
     }
+
+    #[test]
+    fn output_is_kept_as_log_lines() {
+        let supervisor = Supervisor::new(Role::Host, |_| {});
+        run_script(&supervisor, "echo one; echo two >&2");
+        wait_for(&supervisor, |s| !s.phase.is_running());
+        let mut messages: Vec<_> = supervisor.logs().into_iter().map(|l| l.message).collect();
+        messages.sort();
+        assert_eq!(messages, ["one", "two"]);
+    }
 }
