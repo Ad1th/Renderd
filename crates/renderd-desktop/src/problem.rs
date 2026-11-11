@@ -57,3 +57,23 @@ impl ProblemKind {
         }
     }
 }
+
+/// Works out what kind of problem an error message describes.
+#[must_use]
+pub fn diagnose(message: &str) -> Problem {
+    let lowered = message.to_ascii_lowercase();
+    let kind = if lowered.contains("address already in use") || lowered.contains("os error 10048") {
+        ProblemKind::PortInUse
+    } else if lowered.contains("screen recording")
+        || lowered.contains("screen capture")
+        || lowered.contains("not authorized")
+        || lowered.contains("tcc")
+    {
+        ProblemKind::ScreenRecording
+    } else if lowered.contains("timed out") || lowered.contains("unreachable") {
+        ProblemKind::HostUnreachable
+    } else {
+        ProblemKind::Other
+    };
+    Problem::new(kind, message.trim())
+}
