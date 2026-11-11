@@ -25,3 +25,10 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
+
+main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+}
