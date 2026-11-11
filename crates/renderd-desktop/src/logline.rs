@@ -173,4 +173,13 @@ mod tests {
         assert_eq!(line.target, "renderd_host::network::data");
         assert!(!line.fields.contains_key("message"));
     }
+
+    #[test]
+    fn reads_numbers_written_as_strings() {
+        let line = LogLine::parse(METRICS);
+        assert_eq!(line.number("fps"), Some(44.5));
+        assert_eq!(line.number("send_queue_kb"), Some(0.0));
+        assert_eq!(line.integer("bitrate_kbps"), Some(2712));
+        assert_eq!(line.number("missing"), None);
+    }
 }
