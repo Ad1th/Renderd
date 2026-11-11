@@ -158,3 +158,19 @@ impl LogLine {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const METRICS: &str = r#"{"timestamp":"2026-11-11T10:10:10.1Z","level":"INFO","fields":{"message":"HOST METRICS: transmit throughput","fps":"44.5","bitrate_kbps":"2712","send_queue_kb":0,"rtt_ms":"0.66"},"target":"renderd_host::network::data"}"#;
+
+    #[test]
+    fn parses_a_json_line() {
+        let line = LogLine::parse(METRICS);
+        assert_eq!(line.level, Level::Info);
+        assert_eq!(line.message, "HOST METRICS: transmit throughput");
+        assert_eq!(line.target, "renderd_host::network::data");
+        assert!(!line.fields.contains_key("message"));
+    }
+}
