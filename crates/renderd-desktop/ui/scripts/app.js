@@ -207,3 +207,60 @@ async function grantAccess() {
   if (state.access === "denied") await api.openScreenSettings();
   render();
 }
+
+function bind() {
+  // One button does both: an empty field means "find it", a filled one "dial it".
+  const go = () => {
+    const typed = $("connect-form").hidden ? "" : $("host-input").value.trim();
+    connect(typed || null);
+  };
+  $("primary").addEventListener("click", (event) => {
+    const action = event.currentTarget.dataset.action;
+    if (action === "start") go();
+    if (action === "stop") api.stop();
+  });
+  $("connect-form").addEventListener("submit", (event) => {
+    event.preventDefault();
+    go();
+  });
+  $("host-input").addEventListener("input", () => {
+    state.typedHostError = "";
+    render();
+  });
+
+  $("copy-address").addEventListener("click", (event) => copy($("address").textContent, event.currentTarget));
+  $("copy-logs").addEventListener("click", (event) => copy($("logs").textContent, event.currentTarget));
+  $("notice-action").addEventListener("click", (event) => {
+    if (event.currentTarget.dataset.run === "grant") grantAccess();
+  });
+
+  document.querySelectorAll(".segmented[data-setting]").forEach((group) => {
+    group.addEventListener("click", (event) => {
+      const button = event.target.closest("button");
+      if (!button || running()) return;
+      writeSetting(group.dataset.setting, button.dataset.value);
+    });
+  });
+
+  $("port-input").addEventListener("change", (event) => {
+    const port = Number.parseInt(event.target.value, 10);
+    updateSettings((settings) => {
+      settings.host.port = port >= 1 && port <= 65535 ? port : 4433;
+    });
+  });
+  $("display-input").addEventListener("change", (event) => {
+    const display = Number.parseInt(event.target.value, 10);
+    updateSettings((settings) => {
+      settings.host.display_id = display >= 0 ? display : 0;
+    });
+  });
+
+  $("open-settings").addEventListener("click", () => toggleSheet(true));
+  $("close-settings").addEventListener("click", () => toggleSheet(false));
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") toggleSheet(false);
+  });
+
+  // The permission can be granted in System Settings while the app is open.
+  window.addEventListener("focus", refreshAccess);
+}
