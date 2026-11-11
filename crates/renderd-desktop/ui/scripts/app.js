@@ -132,3 +132,10 @@ function renderOptions() {
   $("port-input").disabled = running();
   $("display-input").disabled = running();
 }
+
+function render() {
+  if (!state.status || !state.settings) return;
+  renderStage();
+  renderPanel();
+  renderOptions();
+}
