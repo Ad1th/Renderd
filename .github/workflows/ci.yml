@@ -22,6 +22,7 @@ jobs:
           --package renderd-vt-sys --package renderd-sc-sys --package renderd-net
           --package renderd-keychain --package renderd-discovery
           --package renderd-abr --package renderd-clock
+          --package renderd-desktop
           -- -D warnings
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
@@ -31,7 +32,7 @@ jobs:
           --package renderd-config --package renderd-frame --package renderd-crypto
           --package renderd-abr --package renderd-clock --package renderd-net
           --package renderd-keychain --package renderd-discovery --package renderd-sc-sys
-          --package renderd-vt-sys
+          --package renderd-vt-sys --package renderd-desktop
           --profile ci
       - name: Upload test results
         if: always()
@@ -52,7 +53,7 @@ jobs:
       - name: Format check
         run: cargo fmt --check
       - name: Clippy
-        run: cargo clippy --package renderd-viewer -- -D warnings
+        run: cargo clippy --package renderd-viewer --package renderd-desktop -- -D warnings
       - name: Install cargo-nextest
         uses: taiki-e/install-action@nextest
       - name: Test (viewer crates)
@@ -60,6 +61,7 @@ jobs:
           cargo nextest run --package renderd-frame --package renderd-crypto
           --package renderd-abr --package renderd-clock --package renderd-net
           --package renderd-keychain --package renderd-discovery
+          --package renderd-desktop
           --profile ci
       - name: Upload test results
         if: always()
@@ -68,6 +70,14 @@ jobs:
           name: nextest-results-viewer
           path: target/nextest/junit.xml
           if-no-files-found: ignore
+
+  desktop-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Test the desktop window's scripts
+        working-directory: crates/renderd-desktop/ui
+        run: node --version && node --test tests/*.test.js
 
   proto-check:
     runs-on: ubuntu-latest

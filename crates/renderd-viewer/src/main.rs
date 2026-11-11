@@ -31,6 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.decoder_backend = cli.decoder;
     config.codec_choice = cli.codec;
     config.renderer_choice = cli.renderer;
+    config.exit_with_parent = cli.exit_with_parent;
 
     if cli.fullscreen {
         config.fullscreen = true;

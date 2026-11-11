@@ -8,9 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Desktop app.** `renderd-desktop` is a small window for macOS and Windows that starts the
+  host or viewer for you, so nobody has to open a terminal. It shows the address to type on
+  the other machine, the frame rate, bitrate and ping while streaming, and explains common
+  failures (port in use, Screen Recording permission, extend mode not coming up) in plain
+  words. `tools/bundle-desktop/assemble.sh` builds `Renderd.app` with the host and viewer
+  inside. ([`renderd-desktop`](crates/renderd-desktop))
+- **`--exit-with-parent`** on `renderd-host` and `renderd-viewer`. The daemon stops when its
+  standard input closes. The desktop app holds the other end of that pipe, so a daemon it
+  started can never be left running after the app is gone.
 - **`--log-format json`** on `renderd-host` and `renderd-viewer`. Each log line is written as
   one JSON object with the message and its fields, so a program can follow what the daemon
   is doing without scraping text. The default stays `text`.
+- **`quality_probe`** (`cargo run -p renderd-vt-sys --example quality_probe`): runs scripted
+  frames through the production `VideoToolbox` settings and writes the stream and per-frame
+  sizes, so picture quality can be measured offline with ffmpeg. It can hold refinement passes
+  back on a simulated link the way the host does.
 
 ### Changed
 - **Full resolution by default, motion included.** On a slow link the encoder dropped below
@@ -24,12 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   next wait, up to 64 s. On a link too slow for full-size motion,
   `--smooth` (or `host.smooth_motion = true`) brings back the old behaviour.
   ([`host::scale`](crates/renderd-host/src/scale.rs))
-
-### Added
-- **`quality_probe`** (`cargo run -p renderd-vt-sys --example quality_probe`): runs scripted
-  frames through the production `VideoToolbox` settings and writes the stream and per-frame
-  sizes, so picture quality can be measured offline with ffmpeg. It can hold refinement passes
-  back on a simulated link the way the host does.
 
 ### Performance
 - **Still screens refine to full detail.** The refiner stopped after two passes, but each pass

@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en" data-platform="macos">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Renderd</title>
+    <link rel="stylesheet" href="styles/tokens.css" />
+    <link rel="stylesheet" href="styles/base.css" />
+    <link rel="stylesheet" href="styles/bar.css" />
+    <link rel="stylesheet" href="styles/stage.css" />
+    <link rel="stylesheet" href="styles/panel.css" />
+    <link rel="stylesheet" href="styles/controls.css" />
+    <link rel="stylesheet" href="styles/sheet.css" />
+    <script type="module" src="scripts/app.js"></script>
+  </head>
+  <body>
+    <header class="bar" data-tauri-drag-region>
+      <div class="brand" data-tauri-drag-region>
+        <svg class="mark" viewBox="20 16 76 88" aria-hidden="true">
+          <rect x="28" y="24" width="8" height="72" />
+          <rect x="28" y="24" width="44" height="8" />
+          <rect x="28" y="56" width="44" height="8" />
+          <rect x="72" y="24" width="8" height="40" />
+          <rect x="56" y="64" width="8" height="8" />
+          <rect x="64" y="72" width="8" height="8" />
+          <rect x="72" y="80" width="8" height="8" />
+          <rect x="80" y="88" width="8" height="8" />
+        </svg>
+        <span class="wordmark">renderd</span>
+      </div>
+      <button id="open-settings" class="icon-button" type="button" aria-label="Settings">
+        <svg viewBox="0 0 16 16" aria-hidden="true">
+          <rect x="1" y="3" width="14" height="1" />
+          <rect x="1" y="8" width="14" height="1" />
+          <rect x="1" y="13" width="14" height="1" />
+          <rect x="9" y="1" width="3" height="5" />
+          <rect x="3" y="6" width="3" height="5" />
+          <rect x="10" y="11" width="3" height="5" />
+        </svg>
+      </button>
+    </header>
+
+    <main>
+      <section id="stage" class="stage" data-phase="stopped" data-role="host" aria-hidden="true">
+        <div class="device device-near">
+          <div class="screen"><span id="near-size" class="screen-size"></span></div>
+          <span id="near-label" class="device-label">This Mac</span>
+        </div>
+        <div class="track">
+          <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          <b class="packet"></b>
+        </div>
+        <div class="device device-far">
+          <div class="screen"><span id="far-size" class="screen-size"></span></div>
+          <span id="far-label" class="device-label">Your PC</span>
+        </div>
+      </section>
+
+      <section class="panel">
+        <p class="eyebrow"><span class="lamp"></span><span id="eyebrow" aria-live="polite"></span></p>
+        <h1 id="title"></h1>
+        <p id="lede" class="lede"></p>
+
+        <div id="address-row" class="address" hidden>
+          <code id="address"></code>
+          <button id="copy-address" class="ghost" type="button">Copy</button>
+        </div>
+
+        <dl id="stats" class="stats" hidden>
+          <div>
+            <dt id="stat-a-label"></dt>
+            <dd id="stat-a"></dd>
+          </div>
+          <div>
+            <dt id="stat-b-label"></dt>
+            <dd id="stat-b"></dd>
+          </div>
+          <div>
+            <dt id="stat-c-label"></dt>
+            <dd id="stat-c"></dd>
+          </div>
+        </dl>
+        <svg id="spark" class="spark" viewBox="0 0 320 32" preserveAspectRatio="none" hidden aria-hidden="true">
+          <polyline points="" />
+        </svg>
+
+        <div id="notice" class="notice" hidden>
+          <p id="notice-text"></p>
+          <button id="notice-action" class="ghost" type="button"></button>
+        </div>
+
+        <form id="connect-form" class="connect" hidden novalidate>
+          <label for="host-input">Address of the Mac</label>
+          <div class="field">
+            <input
+              id="host-input"
+              type="text"
+              placeholder="Leave empty to find it for you"
+              spellcheck="false"
+              autocomplete="off"
+              autocapitalize="off"
+            />
+          </div>
+          <p id="host-error" class="field-error" role="alert" hidden></p>
+          <div id="recent" class="chips"></div>
+        </form>
+
+        <button id="primary" class="primary" type="button"></button>
+      </section>
+    </main>
+
+    <footer id="options" class="options">
+      <div class="segmented" role="radiogroup" aria-label="Display mode" data-setting="host.mode" data-role="host">
+        <button type="button" role="radio" data-value="extend" title="The PC becomes an extra display">Extend</button>
+        <button type="button" role="radio" data-value="mirror" title="The PC shows the same picture as the Mac">Mirror</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Picture" data-setting="host.smooth" data-role="host">
+        <button type="button" role="radio" data-value="false" title="Keep text sharp, even in motion">Sharp</button>
+        <button type="button" role="radio" data-value="true" title="Keep motion smooth on a slow network">Smooth</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Window" data-setting="viewer.fullscreen" data-role="viewer">
+        <button type="button" role="radio" data-value="false">Window</button>
+        <button type="button" role="radio" data-value="true">Fullscreen</button>
+      </div>
+      <div class="segmented" role="radiogroup" aria-label="Codec" data-setting="viewer.codec" data-role="viewer">
+        <button type="button" role="radio" data-value="auto" title="Pick what this PC decodes best">Auto</button>
+        <button type="button" role="radio" data-value="h264">H.264</button>
+        <button type="button" role="radio" data-value="hevc">HEVC</button>
+      </div>
+    </footer>
+
+    <aside id="sheet" class="sheet" aria-labelledby="sheet-title" hidden>
+      <header class="sheet-bar">
+        <h2 id="sheet-title">Settings</h2>
+        <button id="close-settings" class="ghost" type="button">Done</button>
+      </header>
+
+      <div class="sheet-body">
+        <section id="role-setting" class="setting" hidden>
+          <h3>This computer</h3>
+          <div class="segmented wide" role="radiogroup" aria-label="Role" data-setting="role">
+            <button type="button" role="radio" data-value="host">Shares its screen</button>
+            <button type="button" role="radio" data-value="viewer">Shows a screen</button>
+          </div>
+        </section>
+
+        <section class="setting" data-role="host">
+          <h3><label for="port-input">Port</label></h3>
+          <p class="hint">Change this if another app already uses 4433.</p>
+          <input id="port-input" class="number" type="number" min="1" max="65535" step="1" />
+        </section>
+
+        <section class="setting" data-role="host">
+          <h3><label for="display-input">Display to mirror</label></h3>
+          <p class="hint">0 is the main display. Only used in Mirror.</p>
+          <input id="display-input" class="number" type="number" min="0" max="16" step="1" />
+        </section>
+
+        <section class="setting grow">
+          <div class="setting-head">
+            <h3>Activity</h3>
+            <button id="copy-logs" class="ghost" type="button">Copy</button>
+          </div>
+          <pre id="logs" class="logs" tabindex="0"></pre>
+        </section>
+      </div>
+
+      <footer class="sheet-foot"><span id="version"></span></footer>
+    </aside>
+  </body>
+</html>
