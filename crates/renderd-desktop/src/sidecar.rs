@@ -34,3 +34,19 @@ pub fn candidates(role: Role, app_dir: &Path) -> Vec<PathBuf> {
         app_dir.join("bin").join(&name),
     ]
 }
+
+/// Finds the binary for `role`.
+///
+/// An explicit `override_path` (from the environment) wins when it points at a
+/// file. Otherwise the first existing candidate under `app_dir` is used.
+#[must_use]
+pub fn locate(role: Role, app_dir: &Path, override_path: Option<&Path>) -> Option<PathBuf> {
+    if let Some(path) = override_path {
+        if path.is_file() {
+            return Some(path.to_path_buf());
+        }
+    }
+    candidates(role, app_dir)
+        .into_iter()
+        .find(|path| path.is_file())
+}
