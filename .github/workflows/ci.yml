@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v7
       - name: Test the desktop window's scripts
         working-directory: crates/renderd-desktop/ui
-        run: node --test tests/
+        run: node --version && node --test tests/*.test.js
 
   proto-check:
     runs-on: ubuntu-latest
