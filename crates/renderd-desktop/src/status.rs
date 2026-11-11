@@ -225,4 +225,13 @@ mod tests {
             ]
         );
     }
+
+    #[test]
+    fn viewer_fixture_walks_through_the_expected_phases() {
+        let phases = replay(Role::Viewer, include_str!("../fixtures/viewer.jsonl"));
+        assert_eq!(
+            phases,
+            [Phase::Starting, Phase::Connecting, Phase::Streaming]
+        );
+    }
 }
