@@ -64,4 +64,11 @@ mod tests {
         assert_eq!(launch.host, None);
         assert!(!launch.args.contains(&"--host".to_string()));
     }
+
+    #[test]
+    fn viewing_dials_a_typed_address() {
+        let launch = plan(&settings(Role::Viewer), Some(" 10.0.0.1 ")).unwrap();
+        assert_eq!(launch.host.as_deref(), Some("10.0.0.1:4433"));
+        assert!(launch.args.windows(2).any(|w| w == ["--host", "10.0.0.1:4433"]));
+    }
 }
