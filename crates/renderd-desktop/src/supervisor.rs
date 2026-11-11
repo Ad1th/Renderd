@@ -1,8 +1,10 @@
 //! Runs one child process and keeps the session status current.
 
 use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Read};
 use std::process::Child;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::thread::{self, JoinHandle};
 
 use crate::event::{host_event, viewer_event};
 use crate::logline::{Level, LogLine};
@@ -133,5 +135,20 @@ impl Supervisor {
         if let Some(status) = changed {
             (self.listener)(Update::Status(status));
         }
+    }
+}
+
+impl Supervisor {
+    /// Reads `pipe` line by line on its own thread until the child closes it.
+    fn pump(&self, run: u64, pipe: impl Read + Send + 'static) -> JoinHandle<()> {
+        let supervisor = self.clone();
+        thread::spawn(move || {
+            for line in BufReader::new(pipe).lines() {
+                match line {
+                    Ok(text) => supervisor.handle_line(run, &text),
+                    Err(_) => break,
+                }
+            }
+        })
     }
 }
