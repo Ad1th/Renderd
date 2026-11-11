@@ -60,3 +60,24 @@ impl std::fmt::Display for Role {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn binary_names_match_the_workspace_binaries() {
+        assert_eq!(Role::Host.binary_name(), "renderd-host");
+        assert_eq!(Role::Viewer.binary_name(), "renderd-viewer");
+    }
+
+    #[test]
+    fn default_role_is_supported_on_this_platform() {
+        assert!(Role::default().supported_here());
+    }
+
+    #[test]
+    fn viewer_is_supported_everywhere() {
+        assert!(Role::Viewer.supported_here());
+    }
+}
