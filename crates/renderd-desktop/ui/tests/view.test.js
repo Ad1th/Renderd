@@ -16,3 +16,9 @@ test("a stopped host offers to start sharing", () => {
   assert.deepEqual(view.primary, { label: "Start sharing", action: "start", quiet: false });
   assert.equal(view.notice, undefined);
 });
+
+test("a waiting host shows the address without the default port", () => {
+  const view = describe(status("host", "waiting", { address: "192.168.1.20:4433" }));
+  assert.equal(view.address, "192.168.1.20");
+  assert.equal(view.primary.action, "stop");
+});
