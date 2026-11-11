@@ -33,3 +33,17 @@ test("codec names are written the usual way", () => {
   assert.equal(format.codec("av1"), "AV1");
   assert.equal(format.codec(""), "");
 });
+
+test("hostOnly drops the port", () => {
+  assert.equal(format.hostOnly("192.168.1.34:53561"), "192.168.1.34");
+  assert.equal(format.hostOnly("[fe80::1]:4433"), "fe80::1");
+  assert.equal(format.hostOnly("fe80::1"), "fe80::1");
+  assert.equal(format.hostOnly(null), "");
+});
+
+test("shortAddress hides only the default port", () => {
+  assert.equal(format.shortAddress("192.168.1.20:4433"), "192.168.1.20");
+  assert.equal(format.shortAddress("192.168.1.20:5000"), "192.168.1.20:5000");
+  assert.equal(format.shortAddress("[::1]:4433"), "[::1]:4433");
+  assert.equal(format.shortAddress(null), "");
+});
