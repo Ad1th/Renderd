@@ -96,4 +96,10 @@ mod tests {
         let problem = diagnose("Only one usage of each socket address (os error 10048)");
         assert_eq!(problem.kind, ProblemKind::PortInUse);
     }
+
+    #[test]
+    fn a_capture_permission_error_is_recognised() {
+        let problem = diagnose("stream start failed: user is not authorized for screen capture");
+        assert_eq!(problem.kind, ProblemKind::ScreenRecording);
+    }
 }
