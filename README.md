@@ -234,6 +234,41 @@ cargo nextest run --workspace
 cargo test --workspace
 ```
 
+### The Desktop App
+
+The easiest way to use Renderd is the desktop app. It is one window with one button, and
+it starts the host or viewer for you.
+
+```bash
+cargo build --release -p renderd-desktop -p renderd-host -p renderd-viewer
+```
+
+**On the Mac**, wrap it up as an app and open it:
+
+```bash
+tools/bundle-desktop/assemble.sh
+open target/bundle/Renderd.app
+```
+
+Press **Start sharing**. The window shows the address of the Mac while it waits, and the
+frame rate, bitrate and ping once the PC connects. macOS asks for Screen Recording
+permission the first time; the app has a button that takes you to the right page of
+System Settings.
+
+**On the Windows PC**, run `renderd.exe` (keep `renderd-viewer.exe` in the same folder,
+or use `tools\package-desktop\package.ps1` to zip the two together). Press **Find my
+Mac**, or type the address the Mac shows if the two machines cannot see each other's mDNS
+traffic.
+
+The two switches at the bottom cover the options most people change: Extend or Mirror,
+Sharp or Smooth on the Mac, and Window or Fullscreen plus the codec on the PC. The port,
+the display to mirror and an activity log are behind the settings button.
+
+`renderd --start` opens the app and starts straight away, which is handy as a login item.
+
+The app runs the same `renderd-host` and `renderd-viewer` binaries described below, so
+everything in the rest of this section still applies if you prefer a terminal.
+
 ### Running the Applications
 
 **On the macOS host**, start the daemon. It grants itself no permissions — macOS will
