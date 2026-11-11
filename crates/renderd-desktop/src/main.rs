@@ -2,6 +2,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod state;
+
 /// The window's assets and configuration, embedded at build time.
 // The generated code ends a failed asset lookup with `std::process::exit`,
 // which the workspace bans in its own code.
