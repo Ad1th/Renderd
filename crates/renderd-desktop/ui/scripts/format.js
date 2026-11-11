@@ -40,3 +40,12 @@ export function hostOnly(address) {
   const parts = address.split(":");
   return parts.length === 2 ? parts[0] : address;
 }
+
+/** Hides the port when it is the default one, since nobody needs to type it. */
+export function shortAddress(address, defaultPort = 4433) {
+  if (!address) return "";
+  const suffix = `:${defaultPort}`;
+  return address.endsWith(suffix) && !address.startsWith("[")
+    ? address.slice(0, -suffix.length)
+    : address;
+}
