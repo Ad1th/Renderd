@@ -204,4 +204,12 @@ mod tests {
         let line = LogLine::parse("\u{1b}[32m INFO\u{1b}[0m ready");
         assert_eq!(line.message, "INFO ready");
     }
+
+    #[test]
+    fn json_without_fields_is_treated_as_text() {
+        let line = LogLine::parse("{\"hello\":1}");
+        assert_eq!(line.message, "{\"hello\":1}");
+        let line = LogLine::parse("[1,2,3]");
+        assert_eq!(line.message, "[1,2,3]");
+    }
 }
