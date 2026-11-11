@@ -102,3 +102,15 @@ pub struct Settings {
     /// Options used when viewing.
     pub viewer: ViewerSettings,
 }
+
+/// How many recently used hosts are kept.
+pub const MAX_RECENT_HOSTS: usize = 5;
+
+impl ViewerSettings {
+    /// Puts `addr` at the front of the recent hosts, without duplicates.
+    pub fn remember_host(&mut self, addr: &str) {
+        self.recent_hosts.retain(|known| known != addr);
+        self.recent_hosts.insert(0, addr.to_string());
+        self.recent_hosts.truncate(MAX_RECENT_HOSTS);
+    }
+}
